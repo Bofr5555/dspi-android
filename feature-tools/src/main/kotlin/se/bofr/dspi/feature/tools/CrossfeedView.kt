@@ -42,6 +42,15 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.ChannelChips
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.ParameterRow
+import se.bofr.dspi.ui.PullDownMenu
+import se.bofr.dspi.ui.SectionHeader
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.SwitchRow
+import se.bofr.dspi.ui.ToolHeader
 
 /** `CrossfeedCurveView.computeCurves()`: the BS2B lowpass and its complement. */
 object CrossfeedCurve {
@@ -171,7 +180,7 @@ fun CrossfeedView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                 if (showPairMask) {
                     HorizontalDivider()
                     SectionHeader("OUTPUT PAIRS") {
-                        ToolMenu(
+                        PullDownMenu(
                             "Presets",
                             connected,
                             listOf(
@@ -230,13 +239,13 @@ internal fun CrossfeedCurveView(freq: Float, feed: Float, isEnabled: Boolean, mo
                 }
                 drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
             }
-            curve({ it.second }, ToolColors.orange)
+            curve({ it.second }, MacColors.orange)
             curve({ it.third }, accent)
             // Legend
             val box = Size(78.dp.toPx(), 30.dp.toPx())
             val o = Offset(w - box.width - 4.dp.toPx(), 4.dp.toPx())
             drawRect(bg.copy(alpha = 0.85f), o, box)
-            listOf("Direct" to accent, "Crossfeed" to ToolColors.orange).forEachIndexed { i, (label, c) ->
+            listOf("Direct" to accent, "Crossfeed" to MacColors.orange).forEachIndexed { i, (label, c) ->
                 val cy = o.y + 8.dp.toPx() + i * 13.dp.toPx()
                 drawLine(c, Offset(o.x + 6.dp.toPx(), cy), Offset(o.x + 16.dp.toPx(), cy), 2.dp.toPx())
                 labelAt(measurer, label, Offset(o.x + 44.dp.toPx(), cy), onBg, 9.sp, bold = true, mono = false)

@@ -65,7 +65,11 @@ import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.InputLockStatus
 import se.bofr.dspi.core.LgStatus
 import se.bofr.dspi.core.SpdifRxStatus
+import se.bofr.dspi.ui.Caption
 import se.bofr.dspi.ui.ChannelPalette
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.WhileVisible
 
 /** What System Statistics shows apart from the 60 ms buffer fills. */
 data class StatsUiState(
@@ -197,7 +201,8 @@ fun StatsView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     StatsContent(state, stats.buffers, history, historyTick, onResetWatermarks = { stats.resetWatermarks() }, modifier = modifier)
 }
 
-private fun channelColorOf(bridge: DspiBridge, app: Int): Color = parseHexColor(bridge.channelColor(app)) ?: ChannelPalette.color(app)
+private fun channelColorOf(bridge: DspiBridge, app: Int): Color =
+    ChannelPalette.fromHex(bridge.channelColor(app), ChannelPalette.color(app, bridge.numOutputChannels))
 
 @Composable
 fun StatsContent(

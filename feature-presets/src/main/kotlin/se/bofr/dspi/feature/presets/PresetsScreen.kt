@@ -54,6 +54,8 @@ import se.bofr.dspi.feature.presets.autoeq.AutoEQManagers
 import se.bofr.dspi.feature.presets.autoeq.AutoEQMenuActions
 import se.bofr.dspi.feature.presets.autoeq.FavoriteProfile
 import se.bofr.dspi.ui.DspiRoutes
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.ConsoleAlertHost
 
 /** The menu-action objects of one Presets screen, sharing one alert slot. */
 class PresetsController(val bridge: DspiBridge, scope: CoroutineScope, val autoEQ: AutoEQManager, io: CoroutineDispatcher) {
@@ -150,8 +152,6 @@ fun PresetsView(
     val status by bridge.status.collectAsState()
     val dirty by bridge.presetDirty.collectAsState()
     val inFlight by controller.presetMenu.presetSwitchInFlight.collectAsState()
-    val alert by controller.host.alert.collectAsState()
-    val progress by controller.host.progress.collectAsState()
     val favorites by controller.autoEQ.favoriteProfiles.collectAsState()
     var showAutoEQBrowser by rememberSaveable { mutableStateOf(initialShowBrowser) }
 
@@ -232,10 +232,7 @@ fun PresetsView(
         }
     }
 
-    alert?.let { a ->
-        ConsoleAlertDialog(a, onButton = { b, r -> controller.host.respond(b, r) }, onDismiss = { controller.host.dismiss() })
-    }
-    progress?.let { ProgressSheet(it) }
+    ConsoleAlertHost(controller.host)
 }
 
 @Composable

@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import se.bofr.dspi.ui.MacColors
 
 /**
  * Shown at the bottom of every Settings page while anything is pending
@@ -73,7 +74,7 @@ internal fun SettingsSaveBar(coordinator: SettingsSaveCoordinator) {
                 Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("●", color = WarningOrange)
+                Text("●", color = MacColors.orange)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Unsaved changes" + if (lines.size > 1) " (${lines.size})" else "", style = MaterialTheme.typography.bodyMedium)

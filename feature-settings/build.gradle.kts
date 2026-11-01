@@ -12,8 +12,6 @@ android {
 dependencies {
     implementation(project(":bridge"))
     implementation(project(":ui-common"))
-    // App preferences (General/Graphing/Spectrum), macOS @AppStorage → DataStore.
-    implementation(libs.androidx.datastore.preferences)
     // BackHandler: system back closes a Settings page before leaving Settings.
     implementation(libs.androidx.activity.compose)
     // @Previews run against FakeDspiCore (src/debug only; never in release).

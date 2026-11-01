@@ -12,6 +12,7 @@ import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.ui.DspiTheme
+import se.bofr.dspi.ui.settings.InMemoryAppSettingsStore
 
 /** A bridge over the demo FakeDspiCore (RP2350, 8 in / 9 out); it connects itself on scan. */
 @Composable

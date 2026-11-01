@@ -8,9 +8,9 @@
 // less (macOS: plain scroll wheel over the field). The drag is live: values go
 // out through the caller's Throttle (sendOnly) and commit once on release.
 //
-// Consolidation note: these are local building blocks; once :ui-common (HOME)
-// ships its own value field, they can move there.
-package se.bofr.dspi.feature.matrix
+// Shared by every compact gain/delay field (moved from :feature-matrix,
+// decision E6).
+package se.bofr.dspi.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -60,7 +60,7 @@ const val COMPACT_GAIN_MIN = -60f
 const val COMPACT_GAIN_MAX = 12f
 
 /** Swift `Float.rounded()`: to nearest, ties away from zero. */
-internal fun roundHalfAwayFromZero(v: Float): Float {
+fun roundHalfAwayFromZero(v: Float): Float {
     val r = floor(abs(v) + 0.5f)
     return if (v < 0) -r else r
 }
@@ -94,7 +94,7 @@ private val NUMBER = Regex("""^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$""")
  * a number (the old value returns). A decimal comma is accepted (phone
  * keyboards in comma locales).
  */
-internal fun parseCompactNumber(text: String, unit: String): Float? {
+fun parseCompactNumber(text: String, unit: String): Float? {
     val cleaned = text.replace(unit, "").trim().replace(',', '.')
     if (!NUMBER.matches(cleaned)) return null
     return cleaned.toFloatOrNull()?.takeIf { it.isFinite() }
@@ -310,14 +310,7 @@ private fun CompactValueField(
 
 /** Typing a value (macOS: focus the field, type, Return). */
 @Composable
-internal fun CompactValueEditor(
-    title: String,
-    unit: String,
-    signed: Boolean,
-    initial: String,
-    onDismiss: () -> Unit,
-    onSubmit: (String) -> Unit
-) {
+fun CompactValueEditor(title: String, unit: String, signed: Boolean, initial: String, onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length)))
     }

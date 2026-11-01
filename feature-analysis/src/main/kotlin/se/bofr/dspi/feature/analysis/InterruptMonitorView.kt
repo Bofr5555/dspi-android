@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.MonitorLine
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.WhileVisible
 
 @Composable
 fun InterruptMonitorView(bridge: DspiBridge, modifier: Modifier = Modifier) {

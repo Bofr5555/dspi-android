@@ -21,6 +21,10 @@ import se.bofr.dspi.bridge.DangerousOpNotConfirmed
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.json.Json
+import se.bofr.dspi.ui.json.bool
+import se.bofr.dspi.ui.json.int
+import se.bofr.dspi.ui.json.str
 
 /**
  * Owner of pending (unsaved) Settings changes for one bridge, so the save bar
@@ -118,11 +122,12 @@ class SettingsSaveCoordinator(
         if (todo.isEmpty()) return null
         val token = bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY)
         bridge.beginOutputEdit()
-        val serial = bridge.selectedSerial
+        // macOS transport.generation: a re-plug, even of the same unit, aborts the sequence
+        val generation = bridge.deviceGeneration.value
         return scope.launch {
             try {
                 for (c in todo) {
-                    if (bridge.selectedSerial != serial) return@launch
+                    if (bridge.deviceGeneration.value != generation) return@launch
                     val st = try {
                         c.apply(token)
                     } catch (e: CancellationException) {
@@ -211,8 +216,9 @@ class SettingsSaveCoordinator(
             val doOutput = outputToken != null && outputDirty()
             val doCs = csToken != null && csDirty()
             if (!doGlobal && !doOutput && !doCs) return null
-            val serial = bridge.selectedSerial
-            fun stillCurrent() = bridge.selectedSerial == serial
+            // macOS stillCurrent(): the transport generation, bumped on every open and close
+            val generation = bridge.deviceGeneration.value
+            fun stillCurrent() = bridge.deviceGeneration.value == generation
             val messages = ArrayList<String>()
             _saving.value = true
             if (doCs) beginCsOperation()
@@ -302,7 +308,7 @@ class SettingsSaveCoordinator(
         _csStatus.value = null
         return scope.launch {
             try {
-                val r = CsJson.parseObject(bridge.cs.apply(opJson))
+                val r = Json.parseObject(bridge.cs.apply(opJson))
                 if (r?.bool("ok") != true) {
                     _csStatus.value = (r?.str("error") ?: bridge.cs.statusMessage(r?.int("status") ?: 0xFF)) to true
                 }

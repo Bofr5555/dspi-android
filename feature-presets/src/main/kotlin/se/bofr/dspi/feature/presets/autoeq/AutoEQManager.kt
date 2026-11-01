@@ -19,11 +19,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
-import se.bofr.dspi.feature.presets.PresetsJson
-import se.bofr.dspi.feature.presets.double
-import se.bofr.dspi.feature.presets.int
-import se.bofr.dspi.feature.presets.list
-import se.bofr.dspi.feature.presets.str
+import se.bofr.dspi.ui.json.Json
+import se.bofr.dspi.ui.json.double
+import se.bofr.dspi.ui.json.int
+import se.bofr.dspi.ui.json.list
+import se.bofr.dspi.ui.json.str
 
 /** `EmbeddedFilter`: type is "peaking", "lowShelf", "highShelf", "lowPass", "highPass". */
 data class EmbeddedFilter(val type: String, val freq: Double, val q: Double, val gain: Double)
@@ -57,7 +57,7 @@ data class AutoEQDatabase(val version: Int, val generatedAt: String, val entryCo
     companion object {
         /** Decodes `autoeq_database.json`; throws [IllegalArgumentException] on anything else. */
         fun decode(text: String): AutoEQDatabase {
-            val root = PresetsJson.parseObject(text) ?: throw IllegalArgumentException("Invalid database content")
+            val root = Json.parseObject(text) ?: throw IllegalArgumentException("Invalid database content")
             val list = root.list("entries") ?: throw IllegalArgumentException("Invalid database content")
             val entries =
                 list.map { e ->

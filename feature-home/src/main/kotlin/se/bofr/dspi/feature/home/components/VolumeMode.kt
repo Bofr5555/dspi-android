@@ -24,9 +24,11 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.bofr.dspi.ui.DspiIcons
 import se.bofr.dspi.ui.DspiTheme
 import se.bofr.dspi.ui.DspiType
+import se.bofr.dspi.ui.settings.AppSettingsStore
 
 /** The sidebar volume slider's mode: `auto` drives the user volume, `master` the master volume. */
 enum class SidebarVolumeMode(val raw: String, val heading: String) {
@@ -37,6 +39,13 @@ enum class SidebarVolumeMode(val raw: String, val heading: String) {
         fun from(raw: String?): SidebarVolumeMode = entries.firstOrNull { it.raw == raw } ?: AUTO
     }
 }
+
+/** `AppSettings.sidebarVolumeMode` ("auto" = User Volume, "master"), observed. */
+@Composable
+fun AppSettingsStore.sidebarVolumeMode(): SidebarVolumeMode =
+    SidebarVolumeMode.from(settings.collectAsStateWithLifecycle().value.sidebarVolumeMode)
+
+fun AppSettingsStore.setSidebarVolumeMode(mode: SidebarVolumeMode) = update { it.copy(sidebarVolumeMode = mode.raw) }
 
 /**
  * The volume section heading that doubles as the mode picker

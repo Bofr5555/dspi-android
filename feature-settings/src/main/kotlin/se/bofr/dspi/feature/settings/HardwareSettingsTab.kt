@@ -27,6 +27,7 @@ import se.bofr.dspi.feature.settings.OutputConfigSnapshot.Companion.I2S_CLOCK_PI
 import se.bofr.dspi.feature.settings.OutputConfigSnapshot.Companion.OUTPUT_TYPE_I2S
 import se.bofr.dspi.feature.settings.OutputConfigSnapshot.Companion.OUTPUT_TYPE_SPDIF
 import se.bofr.dspi.feature.settings.OutputConfigSnapshot.Companion.PIN_UNSET
+import se.bofr.dspi.ui.MacColors
 
 /** Which hardware page (macOS `HardwareSettingsTab.Page`). */
 enum class HardwarePage { OUTPUTS, I2S, SPDIF }
@@ -53,7 +54,7 @@ fun HardwareSettingsTab(page: HardwarePage, bridge: DspiBridge, coordinator: Set
 
     SettingsForm {
         if (!connected) {
-            item { SettingsSection(null) { Caption("No Device Connected. Hardware settings live on the device.") } }
+            item { SettingsSection(null) { FormCaption("No Device Connected. Hardware settings live on the device.") } }
         }
         when (page) {
             HardwarePage.OUTPUTS -> outputsPage(device, pins, edits, coordinator, connected)
@@ -141,7 +142,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
     if (device.adatSupported) {
         item {
             SettingsSection("Bulk Output") {
-                SwitchRow(
+                FormSwitchRow(
                     "Enable ADAT",
                     "Stream all 8 output channels as one optical ADAT lightpipe (44.1/48 kHz, 24-bit). Runs alongside the " +
                         "existing outputs; drive a TOSLINK transmitter from the data pin.",
@@ -233,7 +234,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
                     enabled = connected && device.i2sClockPinMode == I2S_CLOCK_PIN_MODE_SPLIT
                 ) { coordinator.applyHardware(edits.i2sBckPinSlave(device, it)) }
             }
-            SwitchRow(
+            FormSwitchRow(
                 "Master Clock (MCK)",
                 if (device.i2sSlaveActive) {
                     "Forced off in I2S slave mode; a local MCK would be asynchronous to the external clocks. Kept and restored when " +
@@ -312,7 +313,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                 }
                 // Not a pipeline rebuild: live and per preset, as on macOS
                 val lg = bridge.state.collectAsState().value.lgSoundSyncEnabled
-                SwitchRow(
+                FormSwitchRow(
                     "LG Sound Sync",
                     "Decode the LG TV's TOSLINK volume + mute signaling and apply it as the host volume - TV remote becomes the volume " +
                         "control. Per-preset; saved with the active preset.",
@@ -360,7 +361,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                     ) { coordinator.applyHardware(edits.i2sRxPin(device, pair, it)) }
                 }
                 if (device.i2sActivePairs < device.i2sMaxPairs) {
-                    Caption("Unused pairs keep their pins parked; they reserve nothing until the channel count is raised.")
+                    FormCaption("Unused pairs keep their pins parked; they reserve nothing until the channel count is raised.")
                 }
             }
         }
@@ -375,7 +376,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                     "arrive " +
                     "as input channels 1-8 with full per-input EQ and metering. Save a preset to keep this wiring."
             ) {
-                SwitchRow(
+                FormSwitchRow(
                     "Enable ADAT Input",
                     "Receive 8 channels of 24-bit audio (44.1/48 kHz) from one TOSLINK optical input into input channels 1-8. " +
                         "Assign a data pin below, then select ADAT as the input source.",
@@ -406,7 +407,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                             "its own " +
                             "clock, asynchronous to DSPi, so you will hear periodic disturbances. Enable ADAT Output, or switch to Slave " +
                             "mode above.",
-                        titleColor = WarningOrange
+                        titleColor = MacColors.orange
                     ) {
                         OutlinedButton(onClick = { coordinator.applyHardware(edits.adatOutEnabled(device, true)) }, enabled = connected) {
                             Text("Enable ADAT Output")
@@ -456,6 +457,6 @@ private fun LockStatusRow(bridge: DspiBridge, which: Int, adat: Boolean) {
         else -> "Waiting for external clock."
     }
     SettingRow("Lock Status", detail) {
-        Pill(text, if (st?.state == 3) OkGreen else WarningOrange)
+        Pill(text, if (st?.state == 3) MacColors.green else MacColors.orange)
     }
 }

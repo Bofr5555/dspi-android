@@ -31,6 +31,7 @@ import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.I2cConfig
 import se.bofr.dspi.core.UartConfig
+import se.bofr.dspi.ui.MacColors
 
 /** macOS `UART_CTRL_BAUD_CHOICES`. */
 internal val UART_CTRL_BAUD_CHOICES = listOf(9600L, 19200L, 38400L, 57600L, 115200L, 230400L, 460800L, 921600L, 1000000L)
@@ -155,7 +156,7 @@ fun ControlInterfacesSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCo
                     ) {
                         uartDraft = uartDraft.copy(baud = it)
                     }
-                    SwitchRow(
+                    FormSwitchRow(
                         "Push Notifications",
                         "Stream live parameter/preset/format changes to the controller (type-0x40 frames) instead of polling.",
                         uartDraft.notify,
@@ -228,7 +229,7 @@ fun ControlInterfacesSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCo
                 null,
                 footer = if (live.protocolVersion != 0) "External control protocol version ${live.protocolVersion}." else null
             ) {
-                Caption(
+                FormCaption(
                     "Both control interfaces are configured over USB only - an external controller can read the configuration but can " +
                         "never " +
                         "reconfigure or disable the transport it is talking on, so it cannot lock itself out. Settings persist across " +
@@ -264,8 +265,8 @@ private fun InterfaceHeader(
         enabled = enabled
     ) {
         val (text, color) = when {
-            live -> "Active" to OkGreen
-            configEnabled -> "Inactive" to WarningOrange
+            live -> "Active" to MacColors.green
+            configEnabled -> "Inactive" to MacColors.orange
             else -> "Disabled" to Color.Gray
         }
         Pill(text, color)
@@ -287,11 +288,11 @@ private fun ApplyRow(
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             if (status != null && !dirty) {
-                Text(if (status.second) "⚠ " else "✓ ", color = if (status.second) WarningOrange else OkGreen)
+                Text(if (status.second) "⚠ " else "✓ ", color = if (status.second) MacColors.orange else MacColors.green)
                 Text(
                     status.first,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (status.second) WarningOrange else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (status.second) MacColors.orange else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else if (dirty) {
                 Text("Unapplied changes", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

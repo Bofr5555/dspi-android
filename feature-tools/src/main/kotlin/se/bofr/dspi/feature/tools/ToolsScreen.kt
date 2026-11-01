@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.ui.Caption
 import se.bofr.dspi.ui.DspiRoutes
 
 /**

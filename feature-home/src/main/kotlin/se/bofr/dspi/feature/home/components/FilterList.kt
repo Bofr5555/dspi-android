@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import se.bofr.dspi.feature.graph.PeqGraphSelection
 import se.bofr.dspi.ui.AlertButton
 import se.bofr.dspi.ui.BandFields
 import se.bofr.dspi.ui.DspiAlertDialog
@@ -44,6 +46,10 @@ import se.bofr.dspi.ui.dspiCard
  * @param onSetAllBypass applies Enable All / Bypass All in one bridge call
  *   (`setAllBandsBypass`); Off bands are never touched.
  * @param onClear null hides Clear All (input pages clear from the header).
+ * @param graphSelection set on PEQ lists whose bands are edited on the
+ *   response graph (macOS `graphSelection`): rows carry their band's colour,
+ *   light up with its dot, select it on a tap of the number and follow a
+ *   graph drag live ([PeqGraphSelection.live]).
  */
 @Composable
 fun FilterListView(
@@ -56,9 +62,12 @@ fun FilterListView(
     bypassSupported: Boolean = true,
     tabs: List<SegmentTab> = emptyList(),
     isCrossoverMode: Boolean = false,
-    onClear: (() -> Unit)? = null
+    onClear: (() -> Unit)? = null,
+    graphSelection: PeqGraphSelection? = null
 ) {
     val c = DspiTheme.colors
+    val selState = graphSelection?.state?.collectAsState()?.value
+    val live = graphSelection?.live?.collectAsState()?.value
     var confirmBypassXo by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
 
@@ -96,7 +105,25 @@ fun FilterListView(
                     isCrossoverMode = isCrossoverMode,
                     wide = wide,
                     onChange = { onUpdate(index, it) },
-                    onBypassToggle = { onBypassToggle(index, it) }
+                    onBypassToggle = { onBypassToggle(index, it) },
+                    graph =
+                    if (graphSelection != null && selState != null) {
+                        RowGraphLink(
+                            selection = graphSelection,
+                            isSelected = index in selState.selected,
+                            isGraphHovered = selState.graphHovered == index,
+                            live = live?.get(index),
+                            onIndexTap = { band ->
+                                // Touch has no Cmd/Shift: a tap selects the band alone (macOS plain click).
+                                graphSelection.listClick(band, command = false, shift = false) {
+                                    bands.getOrNull(it)?.type !=
+                                        FilterType.FLAT
+                                }
+                            }
+                        )
+                    } else {
+                        null
+                    }
                 )
             }
             if (onClear != null || tabs.isNotEmpty() || bypassSupported) {

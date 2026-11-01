@@ -24,6 +24,12 @@ import se.bofr.dspi.bridge.ConfirmationToken
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.alert.AlertButton
+import se.bofr.dspi.ui.alert.AlertButtonRole
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertStyle
+import se.bofr.dspi.ui.alert.AlertTextField
+import se.bofr.dspi.ui.alert.ConsoleAlert
 
 class PresetMenuActions(private val bridge: DspiBridge, private val scope: CoroutineScope, private val host: AlertHost) {
     /** ContentView `presetSwitchInFlight`: the picker ignores input while a switch runs. */
@@ -87,7 +93,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
                         if (saveStatus != PresetStatus.OK) {
                             host.showWarning(
                                 "Save Failed",
-                                "Failed to save preset (${presetFailureText(saveStatus)}). Preset switch aborted."
+                                "Failed to save preset (${saveStatus.failureText}). Preset switch aborted."
                             )
                             return@launchDeviceSequence
                         }
@@ -114,7 +120,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
         scope.launchDeviceSequence {
             ensureName(slot)
             val status = bridge.savePreset(token, slot)
-            if (status != PresetStatus.OK) host.showWarning("Save Failed", "Failed to save preset (${presetFailureText(status)}).")
+            if (status != PresetStatus.OK) host.showWarning("Save Failed", "Failed to save preset (${status.failureText}).")
         }
     }
 
@@ -184,7 +190,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
             // The destination keeps its name, or becomes "Preset N".
             ensureName(destinationSlot)
             val status = bridge.copyPreset(copyToken, sourceSlot, destinationSlot)
-            if (status != PresetStatus.OK) host.showWarning("Copy Failed", "Failed to copy preset (${presetFailureText(status)}).")
+            if (status != PresetStatus.OK) host.showWarning("Copy Failed", "Failed to copy preset (${status.failureText}).")
         }
     }
 

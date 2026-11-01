@@ -9,11 +9,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import se.bofr.dspi.bridge.DspiBridge
-import se.bofr.dspi.feature.presets.AlertButton
-import se.bofr.dspi.feature.presets.AlertButtonRole
-import se.bofr.dspi.feature.presets.AlertHost
-import se.bofr.dspi.feature.presets.AlertStyle
-import se.bofr.dspi.feature.presets.ConsoleAlert
+import se.bofr.dspi.ui.alert.AlertButton
+import se.bofr.dspi.ui.alert.AlertButtonRole
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertStyle
+import se.bofr.dspi.ui.alert.ConsoleAlert
 
 class AutoEQMenuActions(
     private val manager: AutoEQManager,

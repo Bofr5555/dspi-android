@@ -35,12 +35,15 @@ import se.bofr.dspi.feature.settings.SettingsScreen
 import se.bofr.dspi.feature.tools.OutputLimiterView
 import se.bofr.dspi.feature.tools.ToolsScreen
 import se.bofr.dspi.ui.DspiRoutes
+import se.bofr.dspi.usb.BootloaderLocator
 
 /**
  * macOS window/menu structure -> one NavHost (PLAN §3.3 `ui/nav/AppScaffold.kt`).
  * Every route of [DspiRoutes] maps to exactly one feature entry composable.
  * The NavHost is keyed on [bridge]: entering or leaving demo mode starts the
  * navigation over, so no screen holds state from the other bridge.
+ *
+ * [bootloaderLocator]: the app's one locator, given to FirmwareUpdateView.
  *
  * Compat banner: the contract exposes it on the bridge (`compat`,
  * `compatMessage`, refreshed with `state`), HOME draws it; the app adds
@@ -53,20 +56,21 @@ fun AppScaffold(
     strip: ConnectionStrip,
     onEnterDemo: () -> Unit,
     onExitDemo: () -> Unit,
-    onRequestPermission: () -> Unit
+    onRequestPermission: () -> Unit,
+    bootloaderLocator: BootloaderLocator? = null
 ) {
     Scaffold(
         topBar = { TopAppBar(title = { Text(if (strip is ConnectionStrip.Demo) "DSPi — Demo (no device)" else "DSPi") }) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ConnectionStripBar(strip, onEnterDemo, onExitDemo, onRequestPermission)
-            key(bridge) { DspiNavHost(bridge) }
+            key(bridge) { DspiNavHost(bridge, bootloaderLocator) }
         }
     }
 }
 
 @Composable
-private fun DspiNavHost(bridge: DspiBridge) {
+private fun DspiNavHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?) {
     val nav = rememberNavController()
     val go: (String) -> Unit = { nav.navigate(it) }
     val back: () -> Unit = { nav.popBackStack() }
@@ -90,7 +94,7 @@ private fun DspiNavHost(bridge: DspiBridge) {
         composable(DspiRoutes.PRESETS) { PresetsScreen(bridge, go, back) }
         composable(DspiRoutes.SETTINGS) { SettingsScreen(bridge, go, back) }
         composable(DspiRoutes.ANALYSIS) { AnalysisScreen(bridge, go, back) }
-        composable(DspiRoutes.FIRMWARE) { FirmwareUpdateView(bridge, go, back) }
+        composable(DspiRoutes.FIRMWARE) { FirmwareUpdateView(bridge, go, back, bootloaderLocator = bootloaderLocator) }
     }
 }
 

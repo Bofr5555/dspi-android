@@ -27,6 +27,13 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.log10
 import kotlin.math.pow
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.ChannelChips
+import se.bofr.dspi.ui.ParameterRow
+import se.bofr.dspi.ui.PullDownMenu
+import se.bofr.dspi.ui.SectionHeader
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.ToolHeader
 
 // MARK: - ISO 226 Data
 
@@ -162,7 +169,7 @@ fun LoudnessView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                 if (showMask) {
                     HorizontalDivider()
                     SectionHeader("OUTPUTS") {
-                        ToolMenu(
+                        PullDownMenu(
                             "Presets",
                             connected,
                             listOf(

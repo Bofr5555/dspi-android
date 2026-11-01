@@ -10,6 +10,7 @@ import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.ui.DspiTheme
+import se.bofr.dspi.ui.settings.InMemoryAppSettingsStore
 
 /** A bridge over the seeded fake core, connected to its demo device. */
 @Composable
@@ -47,5 +48,5 @@ private fun OutputChannelPreview() {
 @Preview(name = "Dashboard", widthDp = 900, heightDp = 900, showBackground = true)
 @Composable
 private fun DashboardPreview() {
-    DspiTheme(darkTheme = true) { DashboardOverview(rememberPreviewBridge(), HomePreferences.inMemory()) }
+    DspiTheme(darkTheme = true) { DashboardOverview(rememberPreviewBridge(), InMemoryAppSettingsStore()) }
 }

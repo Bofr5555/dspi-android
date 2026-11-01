@@ -31,16 +31,15 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import se.bofr.dspi.bridge.DspiBridge
-import se.bofr.dspi.feature.presets.AlertHost
-import se.bofr.dspi.feature.presets.ConsoleAlertDialog
 import se.bofr.dspi.feature.presets.PRESET_SLOT_COUNT
 import se.bofr.dspi.feature.presets.PresetMenuActions
-import se.bofr.dspi.feature.presets.ProgressSheet
 import se.bofr.dspi.feature.presets.presetPickerTitle
 import se.bofr.dspi.ui.DspiIcons
 import se.bofr.dspi.ui.DspiTheme
 import se.bofr.dspi.ui.DspiType
 import se.bofr.dspi.ui.PopUpButton
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.ConsoleAlertHost
 
 /** The home screen's controllers that must outlive a configuration change (E9). */
 class HomeViewModel(bridge: DspiBridge) : ViewModel() {
@@ -103,16 +102,7 @@ fun PresetPickerRow(bridge: DspiBridge, vm: HomeViewModel, modifier: Modifier = 
             )
         }
     }
-    PresetAlertHost(vm.host)
-}
-
-/** Shows PRESETS' alert slot and progress sheet. */
-@Composable
-fun PresetAlertHost(host: AlertHost) {
-    val alert by host.alert.collectAsStateWithLifecycle()
-    val progress by host.progress.collectAsStateWithLifecycle()
-    alert?.let { a -> ConsoleAlertDialog(a, onButton = { b, r -> host.respond(b, r) }, onDismiss = host::dismiss) }
-    progress?.let { ProgressSheet(it) }
+    ConsoleAlertHost(vm.host)
 }
 
 /** The preset context menu (macOS `PresetContextMenuItems`); "Copy to…" opens its slot list in place. */

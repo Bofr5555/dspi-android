@@ -57,8 +57,8 @@ data class OutputConfigSnapshot(
     val anySlotIsI2S: Boolean get() = (0 until numOutputSlots).any { outputSlotTypes.getOrElse(it) { 0 } == OUTPUT_TYPE_I2S }
 
     // ── Capabilities (macOS DSPViewModel flags; inferred from the platform, D-SETTINGS-3) ──
-    /** No caps flag for it: STM32 has no input switching (macOS `inputSourceSupported`). */
-    val inputSourceSupported: Boolean get() = !isStm32
+    /** macOS `inputSourceSupported` (the bridge's caps flag, BRIDGE-3). */
+    val inputSourceSupported: Boolean get() = caps.inputSourceSupported
     val multiSpdifSupported: Boolean get() = caps.multiSpdifSupported
 
     /** S/PDIF inputs the receiver can switch between. */
@@ -105,7 +105,9 @@ data class OutputConfigSnapshot(
             i2sClockPinModeSupported = true,
             adatOutSupported = true,
             adatInputSupported = true,
-            limiterSupported = true
+            limiterSupported = true,
+            inputSourceSupported = true,
+            lgSoundSyncSupported = true
         )
         const val PIN_UNSET = 0xFF
         const val ADAT_PIN_DEFAULT = 12

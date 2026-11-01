@@ -6,6 +6,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertStyle
 
 class PresetLabelsTest {
     @Test
@@ -26,8 +28,9 @@ class PresetLabelsTest {
 
     @Test
     fun failureText() {
-        assertEquals("error 4", presetFailureText(PresetStatus.FLASH_WRITE))
-        assertEquals("error 255", presetFailureText(PresetStatus.NO_REPLY))
+        assertEquals("error 4", PresetStatus.FLASH_WRITE.failureText)
+        assertEquals("error 255", PresetStatus.NO_REPLY.failureText)
+        assertEquals("Another console is applying changes", PresetStatus.LOCKED.failureText)
         assertEquals("Preset 7", defaultPresetName(6))
     }
 

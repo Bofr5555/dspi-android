@@ -8,10 +8,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.bofr.dspi.ui.DspiTheme
+import se.bofr.dspi.ui.settings.LocalAppSettings
+import se.bofr.dspi.ui.state.LocalAppState
 
 /**
  * The only Activity. Owns nothing: the stack lives in [DspiApplication].
@@ -41,13 +44,16 @@ class MainActivity : ComponentActivity() {
                 val mode by modes.mode.collectAsStateWithLifecycle()
                 val demoAvailable by modes.demoAvailable.collectAsStateWithLifecycle()
                 val usbState by app.session.state.collectAsStateWithLifecycle()
-                AppScaffold(
-                    bridge = bridge,
-                    strip = connectionStrip(mode, usbState, demoAvailable),
-                    onEnterDemo = { modes.enterDemo() },
-                    onExitDemo = { modes.exitDemo() },
-                    onRequestPermission = { app.session.requestPermission(this) }
-                )
+                CompositionLocalProvider(LocalAppSettings provides app.appSettings, LocalAppState provides app.appState) {
+                    AppScaffold(
+                        bridge = bridge,
+                        strip = connectionStrip(mode, usbState, demoAvailable),
+                        onEnterDemo = { modes.enterDemo() },
+                        onExitDemo = { modes.exitDemo() },
+                        onRequestPermission = { app.session.requestPermission(this) },
+                        bootloaderLocator = app.bootloaderLocator
+                    )
+                }
             }
         }
     }

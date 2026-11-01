@@ -6,6 +6,9 @@ package se.bofr.dspi.feature.home.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,12 +35,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import se.bofr.dspi.core.FilterParams
+import se.bofr.dspi.feature.graph.PeqBandPalette
+import se.bofr.dspi.feature.graph.PeqGraphSelection
 import se.bofr.dspi.ui.BandFields
 import se.bofr.dspi.ui.BypassCheckbox
 import se.bofr.dspi.ui.CrossoverFamilyOption
@@ -70,6 +80,11 @@ internal object FilterColumns {
  *
  * Edits go out through [onChange] once per committed field (no live drag on
  * the table). [onBypassToggle] flips just the bypass flag.
+ *
+ * [graph] is set on PEQ lists whose bands are edited on the response graph
+ * (macOS `graphSelection` / `liveReadouts`): the row then carries its band's
+ * graph colour, lights up with its dot ([PeqRowHighlight]), selects it on a
+ * tap of the number, and follows a graph drag live.
  */
 @Composable
 fun FilterRowView(
@@ -81,23 +96,61 @@ fun FilterRowView(
     wide: Boolean,
     onChange: (BandFields) -> Unit,
     onBypassToggle: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    graph: RowGraphLink? = null
 ) {
     val c = DspiTheme.colors
     val isActive = params.type != FilterType.FLAT
     val isBypassed = params.bypass
-    val indexColor = if (!isActive || isBypassed) c.secondaryLabel.copy(alpha = c.secondaryLabel.alpha * 0.5f) else c.label
+    val bandColor = graph?.let { Color(PeqBandPalette.argb(index)) }
+    val indexColor = when {
+        !isActive || isBypassed -> c.secondaryLabel.copy(alpha = c.secondaryLabel.alpha * 0.5f)
+        bandColor != null && !bypassSupported -> bandColor
+        else -> c.label
+    }
     val stripe = if (index % 2 == 0) c.alternatingRow else Color.Transparent
+    val hover = remember { MutableInteractionSource() }
+    if (graph != null) {
+        val hovered by hover.collectIsHoveredAsState()
+        LaunchedEffect(hovered, isActive) {
+            val sel = graph.selection
+            if (hovered && isActive) {
+                sel.listHovered = index
+            } else if (sel.listHovered == index) {
+                sel.listHovered = null
+            }
+        }
+    }
+    val rowModifier = if (graph != null) {
+        modifier.hoverable(hover).drawBehind {
+            PeqRowHighlight.draw(this, bandColor!!, isActive && graph.isSelected, isActive && graph.isGraphHovered)
+        }
+    } else {
+        modifier
+    }
 
     val lead: @Composable () -> Unit = {
         if (bypassSupported) {
             BypassCheckbox(
                 isActive = isActive && !isBypassed,
                 isEnabled = isActive,
-                onToggle = { onBypassToggle(!isBypassed) }
+                onToggle = { onBypassToggle(!isBypassed) },
+                color = if (isActive) bandColor else null
             )
         }
-        Text("${index + 1}", style = DspiType.body, color = indexColor, modifier = Modifier.width(FilterColumns.index))
+        Text(
+            "${index + 1}",
+            style = DspiType.body,
+            color = indexColor,
+            modifier =
+            Modifier.width(FilterColumns.index).then(
+                if (graph != null && isActive) {
+                    Modifier.clickable(onClickLabel = "Select band ${index + 1} on the graph") { graph.onIndexTap(index) }
+                } else {
+                    Modifier
+                }
+            )
+        )
     }
     val typePicker: @Composable (Modifier) -> Unit = { m ->
         if (isCrossoverMode) {
@@ -118,7 +171,7 @@ fun FilterRowView(
                 } else if (params.type.isLinkwitzTransform) {
                     LinkwitzControls(params, onChange)
                 } else {
-                    PeqFields(params, onChange)
+                    PeqFields(params, onChange, live = graph?.live)
                 }
             }
         }
@@ -126,7 +179,7 @@ fun FilterRowView(
 
     if (wide) {
         Row(
-            modifier.fillMaxWidth().background(stripe).heightIn(min = 44.dp).padding(horizontal = 8.dp),
+            rowModifier.fillMaxWidth().background(stripe).heightIn(min = 44.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -136,7 +189,7 @@ fun FilterRowView(
             Spacer(Modifier.weight(1f))
         }
     } else {
-        Column(modifier.fillMaxWidth().background(stripe).padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Column(rowModifier.fillMaxWidth().background(stripe).padding(horizontal = 8.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 lead()
                 typePicker(Modifier.weight(1f))
@@ -148,14 +201,30 @@ fun FilterRowView(
     }
 }
 
-/** Freq / Gain / Q fields of a PEQ band; placeholders keep the columns aligned. */
+/**
+ * Freq / Gain / Q fields of a PEQ band; placeholders keep the columns aligned.
+ * [live]: the band's value during a graph drag, shown instead (macOS `liveReadout`).
+ */
 @Composable
-private fun PeqFields(p: BandFields, onChange: (BandFields) -> Unit) {
-    ValueField(label = "Hz", value = p.freq, width = FilterColumns.freq, scrollStep = 10f, minValue = BandFields.MIN_FREQ) {
+private fun PeqFields(p: BandFields, onChange: (BandFields) -> Unit, live: FilterParams? = null) {
+    ValueField(
+        label = "Hz",
+        value = p.freq,
+        width = FilterColumns.freq,
+        scrollStep = 10f,
+        minValue = BandFields.MIN_FREQ,
+        liveText = live?.let { ValueFormat.format(it.freq, 1, false) }
+    ) {
         onChange(p.copy(freq = it))
     }
     if (p.type.usesGain) {
-        ValueField(label = "dB", value = p.gain, width = FilterColumns.gain, maxDecimals = 3) { onChange(p.copy(gain = it)) }
+        ValueField(
+            label = "dB",
+            value = p.gain,
+            width = FilterColumns.gain,
+            maxDecimals = 3,
+            liveText = live?.let { ValueFormat.format(it.gain, 3, false) }
+        ) { onChange(p.copy(gain = it)) }
     } else {
         Spacer(Modifier.width(FilterColumns.gain + FilterColumns.unit))
     }
@@ -166,7 +235,8 @@ private fun PeqFields(p: BandFields, onChange: (BandFields) -> Unit) {
             width = FilterColumns.q,
             minValue = BandFields.Q_MIN,
             maxDecimals = 3,
-            stripTrailingZeros = true
+            stripTrailingZeros = true,
+            liveText = live?.let { ValueFormat.format(it.q, 3, true) }
         ) {
             onChange(p.copy(q = it))
         }
@@ -414,5 +484,34 @@ private fun LabeledField(label: String, unit: String, value: Float, width: Dp, d
             labelWidth = if (unit.isEmpty()) 0.dp else 20.dp,
             onCommit = onCommit
         )
+    }
+}
+
+/**
+ * A row's link to the response graph's band selection (macOS FilterRowView
+ * `graphSelection` + `liveReadouts`): whether its band is selected or under
+ * the pointer on the graph, its live value during a graph drag, and what a
+ * tap on its number does.
+ */
+class RowGraphLink(
+    val selection: PeqGraphSelection,
+    val isSelected: Boolean,
+    val isGraphHovered: Boolean,
+    val live: FilterParams?,
+    val onIndexTap: (Int) -> Unit
+)
+
+/** macOS `PeqRowHighlight`: a 2 dp bar in the band's colour plus a tint while selected, a fainter tint while hovered. */
+internal object PeqRowHighlight {
+    fun draw(scope: DrawScope, color: Color, selected: Boolean, hovered: Boolean) = with(scope) {
+        val tint = if (selected) {
+            0.13f
+        } else if (hovered) {
+            0.07f
+        } else {
+            0f
+        }
+        if (tint > 0f) drawRect(color.copy(alpha = tint))
+        if (selected) drawRect(color, size = Size(2.dp.toPx(), size.height))
     }
 }

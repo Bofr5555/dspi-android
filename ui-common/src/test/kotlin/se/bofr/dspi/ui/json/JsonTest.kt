@@ -1,13 +1,13 @@
-package se.bofr.dspi.feature.presets
+package se.bofr.dspi.ui.json
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-class PresetsJsonTest {
+class JsonTest {
     @Test
     fun parsesTheShapesTheCoreWrites() {
-        val m = PresetsJson.parseObject("""{"ok":true,"n":-3,"x":1.5e1,"s":"a\"b\\cé\n","l":[1,null,false,{}],"o":{"k":[]}}""")!!
+        val m = Json.parseObject("""{"ok":true,"n":-3,"x":1.5e1,"s":"a\"b\\cé\n","l":[1,null,false,{}],"o":{"k":[]}}""")!!
         assertEquals(true, m.bool("ok"))
         assertEquals(-3, m.int("n"))
         assertEquals(15.0, m.double("x")!!, 0.0)
@@ -18,9 +18,9 @@ class PresetsJsonTest {
 
     @Test
     fun rejectsBrokenText() {
-        assertNull(PresetsJson.parseObject("""{"a":1"""))
-        assertNull(PresetsJson.parseObject("""{"a":1} trailing"""))
-        assertNull(PresetsJson.parseObject("[1,2]"))
-        assertNull(PresetsJson.parseObject(""))
+        assertNull(Json.parseObject("""{"a":1"""))
+        assertNull(Json.parseObject("""{"a":1} trailing"""))
+        assertNull(Json.parseObject("[1,2]"))
+        assertNull(Json.parseObject(""))
     }
 }

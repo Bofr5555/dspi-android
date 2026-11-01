@@ -25,8 +25,8 @@ import se.bofr.dspi.core.RtaSnapshot
 
 /**
  * The macOS analyser preferences this window reads (DSPi_ConsoleApp.swift
- * AppSettings, same keys and defaults; see [RtaSettingsKeys]). Kept in a local
- * store until the consolidation package (F3) provides the shared one.
+ * AppSettings, same defaults), projected from the shared store by
+ * [rtaPreferences].
  */
 data class RtaPreferences(
     val floorDb: Double = -90.0,
@@ -44,28 +44,6 @@ data class RtaPreferences(
     val dashboardShowGraph: Boolean = true,
     val dashboardShowBars: Boolean = false
 )
-
-/** The macOS `@AppStorage` key names (DSPi_ConsoleApp.swift AppSettings). */
-object RtaSettingsKeys {
-    const val FLOOR_DB = "rtaFloorDB"
-    const val CEILING_DB = "rtaCeilingDB"
-    const val SHOW_PEAK_HOLD = "rtaShowPeakHold"
-    const val SMOOTHING_ON = "rtaSmoothingOn"
-    const val BAR_COLUMNS = "rtaBarColumns"
-    const val GRAPH_MIN_FREQ = "graphMinFreq"
-    const val GRAPH_MAX_FREQ = "graphMaxFreq"
-    const val FFT_ORDER = "rtaFftOrder"
-    const val AVG_MS = "rtaAvgMs"
-    const val PEAK_DECAY_DBS = "rtaPeakDecayDBs"
-    const val DASHBOARD_SHOW_GRAPH = "rtaDashboardShowGraph"
-    const val DASHBOARD_SHOW_BARS = "rtaDashboardShowBars"
-
-    /** `rtaDashboardSelectionKey`: the dashboard's selection ("out:0,1"). */
-    const val DASHBOARD_SOURCE = "rtaDashboardSource"
-
-    /** `rtaDashboardOtherSideKey`: the side last left. */
-    const val DASHBOARD_OTHER_SIDE = "rtaDashboardOtherSide"
-}
 
 /** Swift `startFromPage()`: both switches -> Both, bars only -> Bars, else Curves. */
 fun rtaInitialMode(showGraph: Boolean, showBars: Boolean): RtaDisplayMode = when {

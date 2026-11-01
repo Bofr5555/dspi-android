@@ -22,22 +22,28 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.feature.graph.GraphResizeHandle
 import se.bofr.dspi.feature.graph.GraphView
+import se.bofr.dspi.feature.graph.LocalPeqGraphSelection
+import se.bofr.dspi.feature.graph.PeqGraphSelection
 import se.bofr.dspi.ui.ChannelPalette
 import se.bofr.dspi.ui.DspiIcons
 import se.bofr.dspi.ui.DspiRoutes
 import se.bofr.dspi.ui.DspiTheme
 import se.bofr.dspi.ui.DspiType
+import se.bofr.dspi.ui.state.LocalAppState
 
 /**
  * Entry point for [DspiRoutes.CHANNEL]: one channel's page. [ch] is an APP
@@ -64,6 +70,12 @@ fun ChannelScreen(bridge: DspiBridge, ch: Int, onNavigate: (String) -> Unit, onB
         }
     }
     val color = if (input >= 0) ChannelPalette.input(input) else ChannelPalette.output(output, output == s.numOutputChannels - 1)
+    // The main window's selection (macOS updateSelection(to:)): the pop-out graph and the matrix read it
+    val appState = LocalAppState.current
+    LaunchedEffect(ch) { appState.updateSelection(ch) }
+    // One band selection per channel page, shared by the graph and the band list (macOS peqSelection, reset per page)
+    val graphSelection = remember(ch) { PeqGraphSelection() }
+    val tabState = rememberSaveable(ch) { mutableStateOf(OutputChannelTab.PEQ) }
 
     Column(modifier.fillMaxSize().background(c.mainContent).verticalScroll(rememberScrollState())) {
         FirmwareMismatchBanner(bridge, onUpdate = { onNavigate(DspiRoutes.FIRMWARE) })
@@ -89,13 +101,17 @@ fun ChannelScreen(bridge: DspiBridge, ch: Int, onNavigate: (String) -> Unit, onB
             )
             return@Column
         }
-        GraphView(bridge, Modifier.fillMaxWidth().height(220.dp).padding(horizontal = 16.dp), channels = setOf(ch), editable = true)
-        Spacer(Modifier.height(16.dp))
-        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (input >= 0) {
-                InputChannelDetail(bridge, ch)
-            } else {
-                OutputChannelDetail(bridge, output, onNavigate)
+        CompositionLocalProvider(LocalPeqGraphSelection provides graphSelection) {
+            // No on-graph editing while the XO tab lists the crossover bands (macOS editedChannel, crossoverTabShown)
+            val editable = input >= 0 || tabState.value != OutputChannelTab.CROSSOVER
+            GraphView(bridge, Modifier.fillMaxWidth().padding(horizontal = 16.dp), channels = setOf(ch), editable = editable)
+            GraphResizeHandle(Modifier.padding(horizontal = 16.dp))
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (input >= 0) {
+                    InputChannelDetail(bridge, ch)
+                } else {
+                    OutputChannelDetail(bridge, output, onNavigate, tabState = tabState)
+                }
             }
         }
         Spacer(Modifier.height(16.dp))

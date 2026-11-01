@@ -4,6 +4,14 @@
 // ControlSurfacesSettingsTab, as collected in Linux qt/qml/settings/cs/CsHelper.qml).
 package se.bofr.dspi.feature.settings
 
+import se.bofr.dspi.ui.json.Json
+import se.bofr.dspi.ui.json.bool
+import se.bofr.dspi.ui.json.int
+import se.bofr.dspi.ui.json.list
+import se.bofr.dspi.ui.json.long
+import se.bofr.dspi.ui.json.obj
+import se.bofr.dspi.ui.json.str
+
 /** One binding slot (24-byte firmware record). */
 data class CsBinding(
     val type: Int = 0,
@@ -115,7 +123,7 @@ data class CsModel(
         /** Parse the controller's model JSON; "" or garbage gives an unsupported model. */
         fun parse(json: String): CsModel {
             if (json.isBlank()) return CsModel()
-            val m = CsJson.parseObject(json) ?: return CsModel()
+            val m = Json.parseObject(json) ?: return CsModel()
             if (m.bool("supported") != true) return CsModel()
             val status = m.obj("status") ?: emptyMap()
             val ext = m.obj("ext") ?: emptyMap()
@@ -235,13 +243,13 @@ data class CsModel(
 
         // ── Operations (CsController.apply / sendOnly JSON) ──
 
-        fun nameOp(slot: Int, name: String) = CsJson.write(linkedMapOf("op" to "name", "index" to slot, "name" to name))
+        fun nameOp(slot: Int, name: String) = Json.write(linkedMapOf("op" to "name", "index" to slot, "name" to name))
 
         /** An all-zero binding of type None frees the slot. */
-        fun clearBindingOp(slot: Int) = CsJson.write(linkedMapOf("op" to "binding", "index" to slot, "binding" to CsBinding().json()))
+        fun clearBindingOp(slot: Int) = Json.write(linkedMapOf("op" to "binding", "index" to slot, "binding" to CsBinding().json()))
 
-        fun auxStateOp(slot: Int, on: Boolean) = CsJson.write(linkedMapOf("op" to "auxState", "index" to slot, "on" to if (on) 1 else 0))
+        fun auxStateOp(slot: Int, on: Boolean) = Json.write(linkedMapOf("op" to "auxState", "index" to slot, "on" to if (on) 1 else 0))
 
-        fun macroFireOp(index: Int) = CsJson.write(linkedMapOf("op" to "macroFire", "index" to index))
+        fun macroFireOp(index: Int) = Json.write(linkedMapOf("op" to "macroFire", "index" to index))
     }
 }

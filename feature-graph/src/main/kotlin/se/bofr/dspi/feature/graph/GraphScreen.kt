@@ -1,10 +1,11 @@
 // The pop-out graph window (DSPi-Console-b5:DSPi Console/GraphView.swift
 // BodePlotView(isPopOut: true) + GraphLegend, README "Pop-Out Graph Window")
-// as a full-screen route: the graph fills the screen (landscape-friendly),
-// the legend toggles the curves underneath, and a channel menu picks the
-// channel edited on the graph. macOS's "Follow Channel Selection" mirrors the
-// main window's selected channel; a phone has one screen, so GraphScreen picks
-// its channel itself (docs/UPSTREAM-DEVIATIONS.md GRAPH).
+// as a full-screen route: the graph fills the screen (landscape-friendly) and
+// the legend toggles the curves underneath. With "Follow Channel Selection"
+// (AppSettings.popoutGraphFollowsSelection, Graph Setup) the edited channel is
+// the main window's selection (:ui-common AppState, macOS activeEqChannel);
+// without it a channel menu picks the channel edited here
+// (docs/UPSTREAM-DEVIATIONS.md GRAPH).
 package se.bofr.dspi.feature.graph
 
 import androidx.compose.foundation.background
@@ -35,6 +36,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.bofr.dspi.bridge.ChannelMap
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.DspiRoutes
+import se.bofr.dspi.ui.settings.LocalAppSettings
+import se.bofr.dspi.ui.state.LocalAppState
 
 /** The channels the graph can edit: the legend's pills (active inputs, enabled outputs). */
 internal fun editableChannels(bridge: DspiBridge): List<Int> = (0 until ChannelMap.APP_CHANNEL_COUNT).filter { ch ->
@@ -54,32 +57,45 @@ internal fun editableChannels(bridge: DspiBridge): List<Int> = (0 until ChannelM
 @Composable
 fun GraphScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val stateRev by bridge.stateRevision.collectAsStateWithLifecycle()
-    var edited by rememberSaveable { mutableStateOf(-1) }
+    val settings by LocalAppSettings.current.settings.collectAsStateWithLifecycle()
+    val selected by LocalAppState.current.activeEqChannel.collectAsStateWithLifecycle()
+    val follows = settings.popoutGraphFollowsSelection
+    var picked by rememberSaveable { mutableStateOf(-1) }
     var menuOpen by remember { mutableStateOf(false) }
     val choices = remember(stateRev) { editableChannels(bridge) }
-    if (edited >= 0 && edited !in choices) edited = -1
+    if (picked >= 0 && picked !in choices) picked = -1
+    val edited = if (follows) selected?.takeIf { it in choices } ?: -1 else picked
     Column(modifier.fillMaxSize().background(Color(0xFF1A1A1C)).padding(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("‹ Back") }
             Text("Response Graph", fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
-            Box {
-                TextButton(onClick = { menuOpen = true }) {
-                    Text(if (edited >= 0) "Edit: ${bridge.channelDescriptor(edited)}" else "Edit: none", fontSize = 13.sp)
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("None (view only)") }, onClick = {
-                        edited = -1
-                        menuOpen = false
-                    })
-                    for (ch in choices) {
-                        DropdownMenuItem(
-                            text = { Text("${bridge.channelDescriptor(ch)}  ${bridge.channelName(ch)}") },
-                            onClick = {
-                                edited = ch
-                                if (!bridge.channelVisible(ch)) bridge.setChannelVisible(ch, true)
-                                menuOpen = false
-                            }
-                        )
+            if (follows) {
+                Text(
+                    if (edited >= 0) "Following: ${bridge.channelDescriptor(edited)}" else "Following: overview",
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+            } else {
+                Box {
+                    TextButton(onClick = { menuOpen = true }) {
+                        Text(if (edited >= 0) "Edit: ${bridge.channelDescriptor(edited)}" else "Edit: none", fontSize = 13.sp)
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(text = { Text("None (view only)") }, onClick = {
+                            picked = -1
+                            menuOpen = false
+                        })
+                        for (ch in choices) {
+                            DropdownMenuItem(
+                                text = { Text("${bridge.channelDescriptor(ch)}  ${bridge.channelName(ch)}") },
+                                onClick = {
+                                    picked = ch
+                                    if (!bridge.channelVisible(ch)) bridge.setChannelVisible(ch, true)
+                                    menuOpen = false
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -88,7 +104,8 @@ fun GraphScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> 
             bridge = bridge,
             modifier = Modifier.weight(1f).fillMaxSize(),
             channels = if (edited >= 0) setOf(edited) else emptySet(),
-            editable = edited >= 0
+            editable = edited >= 0,
+            isPopOut = true
         )
         GraphLegend(bridge, Modifier.fillMaxWidth())
         if (edited >= 0) {

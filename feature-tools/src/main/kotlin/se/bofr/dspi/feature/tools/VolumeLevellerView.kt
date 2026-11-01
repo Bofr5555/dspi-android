@@ -20,6 +20,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.ChannelChips
+import se.bofr.dspi.ui.ParameterRow
+import se.bofr.dspi.ui.PullDownMenu
+import se.bofr.dspi.ui.SectionHeader
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.SwitchRow
+import se.bofr.dspi.ui.ToolHeader
 
 /** VolumeLevellerView: CHANNELS (multichannel only), PARAMETERS. */
 @Composable
@@ -45,7 +54,7 @@ fun VolumeLevellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
             ToolColumn {
                 if (showMasks) {
                     SectionHeader("CHANNELS") {
-                        ToolMenu(
+                        PullDownMenu(
                             "Presets",
                             connected,
                             LevellerParameters.maskPresets.map { (title, det, app) -> title to { bridge.setLevellerMasks(det, app) } }

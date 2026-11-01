@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import se.bofr.dspi.ui.MacColors
 
 /** The visibly different kinds of tube among the sixteen the firmware models. */
 enum class TubeFamily {
@@ -532,7 +533,7 @@ internal fun TubeIcon(lit: Boolean, color: Color, modifier: Modifier = Modifier)
             quadraticTo(p(12f, 6.5f).x, p(12f, 6.5f).y, p(13.5f, 11f).x, p(13.5f, 11f).y)
         }
         drawPath(fil, color.copy(alpha = color.alpha * (1 - glow)), style = Stroke(lw * 0.8f, cap = StrokeCap.Round))
-        drawPath(fil, ToolColors.orange.copy(alpha = 0.35f * glow), style = Stroke(lw * 2.4f, cap = StrokeCap.Round))
-        drawPath(fil, ToolColors.orange.copy(alpha = glow), style = Stroke(lw, cap = StrokeCap.Round))
+        drawPath(fil, MacColors.orange.copy(alpha = 0.35f * glow), style = Stroke(lw * 2.4f, cap = StrokeCap.Round))
+        drawPath(fil, MacColors.orange.copy(alpha = glow), style = Stroke(lw, cap = StrokeCap.Round))
     }
 }

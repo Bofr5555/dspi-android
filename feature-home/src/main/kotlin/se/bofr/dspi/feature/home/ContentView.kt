@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,11 +48,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import se.bofr.dspi.bridge.ChannelMap
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.feature.graph.GraphResizeHandle
 import se.bofr.dspi.feature.graph.GraphView
+import se.bofr.dspi.feature.graph.LocalPeqGraphSelection
+import se.bofr.dspi.feature.graph.PeqGraphSelection
 import se.bofr.dspi.feature.home.components.ChannelRow
 import se.bofr.dspi.feature.home.components.ConnectionStatusIndicator
 import se.bofr.dspi.feature.home.components.SidebarVolumeMode
 import se.bofr.dspi.feature.home.components.VolumeModeSelector
+import se.bofr.dspi.feature.home.components.setSidebarVolumeMode
+import se.bofr.dspi.feature.home.components.sidebarVolumeMode
 import se.bofr.dspi.ui.ChannelPalette
 import se.bofr.dspi.ui.CpuSection
 import se.bofr.dspi.ui.CustomSlider
@@ -66,6 +72,9 @@ import se.bofr.dspi.ui.SidebarIconButton
 import se.bofr.dspi.ui.UserVolumeTaper
 import se.bofr.dspi.ui.VerticalRule
 import se.bofr.dspi.ui.rememberSliderDrag
+import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.settings.LocalAppSettings
+import se.bofr.dspi.ui.state.LocalAppState
 
 /** Saves a [SidebarSelection] across configuration changes. */
 private val SelectionSaver =
@@ -90,7 +99,7 @@ private val SelectionSaver =
 @Composable
 fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modifier = Modifier) {
     val c = DspiTheme.colors
-    val prefs = rememberHomePreferences()
+    val prefs = LocalAppSettings.current
     val homeVm: HomeViewModel = viewModel(factory = HomeViewModel.factory(bridge))
     val connected = bridge.observeStatus { it.connected }
     val s = bridge.observeState()
@@ -106,6 +115,11 @@ fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modi
 
     BoxWithConstraints(modifier.fillMaxSize().background(c.mainContent)) {
         val twoPane = maxWidth >= 840.dp
+        // The main window's selection (macOS updateSelection(to:)): a channel selected in place on a tablet,
+        // the overview on the phone's home page (channel pages are their own route)
+        val appState = LocalAppState.current
+        val selectedChannel = if (twoPane) graphChannels(bridge, selection).firstOrNull() else null
+        LaunchedEffect(selectedChannel) { appState.updateSelection(selectedChannel) }
         Column(Modifier.fillMaxSize()) {
             FirmwareMismatchBanner(bridge, onUpdate = { onNavigate(DspiRoutes.FIRMWARE) })
             if (twoPane) {
@@ -122,23 +136,31 @@ fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modi
                     VerticalRule()
                     Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
                         GraphHeader(bridge, onNavigate)
-                        GraphView(
-                            bridge,
-                            Modifier.fillMaxWidth().height(260.dp).padding(horizontal = 16.dp),
-                            graphChannels(bridge, selection),
-                            editable =
-                            selection != SidebarSelection.Overview
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        when (val sel = selection) {
-                            SidebarSelection.Overview -> DashboardOverview(bridge, prefs)
-                            is SidebarSelection.Input -> InputChannelDetail(bridge, sel.ch, Modifier.padding(horizontal = 16.dp))
-                            is SidebarSelection.Output -> OutputChannelDetail(
+                        val selectedChannel = graphChannels(bridge, selection).firstOrNull()
+                        val graphSelection = remember(selectedChannel) { PeqGraphSelection() }
+                        val tabState = rememberSaveable(selectedChannel) { mutableStateOf(OutputChannelTab.PEQ) }
+                        CompositionLocalProvider(LocalPeqGraphSelection provides graphSelection) {
+                            // No on-graph editing while the XO tab lists the crossover bands (macOS crossoverTabShown)
+                            val editable = selection is SidebarSelection.Input ||
+                                (selection is SidebarSelection.Output && tabState.value != OutputChannelTab.CROSSOVER)
+                            GraphView(
                                 bridge,
-                                sel.index,
-                                onNavigate,
-                                Modifier.padding(horizontal = 16.dp)
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                graphChannels(bridge, selection),
+                                editable = editable
                             )
+                            GraphResizeHandle(Modifier.padding(horizontal = 16.dp))
+                            when (val sel = selection) {
+                                SidebarSelection.Overview -> DashboardOverview(bridge, prefs)
+                                is SidebarSelection.Input -> InputChannelDetail(bridge, sel.ch, Modifier.padding(horizontal = 16.dp))
+                                is SidebarSelection.Output -> OutputChannelDetail(
+                                    bridge,
+                                    sel.index,
+                                    onNavigate,
+                                    Modifier.padding(horizontal = 16.dp),
+                                    tabState = tabState
+                                )
+                            }
                         }
                         Spacer(Modifier.height(16.dp))
                     }
@@ -146,8 +168,8 @@ fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modi
             } else {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     GraphHeader(bridge, onNavigate)
-                    GraphView(bridge, Modifier.fillMaxWidth().height(220.dp).padding(horizontal = 16.dp))
-                    Spacer(Modifier.height(12.dp))
+                    GraphView(bridge, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                    GraphResizeHandle(Modifier.padding(horizontal = 16.dp))
                     Column(Modifier.background(c.sidebar)) {
                         SidebarChannels(bridge, SidebarSelection.Overview, onSelect = {
                             when (it) {
@@ -337,7 +359,7 @@ private fun ChannelContextMenu(
  * right-click opens the tool window).
  */
 @Composable
-private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: HomePreferences, onNavigate: (String) -> Unit) {
+private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: AppSettingsStore, onNavigate: (String) -> Unit) {
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
@@ -383,7 +405,7 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: Hom
             if (bridge.inputSources.isNotEmpty()) {
                 SourceRow(bridge, connected)
             }
-            when (prefs.sidebarVolumeMode) {
+            when (prefs.sidebarVolumeMode()) {
                 SidebarVolumeMode.MASTER -> MasterModeSection(bridge, prefs)
                 SidebarVolumeMode.AUTO -> UserVolumeSection(bridge, prefs)
             }
@@ -428,7 +450,7 @@ private fun SourceRow(bridge: DspiBridge, connected: Boolean) {
  * commits; double-tap resets to 0 dB (macOS right-click).
  */
 @Composable
-fun UserVolumeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modifier = Modifier) {
+fun UserVolumeSection(bridge: DspiBridge, prefs: AppSettingsStore, modifier: Modifier = Modifier) {
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
@@ -436,7 +458,7 @@ fun UserVolumeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modi
     fun db(v: Float) = UserVolumeTaper.scalarToDB(v.toDouble())
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            VolumeModeSelector(prefs.sidebarVolumeMode, { prefs.sidebarVolumeMode = it })
+            VolumeModeSelector(prefs.sidebarVolumeMode(), { prefs.setSidebarVolumeMode(it) })
             Spacer(Modifier.weight(1f))
             Text(UserVolumeTaper.displayString(db(drag.value)), style = DspiType.bodyMono, color = c.label)
         }
@@ -458,7 +480,7 @@ fun UserVolumeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modi
  * double-tap resets to 0 dB.
  */
 @Composable
-fun MasterModeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modifier = Modifier) {
+fun MasterModeSection(bridge: DspiBridge, prefs: AppSettingsStore, modifier: Modifier = Modifier) {
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
@@ -466,7 +488,7 @@ fun MasterModeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modi
     val db = MasterVolumeTaper.sliderToDB(drag.value)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            VolumeModeSelector(prefs.sidebarVolumeMode, { prefs.sidebarVolumeMode = it })
+            VolumeModeSelector(prefs.sidebarVolumeMode(), { prefs.setSidebarVolumeMode(it) })
             Spacer(Modifier.weight(1f))
             Text(
                 if (db <=

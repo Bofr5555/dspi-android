@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 private fun BuildingBlocksPreview() {
     DspiTheme(darkTheme = true) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ToolHeader(DspiIcons.loudness, "Loudness Compensation", "ISO 226:2003 Fletcher-Munson", checked = true, onToggle = {})
+            ToolHeader("Loudness Compensation", "ISO 226:2003 Fletcher-Munson", isOn = true, switchEnabled = true, onToggle = {})
             SectionLabel("PARAMETERS")
             ParameterRow("Reference SPL", "dB", 83f, 40f..100f, set = {}, caption = "Listening level the curve is flat at.")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -23,7 +23,7 @@ private fun BuildingBlocksPreview() {
                 PillButton("Clear All", {})
                 SegmentedControl(listOf(SegmentTab("PEQ", true) {}, SegmentTab("XO", false) {}))
             }
-            ChannelChips(listOf(ChannelChip("1", true), ChannelChip("2", false), ChannelChip("3", true)), {})
+            ChannelChips(3, { it != 1 }, listOf("Out 1", "Out 2", "Out 3"), enabled = true, onToggle = {})
             HorizontalMeterBar(0.6f, ChannelPalette.input(0), isClipping = true)
             CpuSection(42, 95)
         }

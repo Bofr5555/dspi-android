@@ -68,31 +68,21 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.withContext
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.RtaCapsInfo
 import se.bofr.dspi.core.RtaSnapshot
 import se.bofr.dspi.ui.ChannelPalette
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.WhileVisible
+import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.settings.LocalAppSettings
 
 /** Subscription ids for the bridge's RtaController (views share one analyser). */
 private val rtaSubscriptionIds = AtomicInteger(0x5A_0000)
-
-/** "#RRGGBB" from the bridge's channel palette. */
-internal fun parseHexColor(hex: String): Color? {
-    val h = hex.removePrefix("#")
-    val v = h.toLongOrNull(16) ?: return null
-    return when (h.length) {
-        6 -> Color(0xFF000000 or v)
-        8 -> Color(v)
-        else -> null
-    }
-}
-
-private class StoredRta(val prefs: RtaPreferences, val selectionKey: String?, val otherSideKey: String?)
 
 /** What the analyser page shows, apart from the frames themselves. */
 data class SpectrumUiState(
@@ -113,7 +103,7 @@ data class SpectrumUiState(
  * after the last view goes) and draws the bridge's snapshots.
  */
 @Composable
-fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, store: RtaSettingsStore = rememberRtaSettingsStore()) {
+fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, store: AppSettingsStore = LocalAppSettings.current) {
     val rta = bridge.rta
     val bridgeStatus by bridge.status.collectAsState()
 
@@ -121,34 +111,16 @@ fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, stor
     val revision by bridge.stateRevision.collectAsState() // enables, names, live inputs
     val caps by rta.caps.collectAsState()
 
-    // The macOS preferences and the dashboard's stored selection, read off the main thread
-    var stored by remember { mutableStateOf<StoredRta?>(null) }
-    LaunchedEffect(store) {
-        stored =
-            withContext(Dispatchers.IO) {
-                StoredRta(
-                    store.load(),
-                    store.string(RtaSettingsKeys.DASHBOARD_SOURCE),
-                    store.string(RtaSettingsKeys.DASHBOARD_OTHER_SIDE)
-                )
-            }
-    }
-    val prefs = stored?.prefs ?: RtaPreferences()
-    var selectionKey by rememberSaveable { mutableStateOf<String?>(null) }
-    var otherSideKey by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(stored) {
-        val s = stored ?: return@LaunchedEffect
-        if (selectionKey == null) selectionKey = s.selectionKey
-        if (otherSideKey == null) otherSideKey = s.otherSideKey
-    }
+    // The macOS preferences and the dashboard's stored selection (the shared AppSettings)
+    val settings by store.settings.collectAsState()
+    val prefs = remember(settings) { settings.rtaPreferences() }
+    val selectionKey = settings.rtaDashboardSelectionKey
+    val otherSideKey = settings.rtaDashboardOtherSideKey
     // Swift startFromPage(): each time the page opens it draws what the dashboard draws
     var chosenMode by rememberSaveable { mutableStateOf<RtaDisplayMode?>(null) }
     val mode = chosenMode ?: rtaInitialMode(prefs.dashboardShowGraph, prefs.dashboardShowBars)
     fun storeSelection(active: RtaChannelSelection, other: RtaChannelSelection?) {
-        selectionKey = active.storageKey
-        otherSideKey = other?.storageKey ?: ""
-        store.putString(RtaSettingsKeys.DASHBOARD_SOURCE, active.storageKey)
-        store.putString(RtaSettingsKeys.DASHBOARD_OTHER_SIDE, other?.storageKey ?: "")
+        store.update { it.copy(rtaDashboardSelectionKey = active.storageKey, rtaDashboardOtherSideKey = other?.storageKey ?: "") }
     }
 
     val selection = RtaChannelSelection.resolve(RtaChannelSelection.fromStorageKey(selectionKey)) { rta.availableChannels(it) }
@@ -168,12 +140,9 @@ fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, stor
     WhileVisible(key = rta, onShow = { visible = true }, onHide = { visible = false })
     val wantsBins = mode != RtaDisplayMode.BARS && selection.channels.size == 1
     val watching = visible && state.supported && !selection.isEmpty
-    LaunchedEffect(watching, selection.tap, selection.mask, wantsBins, prefs) {
+    // The device-side options (fft order, averaging, peak decay) are pushed by :app, app-wide
+    LaunchedEffect(watching, selection.tap, selection.mask, wantsBins) {
         if (watching) {
-            // Swift RtaWatch: the device-side options are pushed whenever a view starts watching
-            rta.fftOrder = prefs.fftOrder
-            rta.avgMs = prefs.avgMs
-            rta.peakDecay = prefs.peakDecayDbs
             rta.update(subscriptionId, selection.tap, selection.mask, wantsBins)
         } else {
             rta.release(subscriptionId)
@@ -208,7 +177,7 @@ fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, stor
         channelName = { tap, ch -> bridge.channelName(rta.appChannel(tap, ch)).ifEmpty { "Ch ${ch + 1}" } },
         channelColor = { tap, ch ->
             val app = rta.appChannel(tap, ch)
-            parseHexColor(bridge.channelColor(app)) ?: ChannelPalette.color(app)
+            ChannelPalette.fromHex(bridge.channelColor(app), ChannelPalette.color(app, bridge.numOutputChannels))
         },
         onSide = { tap ->
             // Swift switchRtaSide: the stored form, so a channel disabled for now is still remembered
@@ -300,10 +269,10 @@ private fun SpectrumHeader(
                 options = listOf(DspiConstants.RTA_TAP_INPUT, DspiConstants.RTA_TAP_OUTPUT),
                 selected = sel.tap,
                 label = { if (it == DspiConstants.RTA_TAP_INPUT) "Inputs" else "Outputs" },
-                onSelect = onSide
+                onSelect = onSide,
+                modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.weight(1f))
-            SegmentedPicker(RtaDisplayMode.entries, state.mode, { it.label }, onMode)
+            SegmentedPicker(RtaDisplayMode.entries, state.mode, { it.label }, onMode, Modifier.weight(1f))
         }
         // The channels at this side: tap to analyse or drop one (the curves' legend too)
         Row(

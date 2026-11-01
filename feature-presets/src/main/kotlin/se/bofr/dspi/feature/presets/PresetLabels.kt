@@ -1,7 +1,7 @@
 // Port of DSPi-Console (macOS) @ v1.1.6-beta5:
 // - `ContentView.swift` `presetLabel(_:)`, `presetDropdownLabel(_:)`, the
 //   "Preset N" default name;
-// - `Constants.swift` `presetFailureText(_:)`;
+// - `Constants.swift` `presetFailureText(_:)` (now `PresetStatus.failureText` in core-api);
 // - `PresetDocument.swift` `fileExtension`, `FileMenuActions` default file
 //   names, the export summary and the import-options wording
 //   (`DSPi_ConsoleApp.swift` FileMenuActions.exportConfiguration /
@@ -15,6 +15,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.json.Json
+import se.bofr.dspi.ui.json.int
+import se.bofr.dspi.ui.json.list
 
 /** Preset slots on the device (ContentView `0..<10`). */
 const val PRESET_SLOT_COUNT = 10
@@ -47,8 +50,7 @@ fun presetPickerTitle(slot: Int, occupied: Boolean, name: String, active: Boolea
  */
 fun presetStatusCode(status: PresetStatus): Int = if (status == PresetStatus.NO_REPLY) 255 else status.code
 
-/** `presetFailureText(_:)` (no DSPi Link lock on Android). */
-fun presetFailureText(status: PresetStatus) = "error ${presetStatusCode(status)}"
+// `presetFailureText(_:)` is core-api's `PresetStatus.failureText` (BRIDGE-3, with the LOCKED wording).
 
 /** `PresetDocument.swift` file naming and the FileMenuActions panel defaults. */
 object PresetDocumentFiles {
@@ -134,7 +136,7 @@ object PresetDocumentFiles {
      * enabled crosspoints).
      */
     fun exportSummary(documentText: String): String {
-        val doc = PresetsJson.parseObject(documentText)
+        val doc = Json.parseObject(documentText)
         val channels = doc?.list("channels").orEmpty().filterIsInstance<Map<String, Any?>>()
         fun active(c: Map<String, Any?>, key: String) = c.list(key).orEmpty().count { b ->
             val type = (b as? Map<String, Any?>)?.int("type") ?: 0

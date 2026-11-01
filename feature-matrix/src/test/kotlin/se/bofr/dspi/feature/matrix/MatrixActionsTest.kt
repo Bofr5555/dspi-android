@@ -249,4 +249,18 @@ class MatrixActionsTest {
         r.actions.pasteChannelParams(1)
         runCurrent()
     }
+
+    @Test
+    fun directRoutingShowsTheOutputsItEnablesOnlyInOverview() = runTest {
+        for (overview in listOf(false, true)) {
+            val r = rig(overview)
+            r.bridge.setOutputEnable(1, false)
+            runCurrent()
+            r.bridge.setChannelVisible(3, false)
+            r.actions.applyDirectRouting()
+            runCurrent()
+            assertTrue(r.bridge.outputEnabled(1))
+            assertEquals("overview=$overview", overview, r.bridge.channelVisible(3))
+        }
+    }
 }

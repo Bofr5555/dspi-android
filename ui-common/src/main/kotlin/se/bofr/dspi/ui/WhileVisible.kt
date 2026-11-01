@@ -1,8 +1,10 @@
-// "While on screen" for the analysis views: the Android equivalent of the
-// macOS windows' visibility/occlusion handling (SpectrumAnalyserWindowController
-// isRendering, the Qt windows' `shown`). A view counts as shown while it is
-// composed and its lifecycle is at least STARTED.
-package se.bofr.dspi.feature.analysis
+// "While on screen": the Android equivalent of the macOS windows'
+// visibility/occlusion handling (SpectrumAnalyserWindowController isRendering,
+// tool windows' timers stopping on close, the Qt windows' `shown`). A view
+// counts as shown while it is composed and its lifecycle is at least STARTED.
+// The one visibility/lifecycle helper of the app (decision E6; from ANALYSIS
+// WhileVisible and TOOLS rememberWhileVisible).
+package se.bofr.dspi.ui
 
 import android.app.Activity
 import android.content.Context
@@ -15,15 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.MainScope
-
-/**
- * Decision E9: multi-call device sequences run outside the composition so a
- * configuration change cannot cut them in half. The bridge is main-thread
- * safe, so this is a process-lifetime main scope.
- */
-internal object AnalysisScope : CoroutineScope by MainScope()
+import androidx.lifecycle.compose.currentStateAsState
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -38,7 +32,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
  * straight back.
  */
 @Composable
-internal fun WhileVisible(key: Any?, onShow: () -> Unit, onHide: (configurationChange: Boolean) -> Unit) {
+fun WhileVisible(key: Any?, onShow: () -> Unit, onHide: (configurationChange: Boolean) -> Unit) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val activity = LocalContext.current.findActivity()
     val show by rememberUpdatedState(onShow)
@@ -73,4 +67,16 @@ internal fun WhileVisible(key: Any?, onShow: () -> Unit, onHide: (configurationC
             }
         }
     }
+}
+
+/**
+ * True while the hosting lifecycle is at least STARTED: a view's own device
+ * polls (upmix telemetry, subharm meter, statistics) run only then, as macOS
+ * stops them when the window closes and the bridge stops its status poll at
+ * `setUiVisible(false)`.
+ */
+@Composable
+fun rememberWhileVisible(): Boolean {
+    val state by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    return state.isAtLeast(Lifecycle.State.STARTED)
 }

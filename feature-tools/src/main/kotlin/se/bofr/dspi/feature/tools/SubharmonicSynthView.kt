@@ -65,6 +65,19 @@ import se.bofr.dspi.feature.tools.SubharmParameters.Companion.SUBHARM_LEVEL_MIN
 import se.bofr.dspi.feature.tools.SubharmParameters.Companion.SUBHARM_SELECT_ALL
 import se.bofr.dspi.feature.tools.SubharmParameters.Companion.SUBHARM_SELECT_PERCUSSIVE
 import se.bofr.dspi.feature.tools.SubharmParameters.Companion.SUBHARM_SELECT_SUSTAINED
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.ChannelChips
+import se.bofr.dspi.ui.HelpTip
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.ParameterRow
+import se.bofr.dspi.ui.PullDownMenu
+import se.bofr.dspi.ui.SectionHeader
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.SwitchRow
+import se.bofr.dspi.ui.ToolHeader
+import se.bofr.dspi.ui.ValueFormat
+import se.bofr.dspi.ui.rememberWhileVisible
 
 /** `SubharmBandView`'s magnitudes: the 70 Hz bell and the steady-state sub levels. */
 object SubharmBandMath {
@@ -143,7 +156,7 @@ fun SubharmonicSynthView(bridge: DspiBridge, modifier: Modifier = Modifier) {
         value = value,
         range = SubharmParameters.LEVEL_RANGE,
         maxDecimals = 1,
-        ends = "Off" to ToolFormat.signed(SUBHARM_LEVEL_MAX, 0) + " dB",
+        ends = "Off" to ValueFormat.signed(SUBHARM_LEVEL_MAX, 0) + " dB",
         displayOverride = if (value <= SUBHARM_LEVEL_MIN) "Off" else null,
         formatLive = { if (it <= SUBHARM_LEVEL_MIN) "Off" else null },
         isEnabled = connected,
@@ -175,7 +188,7 @@ fun SubharmonicSynthView(bridge: DspiBridge, modifier: Modifier = Modifier) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 ToolColumns(left = {
                     SectionHeader("BANDS") {
-                        ToolMenu(
+                        PullDownMenu(
                             "Apply preset",
                             connected,
                             SubharmParameters.startingPoints.map { p ->
@@ -212,7 +225,7 @@ fun SubharmonicSynthView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                             Text(
                                 SubharmParameters.headroomText(headroomDB),
                                 fontSize = 14.sp,
-                                color = if (headroomDB > 0f) ToolColors.orange else secondaryColor()
+                                color = if (headroomDB > 0f) MacColors.orange else secondaryColor()
                             )
                         }
                     }
@@ -341,7 +354,7 @@ fun SubharmonicSynthView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                         value = subharm.boostDB,
                         range = SubharmParameters.BOOST_RANGE,
                         maxDecimals = 1,
-                        ends = "Off" to ToolFormat.signed(SUBHARM_BOOST_MAX, 0) + " dB",
+                        ends = "Off" to ValueFormat.signed(SUBHARM_BOOST_MAX, 0) + " dB",
                         isEnabled = connected,
                         help = "A gentle bell at 70 Hz, Q 0.9, applied to the whole output after the subs are summed. It fills the " +
                             "gap between the synthesized sub and the program's own mid-bass. Meant to stay gentle, as on the dbx.",
@@ -354,7 +367,7 @@ fun SubharmonicSynthView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                     )
                     HorizontalDivider()
                     SectionHeader("OUTPUTS") {
-                        ToolMenu(
+                        PullDownMenu(
                             "Presets",
                             connected,
                             listOf(
@@ -434,7 +447,7 @@ private fun SoloButton(solo: Boolean, enabled: Boolean, onClick: () -> Unit) {
                 .padding(end = 4.dp)
                 .height(28.dp)
                 .alpha(if (enabled) 1f else 0.4f)
-                .background(if (solo) ToolColors.orange else secondaryColor().copy(alpha = 0.12f), RoundedCornerShape(5.dp))
+                .background(if (solo) MacColors.orange else secondaryColor().copy(alpha = 0.12f), RoundedCornerShape(5.dp))
                 .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center
@@ -538,7 +551,7 @@ internal fun SubharmBandView(
                 }
                 drawPath(
                     path,
-                    ToolColors.green.copy(alpha = 0.8f),
+                    MacColors.green.copy(alpha = 0.8f),
                     style = Stroke(1.4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
                 labelAt(
@@ -551,7 +564,7 @@ internal fun SubharmBandView(
                             y(SubharmBandMath.bellDB(SUBHARM_BOOST_HZ.toDouble(), boostDB)) - 8.dp.toPx()
                         )
                     ),
-                    ToolColors.green.copy(alpha = 0.9f),
+                    MacColors.green.copy(alpha = 0.9f),
                     8.sp,
                     bold = true,
                     mono = false,
@@ -620,11 +633,11 @@ internal fun SubharmBandView(
                 octaveArrow(60.0, 30.0, 15.dp.toPx())
             }
             if (!off(highDB)) {
-                subBlock(36.0, 56.0, highDB, ToolColors.orange)
+                subBlock(36.0, 56.0, highDB, MacColors.orange)
                 octaveArrow(92.0, 46.0, 23.dp.toPx())
             }
             if (!off(topDB)) {
-                subBlock(56.0, 80.0, topDB, ToolColors.purple)
+                subBlock(56.0, 80.0, topDB, MacColors.purple)
                 octaveArrow(136.0, 68.0, 31.dp.toPx())
             }
 
@@ -632,7 +645,7 @@ internal fun SubharmBandView(
                 val cy = y(ceilingDB.toDouble())
                 val x1 = x(80.0)
                 drawLine(
-                    ToolColors.red.copy(alpha = 0.65f),
+                    MacColors.red.copy(alpha = 0.65f),
                     Offset(0f, cy),
                     Offset(x1, cy),
                     1f,
@@ -642,7 +655,7 @@ internal fun SubharmBandView(
                     measurer,
                     "ceiling",
                     Offset(x1 + 18.dp.toPx(), cy),
-                    ToolColors.red.copy(alpha = 0.8f),
+                    MacColors.red.copy(alpha = 0.8f),
                     8.sp,
                     bold = true,
                     mono = false,

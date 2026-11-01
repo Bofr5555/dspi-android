@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.Throttle
+import se.bofr.dspi.ui.roundOutputDelay
+import se.bofr.dspi.ui.roundOutputGain
 
 /**
  * The matrix screen's controller: what the UI does to the device, plus the
@@ -28,11 +30,9 @@ import se.bofr.dspi.bridge.Throttle
  * cancels the throttle and commits once.
  *
  * [isOverviewMode]: macOS `DSPViewModel.isOverviewMode` (graph showing the
- * dashboard rather than one channel page). Graph visibility follows ENABLE
- * only in overview mode, as Commands.swift setOutputEnable does. Nothing
- * exposes that mode to features yet, so it defaults to "not known" = false
- * and the matrix leaves graph visibility alone (contract request in the
- * package report).
+ * dashboard rather than one channel page; :ui-common `AppState`). Graph
+ * visibility follows ENABLE and Direct 1:1 only in overview mode, as
+ * Commands.swift setOutputEnable / applyDirectRouting do.
  */
 class MatrixActions(
     private val bridge: DspiBridge,
@@ -176,7 +176,7 @@ class MatrixActions(
     // ═══ ROUTING band (8-channel) ═══
 
     /** "Direct 1:1" (macOS applyDirectRouting). */
-    fun applyDirectRouting() = bridge.directRouting()
+    fun applyDirectRouting() = bridge.directRouting(-1, overview = isOverviewMode())
 
     /** "Clear" (macOS clearAllRoutes). */
     fun clearAllRoutes() = bridge.clearRouting()
@@ -211,10 +211,11 @@ class MatrixActions(
         /**
          * The app-scoped controller for [bridge] (one per bridge, as long as
          * the bridge lives): its scope outlives the screen, so a rotation
-         * never cuts a multi-call sequence short. Main thread only.
+         * never cuts a multi-call sequence short. [isOverviewMode] reads the
+         * app's one AppState. Main thread only.
          */
-        fun forBridge(bridge: DspiBridge): MatrixActions = controllers.getOrPut(bridge) {
-            MatrixActions(bridge, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+        fun forBridge(bridge: DspiBridge, isOverviewMode: () -> Boolean = { false }): MatrixActions = controllers.getOrPut(bridge) {
+            MatrixActions(bridge, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate), isOverviewMode)
         }
 
         /** README: "Names can be up to 31 characters". */

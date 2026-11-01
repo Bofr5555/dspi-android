@@ -23,6 +23,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.ChannelChips
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.ParameterRow
+import se.bofr.dspi.ui.PullDownMenu
+import se.bofr.dspi.ui.SectionHeader
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.ToolHeader
 
 /** The schematic spectrum's band heights. */
 object PsybassSpectrum {
@@ -87,7 +95,7 @@ fun PsychoacousticBassView(bridge: DspiBridge, modifier: Modifier = Modifier) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 ToolColumns(left = {
                     SectionHeader("SPECTRUM") {
-                        ToolMenu(
+                        PullDownMenu(
                             "Apply preset",
                             connected,
                             PsybassParameters.startingPoints.map { p ->
@@ -135,7 +143,7 @@ fun PsychoacousticBassView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                     )
                 }, right = {
                     SectionHeader("OUTPUTS") {
-                        ToolMenu(
+                        PullDownMenu(
                             "Presets",
                             connected,
                             listOf(
@@ -222,7 +230,7 @@ internal fun PsybassSpectrumView(cutoff: Float, harmonicsDB: Float, originalDB: 
             val origH = baseline * PsybassSpectrum.originalFrac(originalDB)
             drawRect(accent.copy(alpha = 0.35f), Offset(0f, baseline - origH), Size(maxOf(0f, fcX), maxOf(0f, origH)))
             val harmH = baseline * PsybassSpectrum.harmonicsFrac(harmonicsDB)
-            drawRect(ToolColors.orange.copy(alpha = 0.55f), Offset(fcX, baseline - harmH), Size(maxOf(0f, fc4X - fcX), maxOf(0f, harmH)))
+            drawRect(MacColors.orange.copy(alpha = 0.55f), Offset(fcX, baseline - harmH), Size(maxOf(0f, fc4X - fcX), maxOf(0f, harmH)))
             drawLine(
                 primary.copy(alpha = 0.4f),
                 Offset(fcX, 0f),
@@ -243,7 +251,7 @@ internal fun PsybassSpectrumView(cutoff: Float, harmonicsDB: Float, originalDB: 
             val box = Size(84.dp.toPx(), 30.dp.toPx())
             val o = Offset(w - box.width - 4.dp.toPx(), 4.dp.toPx())
             drawRect(bg.copy(alpha = 0.85f), o, box)
-            listOf("Original" to accent, "Harmonics" to ToolColors.orange).forEachIndexed { i, (label, c) ->
+            listOf("Original" to accent, "Harmonics" to MacColors.orange).forEachIndexed { i, (label, c) ->
                 val cy = o.y + 8.dp.toPx() + i * 13.dp.toPx()
                 drawRect(c, Offset(o.x + 6.dp.toPx(), cy - 3.dp.toPx()), Size(10.dp.toPx(), 6.dp.toPx()))
                 labelAt(measurer, label, Offset(o.x + 48.dp.toPx(), cy), primary, 9.sp, bold = true, mono = false)

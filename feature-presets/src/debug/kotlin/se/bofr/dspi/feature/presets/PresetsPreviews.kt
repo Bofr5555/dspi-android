@@ -15,6 +15,12 @@ import se.bofr.dspi.feature.presets.autoeq.AutoEQManager
 import se.bofr.dspi.feature.presets.autoeq.FavoriteProfile
 import se.bofr.dspi.feature.presets.autoeq.InMemoryFavoritesStore
 import se.bofr.dspi.ui.DspiTheme
+import se.bofr.dspi.ui.alert.AlertButton
+import se.bofr.dspi.ui.alert.AlertButtonRole
+import se.bofr.dspi.ui.alert.AlertCheckbox
+import se.bofr.dspi.ui.alert.AlertStyle
+import se.bofr.dspi.ui.alert.ConsoleAlert
+import se.bofr.dspi.ui.alert.ConsoleAlertDialog
 
 private const val PREVIEW_DB = """{"version":1,"generatedAt":"2026-01-18T05:41:39.649194+00:00","entryCount":3,"entries":[
 {"id":"oratory1990/Sennheiser HD 650","manufacturer":"Sennheiser","model":"HD 650","source":"oratory1990","formFactor":"over-ear","preamp":-6.4,

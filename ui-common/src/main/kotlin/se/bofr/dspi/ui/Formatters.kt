@@ -53,6 +53,23 @@ object ValueFormat {
         if (t.isEmpty()) return null
         return t.toFloatOrNull()?.takeIf { !it.isNaN() }
     }
+
+    /**
+     * A typed entry of a ranged row (tool windows): the unit is optional
+     * ("-3.5 dB"), a decimal comma and a Unicode minus are accepted, and the
+     * value is kept within [range] ("Values you type are kept within the
+     * row's range"). Null when nothing numeric was typed.
+     */
+    fun parse(text: String, range: ClosedFloatingPointRange<Float>): Float? {
+        val cleaned =
+            text.trim()
+                .replace('−', '-')
+                .replace(',', '.')
+                .takeWhile { it.isDigit() || it == '-' || it == '+' || it == '.' }
+        val v = cleaned.toFloatOrNull() ?: return null
+        if (!v.isFinite()) return null
+        return v.coerceIn(range.start, range.endInclusive)
+    }
 }
 
 /**

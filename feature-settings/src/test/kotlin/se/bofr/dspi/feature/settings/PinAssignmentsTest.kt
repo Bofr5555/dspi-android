@@ -7,6 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.bridge.PinOwner
+import se.bofr.dspi.bridge.PinOwnerKind
 import se.bofr.dspi.fake.demoDspState
 
 class PinAssignmentsTest {
@@ -105,7 +106,12 @@ class PinAssignmentsTest {
 
     @Test
     fun pinContextReadsBridgePinOwnersForControlSurfaces() {
-        val owners = listOf(PinOwner(18, "Control Surface 2", "control"), PinOwner(6, "Output 1/2", "output"))
+        // By kind + index (BRIDGE-3), not by the owner label
+        val owners = listOf(
+            PinOwner(18, "Control Surface 2", "control", PinOwnerKind.CONTROL_SURFACE, 1),
+            PinOwner(19, "Control Surface 9", "control"),
+            PinOwner(6, "Output 1/2", "output", PinOwnerKind.OUTPUT_SLOT, 0)
+        )
         val p = PinContext.from(base, demoDspState(), owners)
         assertEquals(listOf(1 to 18), p.csPins)
     }

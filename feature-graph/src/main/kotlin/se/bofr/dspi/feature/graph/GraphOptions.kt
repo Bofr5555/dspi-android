@@ -28,9 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,6 +50,11 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.SwitchRow
+import se.bofr.dspi.ui.settings.AppSettings
+import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.settings.LocalAppSettings
 
 /**
  * The spectrum channels of the page showing the graph: the dashboard's are
@@ -59,7 +62,7 @@ import se.bofr.dspi.core.DspiConstants
  * time one opens (or nothing, if the user hid the spectrum on channel pages).
  */
 class SpectrumSelectionState internal constructor(
-    private val store: GraphSettingsStore,
+    private val store: AppSettingsStore,
     private val activeEq: Int?,
     private val available: (Int) -> List<Int>,
     private val page: MutableState<RtaChannelSelection>,
@@ -78,7 +81,7 @@ class SpectrumSelectionState internal constructor(
     /** macOS `setRtaSelection`. */
     fun set(selection: RtaChannelSelection) {
         if (activeEq == null) {
-            store.update { it.copy(rtaDashboardSource = selection.storageKey) }
+            store.update { it.copy(rtaDashboardSelectionKey = selection.storageKey) }
         } else {
             page.value = selection
             // Hiding the spectrum on one channel page keeps it hidden on the next.
@@ -93,9 +96,9 @@ class SpectrumSelectionState internal constructor(
         if (activeEq == null) {
             val s = store.settings.value
             val other =
-                RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSide)?.takeIf { it.tap == tap }
+                RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSideKey)?.takeIf { it.tap == tap }
                     ?: RtaChannelSelection(tap, emptyList())
-            store.update { it.copy(rtaDashboardSource = other.storageKey, rtaDashboardOtherSide = current.storageKey) }
+            store.update { it.copy(rtaDashboardSelectionKey = other.storageKey, rtaDashboardOtherSideKey = current.storageKey) }
         } else {
             val other = pageOther.value?.takeIf { it.tap == tap } ?: RtaChannelSelection(tap, emptyList())
             pageOther.value = page.value
@@ -105,8 +108,8 @@ class SpectrumSelectionState internal constructor(
 
     companion object {
         /** macOS `dashboardRtaSelection`: the stored channels that are live, else the first output, else input 1. */
-        fun dashboardSelection(s: GraphSettings, available: (Int) -> List<Int>): RtaChannelSelection {
-            val stored = RtaChannelSelection.fromStorageKey(s.rtaDashboardSource)
+        fun dashboardSelection(s: AppSettings, available: (Int) -> List<Int>): RtaChannelSelection {
+            val stored = RtaChannelSelection.fromStorageKey(s.rtaDashboardSelectionKey)
             if (stored != null) {
                 if (stored.isEmpty) return stored
                 val live = stored.restricted(available(stored.tap))
@@ -128,7 +131,7 @@ class SpectrumSelectionState internal constructor(
 }
 
 @Composable
-internal fun rememberSpectrumSelection(bridge: DspiBridge, store: GraphSettingsStore, activeEq: Int?): SpectrumSelectionState {
+internal fun rememberSpectrumSelection(bridge: DspiBridge, store: AppSettingsStore, activeEq: Int?): SpectrumSelectionState {
     // A channel page starts on its own channel each time one opens.
     val page =
         remember(activeEq) {
@@ -149,8 +152,14 @@ internal fun rememberSpectrumSelection(bridge: DspiBridge, store: GraphSettingsS
 
 /** The gear's panel: SPECTRUM channels, FFT Graph, and Graph Setup. */
 @Composable
-internal fun GraphOptions(bridge: DspiBridge, onDashboard: Boolean, spectrum: SpectrumSelectionState, onDismiss: () -> Unit) {
-    val store = LocalGraphSettings.current
+internal fun GraphOptions(
+    bridge: DspiBridge,
+    onDashboard: Boolean,
+    spectrum: SpectrumSelectionState,
+    onDismiss: () -> Unit,
+    inPopOutWindow: Boolean = false
+) {
+    val store = LocalAppSettings.current
     val settings by store.settings.collectAsStateWithLifecycle()
     val caps by bridge.rta.caps.collectAsStateWithLifecycle()
     var setupPage by remember { mutableStateOf(false) }
@@ -158,7 +167,7 @@ internal fun GraphOptions(bridge: DspiBridge, onDashboard: Boolean, spectrum: Sp
         Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 6.dp) {
             Column(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
                 if (setupPage) {
-                    GraphSetupPage(settings, store) { setupPage = false }
+                    GraphSetupPage(settings, store, inPopOutWindow) { setupPage = false }
                     return@Column
                 }
                 Text(
@@ -268,13 +277,10 @@ fun spectrumSummary(selection: RtaChannelSelection): String = when (selection.ch
     else -> "${selection.channels.size} channels"
 }
 
+/** The panel's switch row: ui-common's [SwitchRow] with the panel's insets. */
 @Composable
-private fun ToggleRow(title: String, on: Boolean, enabled: Boolean = true, set: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, modifier = Modifier.weight(1f), color = if (enabled) Color.Unspecified else Color.Gray)
-        Switch(checked = on, onCheckedChange = set, enabled = enabled)
-    }
-}
+private fun ToggleRow(title: String, on: Boolean, enabled: Boolean = true, set: (Boolean) -> Unit) =
+    SwitchRow(title, null, on, enabled, Modifier.padding(horizontal = 12.dp, vertical = 2.dp), onChange = set)
 
 @Composable
 private fun SectionTitle(text: String) {
@@ -287,20 +293,16 @@ private fun SectionTitle(text: String) {
     )
 }
 
+/** A titled segmented choice (ui-common's [SegmentedPicker]). */
 @Composable
 private fun ChoiceRow(title: String, options: List<Double>, value: Double, label: (Double) -> String, set: (Double) -> Unit) {
     Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
         Text(title, fontSize = 12.sp)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            for ((i, o) in options.withIndex()) {
-                SegmentedButton(selected = o == value, onClick = { set(o) }, shape = SegmentedButtonDefaults.itemShape(i, options.size)) {
-                    Text(label(o), fontSize = 10.sp, maxLines = 1)
-                }
-            }
-        }
+        SegmentedPicker(options, value, label, set, fontSize = 10.sp)
     }
 }
 
+/** ui-common's [SliderRow] with the panel's insets, over a Double preference. */
 @Composable
 private fun SliderRow(
     title: String,
@@ -309,18 +311,13 @@ private fun SliderRow(
     steps: Int = 0,
     enabled: Boolean = true,
     set: (Double) -> Unit
-) {
-    Column(Modifier.padding(horizontal = 12.dp)) {
-        Text(title, fontSize = 12.sp, color = if (enabled) Color.Unspecified else Color.Gray)
-        Slider(value = value.toFloat(), onValueChange = { set(it.toDouble()) }, valueRange = range, steps = steps, enabled = enabled)
-    }
-}
+) = se.bofr.dspi.ui.SliderRow(title, value.toFloat(), range, Modifier.padding(horizontal = 12.dp), steps, enabled) { set(it.toDouble()) }
 
 private fun hz(f: Double) = if (f >= 1000) "${(f / 1000).roundToInt()}k" else f.roundToInt().toString()
 
 /** Graph Setup (README "Graph Setup"; Settings > Graphing holds the same). */
 @Composable
-private fun GraphSetupPage(settings: GraphSettings, store: GraphSettingsStore, onBack: () -> Unit) {
+private fun GraphSetupPage(settings: AppSettings, store: AppSettingsStore, inPopOutWindow: Boolean, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onBack).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("‹ Back", fontSize = 13.sp)
         Spacer(Modifier.weight(1f))
@@ -334,8 +331,8 @@ private fun GraphSetupPage(settings: GraphSettings, store: GraphSettingsStore, o
             store.update { it.resetScale() }
         }, modifier = Modifier.padding(end = 4.dp)) { Text("Reset", fontSize = 11.sp) }
     }
-    ChoiceRow("Frequency from", GraphSettings.MIN_FREQS, settings.graphMinFreq, ::hz) { v -> store.update { it.copy(graphMinFreq = v) } }
-    ChoiceRow("Frequency to", GraphSettings.MAX_FREQS, settings.graphMaxFreq, ::hz) { v -> store.update { it.copy(graphMaxFreq = v) } }
+    ChoiceRow("Frequency from", AppSettings.MIN_FREQS, settings.graphMinFreq, ::hz) { v -> store.update { it.copy(graphMinFreq = v) } }
+    ChoiceRow("Frequency to", AppSettings.MAX_FREQS, settings.graphMaxFreq, ::hz) { v -> store.update { it.copy(graphMaxFreq = v) } }
     SliderRow("Range: ${settings.graphDBRange.roundToInt()} dB", settings.graphDBRange, 10f..100f) { v ->
         store.update { it.copy(graphDBRange = v.roundToInt().toDouble()) }
     }
@@ -371,7 +368,10 @@ private fun GraphSetupPage(settings: GraphSettings, store: GraphSettingsStore, o
     ToggleRow("Glow", settings.showGraphGlow) { on -> store.update { it.copy(showGraphGlow = on) } }
     ToggleRow("Phase Response", settings.showPhase) { on -> store.update { it.copy(showPhase = on) } }
     ToggleRow("Unwrap Phase", settings.phaseUnwrapped, enabled = settings.showPhase) { on -> store.update { it.copy(phaseUnwrapped = on) } }
-    // "Follow Channel Selection" (pop-out only) has no counterpart: GraphScreen
-    // picks the channel it edits itself (docs/UPSTREAM-DEVIATIONS.md GRAPH).
+    if (inPopOutWindow) {
+        ToggleRow("Follow Channel Selection", settings.popoutGraphFollowsSelection) { on ->
+            store.update { it.copy(popoutGraphFollowsSelection = on) }
+        }
+    }
     Spacer(Modifier.size(12.dp))
 }

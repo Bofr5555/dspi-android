@@ -18,6 +18,7 @@ import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.ui.ChannelPalette
 import se.bofr.dspi.ui.DspiTheme
+import se.bofr.dspi.ui.settings.InMemoryAppSettingsStore
 
 private class PreviewDevice(val core: FakeDspiCore, val bridge: DspiBridgeImpl)
 
@@ -94,7 +95,7 @@ private fun SpectrumPreview(mode: RtaDisplayMode, channels: List<Int>) {
             channelName = { t, ch -> d.bridge.channelName(d.bridge.rta.appChannel(t, ch)) },
             channelColor = { t, ch ->
                 val app = d.bridge.rta.appChannel(t, ch)
-                parseHexColor(d.bridge.channelColor(app)) ?: ChannelPalette.color(app)
+                ChannelPalette.fromHex(d.bridge.channelColor(app), ChannelPalette.color(app, d.bridge.numOutputChannels))
             },
             onSide = {},
             onToggle = {},
@@ -115,7 +116,7 @@ private fun SpectrumTabletPreview() = SpectrumPreview(RtaDisplayMode.BOTH, listO
 @Composable
 private fun SpectrumLivePreview() {
     val d = rememberPreviewDevice()
-    Themed { SpectrumAnalyserView(d.bridge, store = InMemoryRtaSettingsStore()) }
+    Themed { SpectrumAnalyserView(d.bridge, store = InMemoryAppSettingsStore()) }
 }
 
 @Preview(name = "Statistics - phone", widthDp = 400, heightDp = 1800)

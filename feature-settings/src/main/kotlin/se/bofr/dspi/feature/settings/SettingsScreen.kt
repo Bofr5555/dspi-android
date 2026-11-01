@@ -35,11 +35,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.DspiRoutes
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.settings.LocalAppSettings
 
 /**
  * Entry point of :feature-settings (route [DspiRoutes.SETTINGS]).
@@ -47,10 +48,7 @@ import se.bofr.dspi.ui.DspiRoutes
  */
 @Composable
 fun SettingsScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val preview = LocalInspectionMode.current
-    val store = remember { if (preview) InMemoryAppSettingsStore() else AppSettingsStore.of(context) }
-    SettingsView(bridge, store, onNavigate, onBack, modifier)
+    SettingsView(bridge, LocalAppSettings.current, onNavigate, onBack, modifier)
 }
 
 /** The Settings window: page list + page + the shared save bar. */
@@ -188,7 +186,7 @@ private fun SettingsSidebar(
                         val dot =
                             (cat in hardwarePages && outputDirty) ||
                                 (cat == SettingsCategory.GLOBAL_PARAMS && edited && coordinator.globalDirty(state))
-                        if (dot) Text("●", color = WarningOrange)
+                        if (dot) Text("●", color = MacColors.orange)
                     }
                 }
             }
