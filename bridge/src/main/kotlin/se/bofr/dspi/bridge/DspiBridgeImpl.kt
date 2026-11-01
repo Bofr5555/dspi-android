@@ -66,7 +66,7 @@ import se.bofr.dspi.core.statusOf
  *        libusb only; Android gets devices from `:usb` via [attachDevice])
  */
 class DspiBridgeImpl(
-    internal val core: DspiCoreApi,
+    core: DspiCoreApi,
     internal val scope: CoroutineScope,
     internal val ffi: CoroutineDispatcher = newFfiDispatcher(),
     internal val main: CoroutineDispatcher = Dispatchers.Main.immediate,
@@ -75,6 +75,13 @@ class DspiBridgeImpl(
     internal val appVersion: String = "",
     private val hotplugPolling: Boolean = false
 ) : DspiBridge {
+    /**
+     * G1: the core as every member and controller sees it — writes refused
+     * while [writesAllowed] is false (a safety net; members refuse first).
+     */
+    internal val guardedCore = WriteGuardedCore(core) { _writesAllowed.value }
+    internal val core: DspiCoreApi get() = guardedCore
+
     // ═══ Main-thread state (Qt: the bridge's members + the core's state) ═══
 
     /**
@@ -111,6 +118,30 @@ class DspiBridgeImpl(
     private var outputEditSerial = ""
     override val magnitudesRevision: StateFlow<Long> = _magnitudesRevision.asStateFlow()
     override val events: SharedFlow<BridgeEvent> = _events.asSharedFlow()
+
+    // G1: connected && compat == COMPAT_OK; recomputed whenever either changes
+    private val _writesAllowed = MutableStateFlow(false)
+    override val writesAllowed: StateFlow<Boolean> = _writesAllowed.asStateFlow()
+
+    private fun refreshWritesAllowed() {
+        val v = usable
+        if (_writesAllowed.value != v) _writesAllowed.value = v
+    }
+
+    /**
+     * G1: true (and [BridgeEvent.CommandFailed] emitted) when [name] must not
+     * reach the device because [writesAllowed] is false. A gated member passes
+     * its [token]/[op]: the token is validated (an invalid one still throws
+     * [DangerousOpNotConfirmed]) but not spent. Call on main, before anything
+     * else the member does.
+     */
+    internal fun writeRefused(name: String, token: ConfirmationToken? = null, op: DangerousOp? = null): Boolean {
+        if (usable) return false
+        if (token != null && op != null) ops.require(token, op, spend = false)
+        val why = if (connected) WritesNotAllowedException.FIRMWARE_MISMATCH else WritesNotAllowedException.NOT_CONNECTED
+        emit(BridgeEvent.CommandFailed(name, WritesNotAllowedException(why)))
+        return true
+    }
 
     private val ops = DangerousOpsImpl(clock)
     override val dangerousOps: DangerousOps get() = ops
@@ -305,6 +336,7 @@ class DspiBridgeImpl(
         // Qt: stateChanged -> updatePresetDirty
         if (_presetDirty.value != snap.dirty) _presetDirty.value = snap.dirty
         refreshOutputConfigDirty()
+        refreshWritesAllowed()
     }
 
     /** macOS `outputDirty`: raw flag && independent mode (0). */
@@ -352,6 +384,7 @@ class DspiBridgeImpl(
      * [DangerousOp.HARDWARE_APPLY]; arms the retry blackout.
      */
     override suspend fun revertOutputConfig(token: ConfirmationToken): Boolean {
+        if (writeRefused("revertOutputConfig", token, DangerousOp.HARDWARE_APPLY)) return false
         requireToken(token, DangerousOp.HARDWARE_APPLY)
         val base = outputBaseline
         if (!_outputConfigDirty.value || base == null) return false
@@ -450,7 +483,8 @@ class DspiBridgeImpl(
      * core has already updated its state, so the emission still happens (as Qt,
      * which ignores the bool).
      */
-    private fun fire(name: String, emit: Emit = Emit.STATE, flash: Boolean = false, block: () -> Unit) {
+    private fun fire(name: String, emit: Emit = Emit.STATE, flash: Boolean = false, write: Boolean = true, block: () -> Unit) {
+        if (write && writeRefused(name)) return
         scope.launch(ffi) {
             val err =
                 try {
@@ -1046,6 +1080,7 @@ class DspiBridgeImpl(
     override fun setMasterVolumeMode(mode: Int) = fire("setMasterVolumeMode", flash = true) { core.setMasterVolumeMode(mode) }
 
     override suspend fun saveMasterVolume(token: ConfirmationToken): PresetStatus {
+        if (writeRefused("saveMasterVolume", token, DangerousOp.SAVE_MASTER_VOLUME)) return PresetStatus.NO_REPLY
         requireToken(token, DangerousOp.SAVE_MASTER_VOLUME)
         val code = onFfi { statusOf(-1) { core.saveMasterVolume() }.also { flashWritten() } }
         return PresetStatus.of(code)
@@ -1218,6 +1253,7 @@ class DspiBridgeImpl(
     }
 
     override suspend fun setOutputEnable(output: Int, enabled: Boolean): Boolean {
+        if (writeRefused("setOutputEnable")) return false
         val (result, snap) =
             onFfi {
                 val r = runCatching { core.setOutputEnable(output, enabled) }
@@ -1275,6 +1311,7 @@ class DspiBridgeImpl(
     override fun clearRouting() = clearRouting(-1)
 
     override fun directRouting(rows: Int, overview: Boolean) {
+        if (writeRefused("directRouting")) return
         val r = rowsOr(rows)
         val nOut = current.numOutputChannels
         val n = minOf(r, nOut)
@@ -1349,7 +1386,8 @@ class DspiBridgeImpl(
     }
 
     /** A GATED [DangerousOp.HARDWARE_APPLY] call (D2); arms the retry blackout (pipeline rebuild). */
-    private suspend fun pinCall(token: ConfirmationToken, block: () -> Unit): PinConfigStatus {
+    private suspend fun pinCall(token: ConfirmationToken, name: String, block: () -> Unit): PinConfigStatus {
+        if (writeRefused(name, token, DangerousOp.HARDWARE_APPLY)) return PinConfigStatus.NO_REPLY
         requireToken(token, DangerousOp.HARDWARE_APPLY)
         return hardwareCall(block)
     }
@@ -1367,15 +1405,19 @@ class DspiBridgeImpl(
         return hardwareEdited(st, snap)
     }
 
-    override suspend fun setOutputPin(token: ConfirmationToken, output: Int, pin: Int) = pinCall(token) { core.setOutputPin(output, pin) }
+    override suspend fun setOutputPin(token: ConfirmationToken, output: Int, pin: Int) = pinCall(token, "setOutputPin") {
+        core.setOutputPin(output, pin)
+    }
 
     override fun setOutputConfigMode(mode: Int) {
+        if (writeRefused("setOutputConfigMode")) return
         if (mode != 0) _hardwareUnsaved.value = false // saved with the preset instead
         clearOutputEdit() // macOS: the Save that changes the mode clears outputConfigDirty
         fire("setOutputConfigMode", flash = true) { core.setOutputConfigMode(mode) }
     }
 
     override suspend fun saveOutputConfig(token: ConfirmationToken): PresetStatus {
+        if (writeRefused("saveOutputConfig", token, DangerousOp.SAVE_OUTPUT_CONFIG)) return PresetStatus.NO_REPLY
         requireToken(token, DangerousOp.SAVE_OUTPUT_CONFIG)
         val code = onFfi { statusOf(-1) { core.saveOutputConfig() }.also { flashWritten() } }
         val st = PresetStatus.of(code)
@@ -1408,6 +1450,7 @@ class DspiBridgeImpl(
     // ═══ Presets / flash ═══
 
     override suspend fun savePreset(token: ConfirmationToken, slot: Int): PresetStatus {
+        if (writeRefused("savePreset", token, DangerousOp.SAVE_PRESET)) return PresetStatus.NO_REPLY
         requireToken(token, DangerousOp.SAVE_PRESET)
         val (st, snap) =
             onFfi {
@@ -1422,6 +1465,7 @@ class DspiBridgeImpl(
 
     /** Ungated (D1); arms the retry blackout (deferred load, commands.md §1.3). */
     override suspend fun loadPreset(slot: Int): PresetStatus {
+        if (writeRefused("loadPreset")) return PresetStatus.NO_REPLY
         val (st, snap) =
             onFfi {
                 val code = statusOf(-1) { core.loadPreset(slot) }
@@ -1438,6 +1482,7 @@ class DspiBridgeImpl(
     }
 
     override suspend fun deletePreset(token: ConfirmationToken, slot: Int): PresetStatus {
+        if (writeRefused("deletePreset", token, DangerousOp.DELETE_PRESET)) return PresetStatus.NO_REPLY
         requireToken(token, DangerousOp.DELETE_PRESET)
         val (st, snap) =
             onFfi {
@@ -1450,6 +1495,7 @@ class DspiBridgeImpl(
     }
 
     override suspend fun copyPreset(token: ConfirmationToken, fromSlot: Int, toSlot: Int): PresetStatus {
+        if (writeRefused("copyPreset", token, DangerousOp.COPY_PRESET)) return PresetStatus.NO_REPLY
         requireToken(token, DangerousOp.COPY_PRESET)
         val (st, snap) =
             onFfi {
@@ -1469,7 +1515,14 @@ class DspiBridgeImpl(
     override suspend fun presetChanges(): List<String> = onFfi { runCatching { core.presetChanges() }.getOrDefault(emptyList()) }
 
     /** [token]/[op] null = ungated (loadParams, D1). Every one arms the retry blackout. */
-    private suspend fun flashCall(token: ConfirmationToken?, op: DangerousOp?, refresh: Boolean, block: () -> Unit): FlashStatus {
+    private suspend fun flashCall(
+        name: String,
+        token: ConfirmationToken?,
+        op: DangerousOp?,
+        refresh: Boolean,
+        block: () -> Unit
+    ): FlashStatus {
+        if (writeRefused(name, token, op)) return FlashStatus.ERR_WRITE
         if (token != null && op != null) requireToken(token, op)
         val (st, snap) =
             onFfi {
@@ -1487,18 +1540,24 @@ class DspiBridgeImpl(
         return st
     }
 
-    override suspend fun saveParams(token: ConfirmationToken) = flashCall(token, DangerousOp.SAVE_PARAMS, false) { core.saveParams() }
+    override suspend fun saveParams(token: ConfirmationToken) = flashCall("saveParams", token, DangerousOp.SAVE_PARAMS, false) {
+        core.saveParams()
+    }
 
-    override suspend fun loadParams() = flashCall(null, null, true) { core.loadParams() }
+    override suspend fun loadParams() = flashCall("loadParams", null, null, true) { core.loadParams() }
 
-    override suspend fun factoryReset(token: ConfirmationToken) = flashCall(token, DangerousOp.FACTORY_RESET, true) { core.factoryReset() }
+    override suspend fun factoryReset(token: ConfirmationToken) = flashCall("factoryReset", token, DangerousOp.FACTORY_RESET, true) {
+        core.factoryReset()
+    }
 
     override fun enterBootloader(token: ConfirmationToken) {
         requireToken(token, DangerousOp.ENTER_BOOTLOADER)
-        fire("enterBootloader", Emit.NONE) { core.enterBootloader() }
+        // G1: allowed while read-only (the firmware-update path)
+        fire("enterBootloader", Emit.NONE, write = false) { core.enterBootloader() }
     }
 
     override fun clearClips() {
+        if (writeRefused("clearClips")) return
         scope.launch(ffi) {
             runCatching { core.clearClips() }
             lastClipMs.fill(0)
@@ -1595,6 +1654,7 @@ class DspiBridgeImpl(
     private fun setDisconnected() {
         bumpGeneration()
         _status.value = _status.value.copy(connected = false, cpu0 = 0, cpu1 = 0, clipFlags = 0, peaks = BridgeStatus().peaks)
+        refreshWritesAllowed()
         _devices.value = _devices.value.copy(selectedSerial = "")
         magnitudeCache.fill(null)
         _stateRevision.value += 1
@@ -1655,6 +1715,7 @@ class DspiBridgeImpl(
                     connected = false,
                     connectionError = "Could not open DSPi ${serial.takeLast(8)}. Unplug it and plug it in again."
                 )
+            refreshWritesAllowed()
             emit(BridgeEvent.CommandFailed("attachDevice", err))
             return false
         }
@@ -1678,6 +1739,7 @@ class DspiBridgeImpl(
 
     /** GATED [DangerousOp.HARDWARE_APPLY]: rebuilds the input pipeline (arms the retry blackout). */
     override fun setInputSource(token: ConfirmationToken, source: Int) {
+        if (writeRefused("setInputSource", token, DangerousOp.HARDWARE_APPLY)) return
         requireToken(token, DangerousOp.HARDWARE_APPLY)
         fire("setInputSource", flash = true) { core.setInputSource(source) }
     }
@@ -1890,74 +1952,88 @@ class DspiBridgeImpl(
 
     // ═══ Hardware IO setters ═══
 
-    override suspend fun setOutputType(token: ConfirmationToken, slot: Int, kind: Int) = pinCall(token) {
+    override suspend fun setOutputType(token: ConfirmationToken, slot: Int, kind: Int) = pinCall(token, "setOutputType") {
         core.setOutputType(slot, kind)
     }
 
-    override suspend fun setI2sBckPin(token: ConfirmationToken, role: Int, pin: Int) = pinCall(token) {
+    override suspend fun setI2sBckPin(token: ConfirmationToken, role: Int, pin: Int) = pinCall(token, "setI2sBckPin") {
         core.setI2sBckPin(role, pin)
     }
 
-    override suspend fun setI2sClockPinMode(token: ConfirmationToken, mode: Int) = pinCall(token) {
+    override suspend fun setI2sClockPinMode(token: ConfirmationToken, mode: Int) = pinCall(token, "setI2sClockPinMode") {
         core.setI2sClockPinMode(mode)
     }
 
-    override suspend fun setMckEnabled(token: ConfirmationToken, enabled: Boolean) = pinCall(token) { core.setMckEnabled(enabled) }
+    override suspend fun setMckEnabled(token: ConfirmationToken, enabled: Boolean) = pinCall(token, "setMckEnabled") {
+        core.setMckEnabled(enabled)
+    }
 
-    override suspend fun setMckPin(token: ConfirmationToken, pin: Int) = pinCall(token) { core.setMckPin(pin) }
+    override suspend fun setMckPin(token: ConfirmationToken, pin: Int) = pinCall(token, "setMckPin") { core.setMckPin(pin) }
 
-    override suspend fun setMckMultiplier(token: ConfirmationToken, mult: Int) = pinCall(token) {
+    override suspend fun setMckMultiplier(token: ConfirmationToken, mult: Int) = pinCall(token, "setMckMultiplier") {
         core.setMckMultiplier(mult)
     }
 
-    override suspend fun setAdatOutEnabled(token: ConfirmationToken, enabled: Boolean) = pinCall(token) {
+    override suspend fun setAdatOutEnabled(token: ConfirmationToken, enabled: Boolean) = pinCall(token, "setAdatOutEnabled") {
         core.setAdatOutEnabled(enabled)
     }
 
-    override suspend fun setAdatOutPin(token: ConfirmationToken, pin: Int) = pinCall(token) { core.setAdatOutPin(pin) }
+    override suspend fun setAdatOutPin(token: ConfirmationToken, pin: Int) = pinCall(token, "setAdatOutPin") { core.setAdatOutPin(pin) }
 
-    override suspend fun setSpdifRxPin(token: ConfirmationToken, index: Int, pin: Int) = pinCall(token) {
+    override suspend fun setSpdifRxPin(token: ConfirmationToken, index: Int, pin: Int) = pinCall(token, "setSpdifRxPin") {
         core.setSpdifRxPin(index, pin)
     }
 
     override suspend fun setSpdifInputEnabled(token: ConfirmationToken, index: Int, enabled: Boolean) =
-        pinCall(token) { core.setSpdifInputEnabled(index, enabled) }
+        pinCall(token, "setSpdifInputEnabled") { core.setSpdifInputEnabled(index, enabled) }
 
-    override suspend fun setI2sRxPin(token: ConfirmationToken, pair: Int, pin: Int) = pinCall(token) { core.setI2sRxPin(pair, pin) }
+    override suspend fun setI2sRxPin(token: ConfirmationToken, pair: Int, pin: Int) = pinCall(token, "setI2sRxPin") {
+        core.setI2sRxPin(pair, pin)
+    }
 
-    override suspend fun setI2sInputChannels(token: ConfirmationToken, channels: Int) = pinCall(token) {
+    override suspend fun setI2sInputChannels(token: ConfirmationToken, channels: Int) = pinCall(token, "setI2sInputChannels") {
         core.setI2sInputChannels(channels)
     }
 
-    override suspend fun setAdatInputEnabled(token: ConfirmationToken, enabled: Boolean) = pinCall(token) {
+    override suspend fun setAdatInputEnabled(token: ConfirmationToken, enabled: Boolean) = pinCall(token, "setAdatInputEnabled") {
         core.setAdatInputEnabled(enabled)
     }
 
-    override suspend fun setAdatInputPin(token: ConfirmationToken, pin: Int) = pinCall(token) { core.setAdatInputPin(pin) }
+    override suspend fun setAdatInputPin(token: ConfirmationToken, pin: Int) = pinCall(token, "setAdatInputPin") {
+        core.setAdatInputPin(pin)
+    }
 
-    override suspend fun setAdatInputClockMode(token: ConfirmationToken, mode: Int) = pinCall(token) { core.setAdatInputClockMode(mode) }
+    override suspend fun setAdatInputClockMode(token: ConfirmationToken, mode: Int) = pinCall(token, "setAdatInputClockMode") {
+        core.setAdatInputClockMode(mode)
+    }
 
     /** GATED [DangerousOp.HARDWARE_APPLY]; arms the retry blackout. Fire-and-forget form of [setInputRateWithStatus]. */
     override fun setInputRate(token: ConfirmationToken, index: Int) {
+        if (writeRefused("setInputRate", token, DangerousOp.HARDWARE_APPLY)) return
         requireToken(token, DangerousOp.HARDWARE_APPLY)
         scope.launch(main) { hardwareCall { core.setInputRate(index) } }
     }
 
     /** GATED [DangerousOp.HARDWARE_APPLY]; arms the retry blackout. Fire-and-forget form of [setI2sClockModeWithStatus]. */
     override fun setI2sClockMode(token: ConfirmationToken, mode: Int) {
+        if (writeRefused("setI2sClockMode", token, DangerousOp.HARDWARE_APPLY)) return
         requireToken(token, DangerousOp.HARDWARE_APPLY)
         scope.launch(main) { hardwareCall { core.setI2sClockMode(mode) } }
     }
 
     /** SETTINGS S7: as the pin calls — gate, blackout, output-config bookkeeping, the transfer's status. */
-    override suspend fun setInputRateWithStatus(token: ConfirmationToken, index: Int) = pinCall(token) { core.setInputRate(index) }
+    override suspend fun setInputRateWithStatus(token: ConfirmationToken, index: Int) =
+        pinCall(token, "setInputRateWithStatus") { core.setInputRate(index) }
 
-    override suspend fun setI2sClockModeWithStatus(token: ConfirmationToken, mode: Int) = pinCall(token) { core.setI2sClockMode(mode) }
+    override suspend fun setI2sClockModeWithStatus(token: ConfirmationToken, mode: Int) = pinCall(token, "setI2sClockModeWithStatus") {
+        core.setI2sClockMode(mode)
+    }
 
     override fun setLgSoundSync(enabled: Boolean) = fire("setLgSoundSync") { core.setLgSoundSync(enabled) }
 
     /** DAC mute: the device applies it later; [BridgeEvent.DacMuteApplied] reports what it kept. */
     override fun setDacMute(enabled: Boolean, activeLow: Boolean, pin: Int, holdMs: Int, releaseMs: Int) {
+        if (writeRefused("setDacMute")) return emit(BridgeEvent.DacMuteApplied(false))
         scope.launch(main) {
             // Flash write (config), ungated (D3): arm the retry blackout for the read-back
             val ok = onFfi { runCatching { core.setDacMute(enabled, activeLow, pin, holdMs, releaseMs) }.isSuccess.also { flashWritten() } }
@@ -1989,9 +2065,13 @@ class DspiBridgeImpl(
         }
     }
 
-    override suspend fun testDacMute(): Int = onFfi { statusOf(255) { core.testDacMute() } }
+    override suspend fun testDacMute(): Int {
+        if (writeRefused("testDacMute")) return 255
+        return onFfi { statusOf(255) { core.testDacMute() } }
+    }
 
     private fun ctrlIface(which: Int, set: () -> Unit) {
+        if (writeRefused(if (which == 0) "setUart" else "setI2c")) return emit(BridgeEvent.CtrlIfaceApplied(which, 255))
         scope.launch(main) {
             // Config persist (flash), ungated (D3): arm the retry blackout
             val ok = onFfi { runCatching { set() }.isSuccess.also { flashWritten() } }
@@ -2154,6 +2234,7 @@ class DspiBridgeImpl(
     }
 
     override fun setInputLinked(ch: Int, linked: Boolean, keepCh: Int) {
+        if (writeRefused("setInputLinked")) return
         val p = pairIndex(ch)
         if (p < 0) return
         val m = map

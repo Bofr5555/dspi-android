@@ -413,6 +413,7 @@ class SiggenControllerImpl internal constructor(private val bridge: DspiBridgeIm
 
     private suspend fun applyLive() {
         if (!running || !supported) return
+        if (bridge.writeRefused("siggen.apply")) return
         val c = normalised(d)
         if (c == sent) return
         if (c.channelMask == 0) {
@@ -426,6 +427,7 @@ class SiggenControllerImpl internal constructor(private val bridge: DspiBridgeIm
 
     /** Ungated (D1). False if the device refused the signal. */
     override suspend fun start(): Boolean {
+        if (bridge.writeRefused("siggen.start")) return false
         if (!supported) return false
         applyJob?.cancel()
         val c = normalised(d)
@@ -447,12 +449,13 @@ class SiggenControllerImpl internal constructor(private val bridge: DspiBridgeIm
     }
 
     /** Not gated: stopping a test signal must always work. */
-    override fun stop() = control(DspiConstants.SIGGEN_CTL_STOP)
+    override fun stop() = control("siggen.stop", DspiConstants.SIGGEN_CTL_STOP)
 
-    override fun stopNow() = control(DspiConstants.SIGGEN_CTL_STOP_NOW)
+    override fun stopNow() = control("siggen.stopNow", DspiConstants.SIGGEN_CTL_STOP_NOW)
 
-    private fun control(action: Int) {
+    private fun control(name: String, action: Int) {
         applyJob?.cancel()
+        if (bridge.writeRefused(name)) return
         bridge.scope.launch(bridge.main) {
             bridge.onFfi { runCatching { bridge.core.siggenControl(action) } }
             refreshStatus()
@@ -461,6 +464,7 @@ class SiggenControllerImpl internal constructor(private val bridge: DspiBridgeIm
 
     /** Channel ID on one output, leaving the draft alone. Ungated (D1). */
     override fun identify(output: Int) {
+        if (bridge.writeRefused("siggen.identify")) return
         if (!supported || output !in 0..15) return
         val mask = (1 shl output) and usableMask()
         if (mask == 0) return
@@ -621,6 +625,7 @@ class StatsControllerImpl internal constructor(private val bridge: DspiBridgeImp
 
     /** Ungated (D1). */
     override fun resetWatermarks() {
+        if (bridge.writeRefused("stats.resetWatermarks")) return
         bridge.scope.launch(bridge.main) {
             if (serial.isNotEmpty()) bridge.onFfi { runCatching { bridge.core.resetBufferStats() } }
             pollFast()
@@ -722,6 +727,7 @@ class CsControllerImpl internal constructor(private val bridge: DspiBridgeImpl) 
     override suspend fun apply(opJson: String): String {
         val op = opOf(opJson) ?: return """{"ok":false,"status":255,"error":"invalid operation"}"""
         if (op == "save") throw DangerousOpNotConfirmed(DangerousOp.CS_SAVE, "control-surface save goes through save(token)")
+        if (!WriteGuardedCore.isCsRead(opJson) && bridge.writeRefused("cs.apply")) return READ_ONLY_REPLY
         return run(opJson)
     }
 
@@ -761,11 +767,13 @@ class CsControllerImpl internal constructor(private val bridge: DspiBridgeImpl) 
         val op = opOf(opJson) ?: return
         if (op == "save") throw DangerousOpNotConfirmed(DangerousOp.CS_SAVE, "control-surface save goes through save(token)")
         if (!bridge.connected) return
+        if (!WriteGuardedCore.isCsRead(opJson) && bridge.writeRefused("cs.sendOnly")) return
         bridge.scope.launch(bridge.ffi) { runCatching { bridge.core.csApply(opJson) } }
     }
 
     /** GATED [DangerousOp.CS_SAVE]: write the live configuration to flash (0x9D); the device's status code, 0 = done. */
     override suspend fun save(token: ConfirmationToken): Int {
+        if (bridge.writeRefused("cs.save", token, DangerousOp.CS_SAVE)) return 0xFF
         bridge.requireToken(token, DangerousOp.CS_SAVE)
         val r = run("""{"op":"save"}""")
         bridge.onFfi { bridge.flashWritten() }
@@ -773,7 +781,10 @@ class CsControllerImpl internal constructor(private val bridge: DspiBridgeImpl) 
     }
 
     /** Reload the saved configuration. Ungated (D1). */
-    override suspend fun revert(): Int = Json.parseObject(run("""{"op":"revert"}"""))?.int("status") ?: 0xFF
+    override suspend fun revert(): Int {
+        if (bridge.writeRefused("cs.revert")) return 0xFF
+        return Json.parseObject(run("""{"op":"revert"}"""))?.int("status") ?: 0xFF
+    }
 
     /** A PIN_CONFIG_* / CS status code as the macOS Console words it ("" = done). */
     override fun statusMessage(code: Int): String = when (code) {
@@ -915,6 +926,7 @@ class ConfigFilesImpl internal constructor(private val bridge: DspiBridgeImpl) :
 
     /** GATED [DangerousOp.CONFIG_IMPORT] (bulk write + pin writes; arms the retry blackout). */
     override suspend fun importConfiguration(token: ConfirmationToken, text: String, volumes: Boolean, hardware: Boolean): String {
+        if (bridge.writeRefused("configFiles.importConfiguration", token, DangerousOp.CONFIG_IMPORT)) return READ_ONLY_IMPORT
         bridge.requireToken(token, DangerousOp.CONFIG_IMPORT)
         if (!bridge.connected) return """{"ok":false,"error":"No device connected."}"""
         val options = (if (volumes) 1L else 0L) or (if (hardware) 2L else 0L)
@@ -952,9 +964,16 @@ class ConfigFilesImpl internal constructor(private val bridge: DspiBridgeImpl) :
     }
 
     override suspend fun importFilters(text: String, wires: List<Int>): String {
+        if (bridge.writeRefused("configFiles.importFilters")) return READ_ONLY_IMPORT
         if (!bridge.connected) return """{"ok":false,"error":"No device connected."}"""
         val r = bridge.onFfi { bridge.core.filtersImport(text, wires) }
         bridge.refreshAll()
         return r
     }
 }
+
+/** G1: what a refused control-surface operation answers (as a no-reply, with the reason). */
+private const val READ_ONLY_REPLY = """{"ok":false,"status":255,"error":"firmware mismatch: read-only"}"""
+
+/** G1: what a refused import answers. */
+private const val READ_ONLY_IMPORT = """{"ok":false,"error":"Firmware mismatch: the device is read-only."}"""

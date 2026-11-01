@@ -1,9 +1,14 @@
 package se.bofr.dspi.bridge
 
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.FilterParams
 import se.bofr.dspi.core.FlashStatus
@@ -133,6 +138,29 @@ interface DspiBridge {
      * thread before the new device's state is published.
      */
     val deviceGeneration: StateFlow<Long> get() = NO_DEVICE_GENERATION
+
+    /**
+     * G1 (owner decision, deliberate deviation from the official clients):
+     * true exactly while a device is connected AND its firmware speaks this
+     * app's wire format (`compat == COMPAT_OK`). While false the bridge is
+     * READ-ONLY: every write / command (setters incl. `sendOnly` live drags,
+     * gated ops, preset/flash ops, matrix, limiter, hardware IO, revert,
+     * controller writes — siggen start/stop/identify, control-surface
+     * apply/sendOnly/save/revert, stats reset, configuration/filter import)
+     * is refused before any USB traffic, its usual failure value is returned
+     * and [BridgeEvent.CommandFailed] carries a [WritesNotAllowedException]
+     * ("firmware mismatch: read-only" for an incompatible firmware). A gated
+     * member still validates its token (an invalid one throws
+     * [DangerousOpNotConfirmed]) but does not spend it. EXCEPTIONS:
+     * [enterBootloader] (the firmware-update path) and reads/fetches, RTA
+     * subscriptions and control-surface `refresh`/`refreshStatus`. Purely
+     * local state (graph visibility, [beginOutputEdit], the siggen draft,
+     * the channel clipboard copy) is unaffected. The UI disables every
+     * control while this is false.
+     *
+     * Default (test doubles): derived from [status] `connected` and [compat].
+     */
+    val writesAllowed: StateFlow<Boolean> get() = DerivedWritesAllowed(this)
 
     /** magnitudesChanged: increments when any channel's curve was recomputed. */
     val magnitudesRevision: StateFlow<Long>
@@ -833,3 +861,15 @@ interface DspiBridge {
 
 /** Default [DspiBridge.deviceGeneration] for implementations without a device (test doubles). */
 private val NO_DEVICE_GENERATION: StateFlow<Long> = MutableStateFlow(0L).asStateFlow()
+
+/** [DspiBridge.writesAllowed] for implementations that do not track it (test doubles). */
+@OptIn(ExperimentalForInheritanceCoroutinesApi::class)
+private class DerivedWritesAllowed(private val b: DspiBridge) : StateFlow<Boolean> {
+    override val value: Boolean get() = b.status.value.connected && b.compat == se.bofr.dspi.core.DspiConstants.COMPAT_OK
+    override val replayCache: List<Boolean> get() = listOf(value)
+
+    override suspend fun collect(collector: FlowCollector<Boolean>): Nothing {
+        combine(b.status, b.state) { _, _ -> value }.distinctUntilChanged().collect(collector)
+        awaitCancellation()
+    }
+}
