@@ -73,3 +73,48 @@ sealed interface BridgeEvent {
     /** A fire-and-forget setter failed (no Qt equivalent: Qt ignores the bool). */
     data class CommandFailed(val command: String, val error: Throwable) : BridgeEvent
 }
+
+/**
+ * Decoded IEC 60958 consumer channel status (macOS StatsView "S/PDIF
+ * Receiver", Qt StatsController): bytes 0, 1 and 4 of the 24 received.
+ */
+data class SpdifChannelStatus(
+    /** Byte 0 bit 0 clear: consumer (S/PDIF) rather than professional (AES). */
+    val consumer: Boolean,
+    /** Byte 0 bit 1 clear: linear PCM audio. */
+    val pcm: Boolean,
+    /** Byte 0 bit 2: copying permitted. */
+    val copyPermitted: Boolean,
+    /** Byte 1 category code, named ("CD Player", "DAT", … or "0x2A"). */
+    val category: String,
+    /** Byte 4 word length ("16-bit", "24-bit", "Not indicated", "-"). */
+    val wordLength: String,
+    /** The 24 raw bytes. */
+    val raw: List<Int>
+)
+
+/**
+ * Feature flags SETTINGS needs, derived as macOS `DSPViewModel` does for the
+ * only wire format this app writes (V32; [DspiBridge.compat] == OK):
+ * - the bulk image of every V21+ firmware carries S/PDIF 2-4 (`multiSpdifSupported`,
+ *   macOS: non-zero enable-mask+1 byte), the I2S input and its clock mode
+ *   (`i2sInputSupported`, `i2sClockModeSupported`, macOS: bulk V21 gate) and
+ *   the clock-pin mode (`i2sClockPinModeSupported`, macOS: non-zero +1 byte);
+ *   V32 firmware always has them;
+ * - ADAT output and input are RP2350-only (macOS `adatSupported` /
+ *   `adatInputSupported` = platform == "RP2350");
+ * - multi-channel I2S input (4/6/8 channels) is RP2350-only (Qt InputsPage).
+ * [spdifInputCount] is the receiver count; macOS reads it from the 0xEF
+ * inventory, which the core does not expose, so it is the wire maximum (4).
+ */
+data class HardwareCaps(
+    val multiSpdifSupported: Boolean = false,
+    val spdifInputCount: Int = 0,
+    val i2sInputSupported: Boolean = false,
+    val i2sMultichannelInput: Boolean = false,
+    val i2sClockModeSupported: Boolean = false,
+    val i2sClockPinModeSupported: Boolean = false,
+    val adatOutSupported: Boolean = false,
+    val adatInputSupported: Boolean = false,
+    val limiterSupported: Boolean = false
+)

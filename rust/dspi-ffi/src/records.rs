@@ -320,8 +320,12 @@ pub struct RtaSnapshot {
     pub telemetry_version: u32,
     pub tap: u8,
     pub count: u8,
-    /// RTA_MAX_CHANNELS = 16 entries; `populated` bit k = frames[k] valid.
+    /// RTA_MAX_CHANNELS = 16 entries; the first `count` are the analysed
+    /// channels (packed, ascending channel), the rest are defaults.
     pub frames: Vec<RtaChannelFrame>,
+    /// Bands that carry a level (`rta::populated_bands`): bit b = band b
+    /// (RTA_MAX_BANDS = 37); the bass bank always, an FFT band only when a bin
+    /// centre falls inside its edges, none below `first_band`.
     pub populated: u64,
     pub bins_count: u16,
     pub bins_channel: u8,

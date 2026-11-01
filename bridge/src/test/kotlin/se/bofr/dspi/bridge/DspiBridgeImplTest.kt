@@ -274,11 +274,11 @@ class DspiBridgeImplTest {
         runCurrent()
         assertTrue(b.outputEnabled(8))
         assertFalse(b.outputEnabled(2))
-        b.directRouting()
+        b.directRouting(8)
         runCurrent()
         assertFalse(b.outputEnabled(8)) // a 1:1 layout turns PDM off
         assertTrue((0 until 8).all { b.matrixRouting(it, it) && b.outputEnabled(it) })
-        b.clearRouting()
+        b.clearRouting(8)
         runCurrent()
         assertTrue((0 until 8).none { b.matrixRouting(it, it) })
         assertEquals(0f, b.matrixGain(0, 0))
