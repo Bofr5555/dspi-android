@@ -8,8 +8,9 @@ Three layers must agree on the vendor requests (REQ_* opcodes):
             firmware repository, so the `#define REQ_*` lines are kept in
             fixtures/firmware_req_opcodes.txt, extracted read-only with
             `git show <sha>:<config_h>` by `--refresh-firmware <clone>`.
-  core      `pub const REQ_*` in third_party/DSPi-Console-Linux/core/src/protocol.rs
-            (the pinned submodule).
+  core      `pub const REQ_*` in protocol.rs of the core dspi-ffi builds:
+            rust/.staged/dspi-core/core (pinned submodule + patches) when
+            staged, else third_party/DSPi-Console-Linux/core.
   ffi       the opcodes the core's code reaches from the functions
             rust/dspi-ffi calls (a name-based call graph over the core's
             non-test items: fns, consts and statics; worker threads are
@@ -53,7 +54,11 @@ from collections import defaultdict, deque
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CORE_SRC = ROOT / "third_party/DSPi-Console-Linux/core/src"
+# The staged copy (pinned core + third_party/patches, tools/stage-core.sh) is
+# what dspi-ffi builds against; fall back to the submodule when not staged.
+# The patches add no opcodes, so both give the same answer today.
+_STAGED = ROOT / "rust/.staged/dspi-core/core/src"
+CORE_SRC = _STAGED if (_STAGED / "protocol.rs").is_file() else ROOT / "third_party/DSPi-Console-Linux/core/src"
 PROTOCOL = CORE_SRC / "protocol.rs"
 FFI_SRC = ROOT / "rust/dspi-ffi/src"
 REFERENCE = ROOT / "tools/REFERENCE.toml"
@@ -306,6 +311,7 @@ def main() -> int:
     for n in sorted(set(UNREACHABLE_FROM_FFI) - set(unreachable)):
         errors.append(f"allowlist UNREACHABLE_FROM_FFI[{n}] is stale: remove it")
     unused = sorted(set(core) - used_by_core, key=lambda n: core[n])
+    print(f"opcode_coverage: core source {CORE_SRC.relative_to(ROOT)}")
     print(f"opcode_coverage: core uses {len(used_by_core)} of {len(core)} opcodes; dspi-ffi reaches "
           f"{len(used_by_core & set(callers))} through {len(roots)} core entry points")
     if unused:
