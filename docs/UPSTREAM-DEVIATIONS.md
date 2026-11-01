@@ -576,3 +576,62 @@ Reference: DSPi-Console (macOS) v1.1.6-beta5 `FirmwareUpdateView.swift`,
     `bootloaderLocator` (default: its own `AndroidBootloaderLocator`) so
     :app can pass one shared instance. The screen starts it on open and stops
     it when the visit ends, as macOS polls only while a flashing UI is open.
+
+## ANALYSIS
+
+1. **One screen, four pages.** The macOS Tools-menu windows (Signal
+   Generator, Spectrum Analyser, System Statistics — menu item "Stats for
+   nerbs" —, Interrupt Monitor) are internal sub-routes of `AnalysisScreen`,
+   titled as the macOS windows: tabs on a phone, a side list on a tablet
+   (≥ 840 dp). Only the page on screen polls or subscribes.
+2. **The Signal Generator stops when its page leaves the screen** (tab
+   change, leaving Analysis, the activity stopping: app in background, a call,
+   another app in front), with the normal fade (`SIGGEN_CTL_STOP`); not on a
+   configuration change (`isChangingConfigurations`). If a host recreates the
+   page without flagging a configuration change (some split-screen resizes),
+   that counts as leaving. macOS keeps playing after the window closes.
+   Starting stays one explicit tap on Start (ungated, D1); the start sequence
+   runs in a process scope (E9), not the composition. Default draft = macOS
+   (1 kHz sine, outputs 1–2, −20 dBFS). No Space-bar shortcut; "Click" became
+   "Tap" in the outputs caption.
+3. **Spectrum Analyser chooses its channels itself.** macOS mirrors the main
+   window's current page (selection set with the graph's gear) and only hides
+   channels "in this window". Android has no main window beside it, so the
+   page shows the dashboard's selection (macOS keys `rtaDashboardSource` /
+   `rtaDashboardOtherSide`, same storage format) and edits it with an
+   Inputs/Outputs switch and channel chips (one tap at a time, the other
+   side remembered, fallback to the first enabled output as macOS
+   `dashboardRtaSelection`). Curves | Bars | Both starts from
+   `rtaDashboardShowGraph` / `rtaDashboardShowBars` as macOS `startFromPage`.
+4. **Spectrum drawing** is Compose Canvas, not Metal/AGSL: bars as
+   RtaBandsView (gradient, peak-hold caps, 12 dB grid, 1-2-5 labels decades
+   first), curves as the Linux client draws this core's snapshot
+   (Catmull-Rom through populated bands, bins crossfading in above the bass
+   bank). No glow and no 30 px fade-in at the curve's left end. On phones
+   (< 600 dp) bar cells use one column (platform: width).
+5. **Analyser preferences** are read under the macOS `@AppStorage` key names
+   (`rtaFloorDB`, `rtaCeilingDB`, `rtaShowPeakHold`, `rtaSmoothingOn`,
+   `rtaBarColumns`, `graphMinFreq`, `graphMaxFreq`, `rtaFftOrder`, `rtaAvgMs`,
+   `rtaPeakDecayDBs`, `rtaDashboardShowGraph/Bars`) with the macOS defaults,
+   from a local store (SharedPreferences `analysis_settings`) until the
+   consolidation package provides the shared AppSettings store (F3). The
+   transform size, averaging and peak decay are pushed to the analyser
+   whenever the page starts watching, as macOS `RtaWatch`.
+6. **"Following another console" / Take control** is not shown: the core and
+   bridge expose no RTA ownership state (no hub sharing on Android).
+7. **System Statistics**: all macOS sections, including S/PDIF INPUT (state,
+   source, rate, counts, parity, FIFO, RX pin, channel status while locked,
+   DEBUG rows) from the bridge's `fetchSpdifRxStatus` /
+   `fetchSpdifChannelStatus` / `fetchActiveSpdifRxPin`, shown when the
+   receiver answers (macOS `inputSourceSupported`). LG Sound Sync, ADAT bulk
+   output (RP2350 only) and I2S slave come from `fetchLgStatus`,
+   `fetchAdatOutStatus`, `fetchInputLock(0)`; all every 2 s while shown.
+   Buffer fills use `fillPct` (the core has no sample-granular
+   `fillCentiPct`). One column on phones, three on tablets.
+8. **Number formatting** follows Swift/C `%.Nf` (exact value, ties to even:
+   31.25 °C reads 31.2), not Java's ties-up `String.format`.
+9. **Interrupt Monitor** is read-only and scrolls to the newest line on every
+   append unless paused, as macOS. It adds the Linux client's Copy button
+   (platform: a lazy list cannot be selected as one block); lines are the
+   core's decoded text. A stop requested on leaving is fire-and-forget; a
+   failure surfaces only as the bridge's `CommandFailed` event.
