@@ -9,15 +9,16 @@ Checked on 2026-11-01. When you bump a version, take the new checksum from the
 same official source, update this table, rebuild the image and bump `IMAGE_TAG`
 in `tools/dev.sh`.
 
-## Container image (`localhost/dspi-android-build:2026-11-01`)
+## Container image (`localhost/dspi-android-build:2026-11-01-play`)
 
 | What | Source (official) | Pin / checksum | Where verified |
 |---|---|---|---|
 | Base image: Eclipse Temurin 21.0.5+11 JDK, Ubuntu 24.04 | `docker.io/library/eclipse-temurin:21.0.5_11-jdk-noble` (Docker Official Image) | `sha256:b968a7db69338de40e94f5f6e7d09fdc904dbb9e378b7867197336998472d941` (manifest digest) | `FROM …@sha256:…`: podman refuses any other content |
 | apt packages (curl, unzip, git, cmake, build-essential, python3, patch, …) | Ubuntu archive configured in the base image | apt verifies each package against the signed Release files | apt (GPG) |
 | Android command-line tools, build 15859902 | `https://dl.google.com/android/repository/commandlinetools-linux-15859902_latest.zip` | SHA-256 `4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583` | Published on https://developer.android.com/studio#command-tools. The Containerfile runs `sha256sum -c`. |
-| SDK packages: `platform-tools`, `platforms;android-35`, `build-tools;35.0.0`, `ndk;27.2.12479018` (r27c LTS) | Google's default SDK repository (`dl.google.com/android/repository/repository2-*.xml`), fetched with `sdkmanager`. No mirrors. | sdkmanager checks every archive against the checksum in Google's repository XML. Licenses are accepted with `yes \| sdkmanager --licenses` at build time. | sdkmanager |
+| SDK packages: `platform-tools`, `platforms;android-36`, `build-tools;36.0.0`, `ndk;27.2.12479018` (r27c LTS). API 36 = Google Play's target-API requirement for new apps and updates from 2026-08-31 (https://developer.android.com/google/play/requirements/target-sdk, checked 2026-11-01); was android-35 / 35.0.0 before PLAY. | Google's default SDK repository (`dl.google.com/android/repository/repository2-*.xml`), fetched with `sdkmanager`. No mirrors. | sdkmanager checks every archive against the checksum in Google's repository XML. Licenses are accepted with `yes \| sdkmanager --licenses` at build time. | sdkmanager |
 | Gradle 8.14.3 (image copy, used once to generate the wrapper) | `https://services.gradle.org/distributions/gradle-8.14.3-bin.zip` | SHA-256 `bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531` | `https://services.gradle.org/distributions/gradle-8.14.3-bin.zip.sha256`. The Containerfile runs `sha256sum -c`. |
+| bundletool 1.18.3 (`bundletool-all-1.18.3.jar`, PLAY, 2026-11-01) at `/opt/bundletool/bundletool-all.jar`, wrapper `/usr/local/bin/bundletool` | `https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar` (official release of google/bundletool, latest non-prerelease on 2026-11-01) | SHA-256 `a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29` (32,520,401 B) | GitHub's published asset digest: `gh api repos/google/bundletool/releases/tags/1.18.3` → `assets[].digest`. The Containerfile runs `sha256sum -c`. |
 | rustup-init 1.29.2 (x86_64-unknown-linux-gnu) | `https://static.rust-lang.org/rustup/archive/1.29.2/x86_64-unknown-linux-gnu/rustup-init` | SHA-256 `5be191e8c70a5007074254cb74d78dbfdd25cd5a61c27de7b8e5410122ec24f4` | `…/rustup-init.sha256` on static.rust-lang.org. The Containerfile runs `sha256sum -c`. |
 | Rust toolchain 1.99.1 (+ rustfmt, clippy, targets aarch64/armv7/x86_64-linux-android) | static.rust-lang.org through rustup | rustup checks each component against the SHA-256 in the signed channel manifest. The version is pinned in `rust-toolchain.toml` and in the Containerfile. | rustup |
 | cargo-ndk 4.1.2 | crates.io (`cargo install --locked`) | crates.io checksums from the crate's own Cargo.lock | cargo |
@@ -79,6 +80,15 @@ hashes in `Uf2ImageTest` and `FirmwareVersion.CONSOLE_VERSION`.
 
 `:feature-firmware` uses `androidx.activity:activity-compose` for its SAF
 pickers; its verification metadata is the E3 row above (no further entries).
+
+## Release signing (PLAY)
+
+No download. The Play upload key is generated locally with the JDK's
+`keytool` in the container (`tools/upload-key.sh`) into the gitignored
+`keystore/`; `tools/ci.sh release` generates a throwaway key in a temp dir and
+deletes it. API 36 and the release build added no Maven artifacts:
+`gradle/verification-metadata.xml` is unchanged (AGP 8.13.2 already supports
+compileSdk 36, so no AGP upgrade was needed).
 
 ## Not downloaded
 

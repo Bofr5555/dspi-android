@@ -13,7 +13,11 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     sourceSets["main"].kotlin.srcDir(layout.buildDirectory.dir("generated/uniffi/kotlin"))
-    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("rust/jniLibs"))
+    // Per build type: debug -> rust/jniLibs-debug (profile from dspi.rustProfile,
+    // default debug), release -> rust/jniLibs-release (ALWAYS the cargo release
+    // profile, so a Play .aab can never ship an unoptimised .so).
+    sourceSets["debug"].jniLibs.srcDir(layout.buildDirectory.dir("rust/jniLibs-debug"))
+    sourceSets["release"].jniLibs.srcDir(layout.buildDirectory.dir("rust/jniLibs-release"))
 }
 
 dependencies {
@@ -74,27 +78,36 @@ val generateUniffiKotlin by tasks.registering(Exec::class) {
     )
 }
 
-val cargoNdkBuild by tasks.registering(Exec::class) {
-    description = "Cross-compile libdspi_ffi.so for the Android ABIs with cargo-ndk."
-    dependsOn(stageCore)
-    val out = layout.buildDirectory.dir("rust/jniLibs")
-    workingDir = rustDir.asFile
-    inputs.files(rustSources)
-    outputs.dir(out)
-    doFirst {
-        requireContainer()
-        delete(out) // cargo-ndk only adds files; drop stale libraries
+fun registerCargoNdkBuild(variant: String, profile: String) =
+    tasks.register<Exec>("cargoNdkBuild${variant.replaceFirstChar { it.uppercase() }}") {
+        description = "Cross-compile libdspi_ffi.so ($profile profile) for the $variant variant with cargo-ndk."
+        dependsOn(stageCore)
+        val out = layout.buildDirectory.dir("rust/jniLibs-$variant")
+        workingDir = rustDir.asFile
+        inputs.files(rustSources)
+        inputs.property("profile", profile)
+        outputs.dir(out)
+        doFirst {
+            requireContainer()
+            delete(out) // cargo-ndk only adds files; drop stale libraries
+        }
+        val profileArgs = if (profile == "release") listOf("--release") else emptyList()
+        commandLine(
+            listOf(
+                "cargo", "ndk",
+                "-t", "arm64-v8a", "-t", "armeabi-v7a", "-t", "x86_64",
+                "-P", libs.versions.minSdk.get(),
+                "-o", out.get().asFile.path,
+                "build", "-p", "dspi-ffi", "--locked"
+            ) + profileArgs
+        )
     }
-    val profileArgs = if (rustProfile == "release") listOf("--release") else emptyList()
-    commandLine(
-        listOf(
-            "cargo", "ndk",
-            "-t", "arm64-v8a", "-t", "armeabi-v7a", "-t", "x86_64",
-            "-P", libs.versions.minSdk.get(),
-            "-o", out.get().asFile.path,
-            "build", "-p", "dspi-ffi", "--locked"
-        ) + profileArgs
-    )
-}
 
-tasks.named("preBuild") { dependsOn(generateUniffiKotlin, cargoNdkBuild) }
+// dspi.rustProfile (gradle.properties) only picks the DEBUG variant's profile;
+// the release variant is always built with --release.
+val cargoNdkBuildDebug = registerCargoNdkBuild("debug", rustProfile)
+val cargoNdkBuildRelease = registerCargoNdkBuild("release", "release")
+
+tasks.named("preBuild") { dependsOn(generateUniffiKotlin) }
+tasks.matching { it.name == "preDebugBuild" }.configureEach { dependsOn(cargoNdkBuildDebug) }
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(cargoNdkBuildRelease) }

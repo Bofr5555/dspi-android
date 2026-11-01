@@ -16,7 +16,7 @@
 # --privileged, no /dev/bus/usb. Do not add any.
 set -euo pipefail
 
-IMAGE_TAG="2026-11-01"
+IMAGE_TAG="2026-11-01-play"
 IMAGE="localhost/dspi-android-build:${IMAGE_TAG}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

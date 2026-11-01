@@ -15,8 +15,11 @@ FROM docker.io/library/eclipse-temurin:21.0.5_11-jdk-noble@sha256:b968a7db69338d
 # https://developer.android.com/studio#command-tools (checked 2026-11-01).
 ARG CMDLINE_TOOLS_BUILD=15859902
 ARG CMDLINE_TOOLS_SHA256=4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583
-ARG ANDROID_PLATFORM=android-35
-ARG ANDROID_BUILD_TOOLS=35.0.0
+# Google Play target-API requirement (Aug 31 2026): new apps/updates target
+# API 36. Keep in sync with compileSdk/targetSdk/buildTools in
+# gradle/libs.versions.toml (AGP must not try to download anything itself).
+ARG ANDROID_PLATFORM=android-36
+ARG ANDROID_BUILD_TOOLS=36.0.0
 # NDK r27c (LTS)
 ARG ANDROID_NDK=27.2.12479018
 # rustup-init SHA-256 from static.rust-lang.org/rustup/archive/<ver>/<triple>/rustup-init.sha256
@@ -28,6 +31,10 @@ ARG CARGO_NDK_VERSION=4.1.2
 # Gradle SHA-256 from services.gradle.org/distributions/gradle-<ver>-bin.zip.sha256
 ARG GRADLE_VERSION=8.14.3
 ARG GRADLE_SHA256=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531
+# bundletool (Play .aab validate / build-apks). SHA-256 = the GitHub release
+# asset digest: gh api repos/google/bundletool/releases/tags/<ver> -> assets[].digest
+ARG BUNDLETOOL_VERSION=1.18.3
+ARG BUNDLETOOL_SHA256=a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29
 
 ENV DEBIAN_FRONTEND=noninteractive \
     ANDROID_HOME=/opt/android-sdk \
@@ -66,6 +73,14 @@ RUN curl -fsSL -o /tmp/gradle.zip \
  && unzip -q /tmp/gradle.zip -d /opt \
  && mv /opt/gradle-${GRADLE_VERSION} /opt/gradle \
  && rm /tmp/gradle.zip
+
+# --- bundletool ------------------------------------------------------------------
+RUN mkdir -p /opt/bundletool \
+ && curl -fsSL -o /opt/bundletool/bundletool-all.jar \
+      https://github.com/google/bundletool/releases/download/${BUNDLETOOL_VERSION}/bundletool-all-${BUNDLETOOL_VERSION}.jar \
+ && echo "${BUNDLETOOL_SHA256}  /opt/bundletool/bundletool-all.jar" | sha256sum -c - \
+ && printf '#!/bin/sh\nexec java -jar /opt/bundletool/bundletool-all.jar "$@"\n' > /usr/local/bin/bundletool \
+ && chmod 0755 /usr/local/bin/bundletool
 
 # --- Rust ----------------------------------------------------------------------
 # Toolchains live in RUSTUP_HOME=/opt/rustup, binaries (rustup proxies, cargo-ndk)

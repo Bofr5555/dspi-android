@@ -83,7 +83,7 @@ Rules for changing a contract:
   3. Rust tests: record round-trips, error mapping, a decode of the V32 fixture through `protocol::decode_bulk` checking known values, and every `*_DEFAULTS`. HIL tests may be written in `rust/dspi-ffi/tests/hil.rs`, but they must stay `#[ignore]` and gated on `DSPI_HIL=1`. **Agents never run them.** The coordinator runs them on the owner's units.
   4. `fixtures/bulk_v32.bin`: a copy of `_ref/DSPi-Link/fixtures/device/bulk_v32.bin` (6136 B, DSPi-Link `05949b8`; record the provenance next to it). `fixtures/dspstate_v32.json`: that bulk decoded by the core and serialised as the `DspState` record (an `examples/dump_state.rs` producing it; field names = Kotlin camelCase). BRIDGE reads this JSON.
   5. `tools/opcode_coverage.py` is real (see its TODO): firmware `config.h` at the pinned SHA vs `protocol.rs` vs the opcodes reachable from dspi-ffi methods. The known gap 0x82 `REQ_GET_CLOCK_DIAG` goes in an allowlist. CI fails on anything new.
-  6. The release `.so` size is reasonable (`dspi.rustProfile=release`, LTO is already set).
+  6. The release `.so` size is reasonable (release builds always use the Rust release profile; `dspi.rustProfile=release` does the same for debug builds; LTO is already set).
 - **Ports (as code, not translation):** `linux:core/src/lib.rs` (the C ABI semantics), and PLAN §2.2 / Appendix A.
 
 ### USB: attach, permission, fd ownership, foreground service, bootloader locator
@@ -168,3 +168,4 @@ Not assigned yet (Phase 6): onboarding / What's New (`Onboarding/*`, `WhatsNew.j
 | HOME | `tools/ci.sh home` | `:ui-common`, `:feature-home` |
 | GRAPH … FIRMWARE | `tools/ci.sh graph\|matrix\|tools\|presets\|settings\|analysis\|firmware` | that feature module |
 | (coordinator) | `tools/ci.sh app`, `tools/ci.sh all` | `:app` assembleDebug (builds Rust too); everything |
+| PLAY (coordinator) | `tools/ci.sh release` (also in `all`) | signed `.aab` (`:app:bundleRelease`) with a throwaway key, `bundletool validate`, manifest/native-lib checks, universal APK + size report; see `docs/RELEASE.md` |
