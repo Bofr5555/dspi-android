@@ -190,10 +190,11 @@ fun PeqBandHud(editor: PeqGraphEditor, state: PeqHudState, onEditField: (PeqHudF
             val chooser = remember { PeqShapeChooserState() }
             var step by remember { mutableIntStateOf(0) }
             remember(band, state.availableTypes) { chooser.configure(state.availableTypes) }
-            // The band's own shape follows a type change made while the page is open.
-            chooser.own = PeqShape.of(p.filterType)
             PeqShapeChooser(
                 chooser = chooser,
+                // The band's own shape follows a type change made while the page is open: a
+                // parameter, so the chooser is not skipped when only it changes (audit G3).
+                own = PeqShape.of(p.filterType),
                 step = step,
                 markColor = if (dim) muted else color,
                 onStep = { step++ },
@@ -376,12 +377,14 @@ private fun HudValueRow(editor: PeqGraphEditor, state: PeqHudState, row: PeqHudR
 @Composable
 fun PeqShapeChooser(
     chooser: PeqShapeChooserState,
+    own: Pair<PeqShape, Int>?,
     @Suppress("UNUSED_PARAMETER") step: Int,
     markColor: Color,
     onStep: () -> Unit,
     onPick: (PeqShape, Int) -> Unit,
     onBack: () -> Unit
 ) {
+    chooser.own = own
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(top = 4.dp).height(17.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -453,12 +456,12 @@ fun PeqAddBandCard(editor: PeqGraphEditor, origin: PeqPoint) {
     val types = editor.availableTypes
     remember(types, origin) {
         chooser.configure(types)
-        chooser.own = null
     }
     val size = PeqGraphEditor.Tuning.CARD_SIZE
     PeqFrostedPanel(PeqRect(origin.x, origin.y, size.width, size.height)) {
         PeqShapeChooser(
             chooser = chooser,
+            own = null,
             step = step,
             markColor = Color.White,
             onStep = { step++ },

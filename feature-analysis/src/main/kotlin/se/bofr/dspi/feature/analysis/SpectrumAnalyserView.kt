@@ -79,6 +79,7 @@ import se.bofr.dspi.ui.MacColors
 import se.bofr.dspi.ui.SegmentedPicker
 import se.bofr.dspi.ui.WhileVisible
 import se.bofr.dspi.ui.WritesExempt
+import se.bofr.dspi.ui.settings.AppSettings
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
 
@@ -108,22 +109,17 @@ fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, stor
     val rta = bridge.rta
     val bridgeStatus by bridge.status.collectAsState()
 
-    @Suppress("UNUSED_VARIABLE")
-    val revision by bridge.stateRevision.collectAsState() // enables, names, live inputs
+    // Read (not an unused `by` delegate, which never subscribes): enables, names, colours (audit A1)
+    val revision = bridge.stateRevision.collectAsState().value
     val caps by rta.caps.collectAsState()
 
     // The macOS preferences and the dashboard's stored selection (the shared AppSettings)
     val settings by store.settings.collectAsState()
     val prefs = remember(settings) { settings.rtaPreferences() }
     val selectionKey = settings.rtaDashboardSelectionKey
-    val otherSideKey = settings.rtaDashboardOtherSideKey
     // Swift startFromPage(): each time the page opens it draws what the dashboard draws
     var chosenMode by rememberSaveable { mutableStateOf<RtaDisplayMode?>(null) }
     val mode = chosenMode ?: rtaInitialMode(prefs.dashboardShowGraph, prefs.dashboardShowBars)
-    fun storeSelection(active: RtaChannelSelection, other: RtaChannelSelection?) {
-        store.update { it.copy(rtaDashboardSelectionKey = active.storageKey, rtaDashboardOtherSideKey = other?.storageKey ?: "") }
-    }
-
     val selection = RtaChannelSelection.resolve(RtaChannelSelection.fromStorageKey(selectionKey)) { rta.availableChannels(it) }
     val state =
         SpectrumUiState(
@@ -177,22 +173,37 @@ fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, stor
             render = render,
             tick = tick,
             snapshot = rta.snapshot,
-            channelName = { tap, ch -> bridge.channelName(rta.appChannel(tap, ch)).ifEmpty { "Ch ${ch + 1}" } },
-            channelColor = { tap, ch ->
-                val app = rta.appChannel(tap, ch)
-                ChannelPalette.fromHex(bridge.channelColor(app), ChannelPalette.color(app, bridge.numOutputChannels))
+            // New lambdas per state revision: they read plain getters, and the header/bars that
+            // call them are skipped when handed the same instances (audit A1).
+            channelName = remember(revision) { { tap, ch -> bridge.channelName(rta.appChannel(tap, ch)).ifEmpty { "Ch ${ch + 1}" } } },
+            channelColor = remember(revision) {
+                { tap, ch ->
+                    val app = rta.appChannel(tap, ch)
+                    ChannelPalette.fromHex(bridge.channelColor(app), ChannelPalette.color(app, bridge.numOutputChannels))
+                }
             },
-            onSide = { tap ->
-                // Swift switchRtaSide: the stored form, so a channel disabled for now is still remembered
-                val active = RtaChannelSelection.fromStorageKey(selectionKey) ?: selection
-                val (next, remembered) = RtaChannelSelection.switchingSides(active, RtaChannelSelection.fromStorageKey(otherSideKey), tap)
-                storeSelection(next, remembered)
-            },
-            onToggle = { ch -> storeSelection(selection.toggling(selection.tap, ch), RtaChannelSelection.fromStorageKey(otherSideKey)) },
+            // The edits compute from the store's latest value, not the composed selection (audit A2).
+            onSide = { tap -> store.update { s -> spectrumSideSwitched(s, tap) { rta.availableChannels(it) } } },
+            onToggle = { ch -> store.update { s -> spectrumChannelToggled(s, ch) { rta.availableChannels(it) } } },
             onMode = { chosenMode = it },
             modifier = modifier
         )
     }
+}
+
+/** A channel chip: toggle [ch] in the stored dashboard selection of [s] (atomic inside `store.update`). */
+internal fun spectrumChannelToggled(s: AppSettings, ch: Int, available: (Int) -> List<Int>): AppSettings {
+    val selection = RtaChannelSelection.resolve(RtaChannelSelection.fromStorageKey(s.rtaDashboardSelectionKey), available)
+    return s.copy(rtaDashboardSelectionKey = selection.toggling(selection.tap, ch).storageKey)
+}
+
+/** Swift switchRtaSide on [s]: the stored form, so a channel disabled for now is still remembered. */
+internal fun spectrumSideSwitched(s: AppSettings, tap: Int, available: (Int) -> List<Int>): AppSettings {
+    val active =
+        RtaChannelSelection.fromStorageKey(s.rtaDashboardSelectionKey)
+            ?: RtaChannelSelection.resolve(null, available)
+    val (next, remembered) = RtaChannelSelection.switchingSides(active, RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSideKey), tap)
+    return s.copy(rtaDashboardSelectionKey = next.storageKey, rtaDashboardOtherSideKey = remembered?.storageKey ?: "")
 }
 
 @Composable

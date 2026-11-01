@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.log10
 import kotlin.math.pow
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.bridge.MaskField
 import se.bofr.dspi.ui.Caption
 import se.bofr.dspi.ui.ChannelChips
 import se.bofr.dspi.ui.ParameterRow
@@ -113,6 +114,8 @@ fun LoudnessView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val connected = status.connected
     val loudness = LoudnessParameters.from(st)
     val outputCount = st.numOutputChannels
+    // Names are plain getters: read here, where `st` is observed, not inside the skippable column lambdas (audit T3).
+    val outputNames = (0 until outputCount).map { bridge.channelName(2 + it) }
     val showMask = ToolFirmware.supportsLoudnessMask(st.formatVersion)
     val graphLive = rememberGraphLive<LoudnessGraphKey>(loudness.refSPL to loudness.intensity)
 
@@ -186,9 +189,9 @@ fun LoudnessView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                     ChannelChips(
                         count = outputCount,
                         isOn = { ToolMasks.isOn(loudness.outputMask, it) },
-                        names = (0 until outputCount).map { bridge.channelName(2 + it) },
+                        names = outputNames,
                         enabled = connected,
-                        onToggle = { bridge.setLoudnessOutputMask(ToolMasks.toggled(loudness.outputMask, it)) }
+                        onToggle = { bridge.toggleMaskBit(MaskField.LOUDNESS_OUTPUTS, it) }
                     )
                 }
             })

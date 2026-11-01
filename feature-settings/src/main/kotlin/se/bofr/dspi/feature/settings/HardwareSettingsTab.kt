@@ -77,7 +77,7 @@ fun HardwareSettingsTab(page: HardwarePage, bridge: DspiBridge, coordinator: Set
             },
             confirmButton = {
                 TextButton(onClick = {
-                    coordinator.applyHardware(edits.i2sClockMode(device, mode))
+                    coordinator.applyHardwareLatest { d, _ -> listOf(edits.i2sClockMode(d, mode)) }
                     confirmClockMode = null
                 }) { Text("Change Clock Mode", color = Color(0xFFFF453A)) }
             },
@@ -113,7 +113,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
                     },
                     type,
                     enabled = writeEnabled(connected)
-                ) { coordinator.applyHardware(edits.outputType(device, slot, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.outputType(d, slot, it)) } }
                 // STM32 has no assignable pins (macOS hides the picker)
                 if (!device.isStm32) {
                     PinRow(
@@ -122,7 +122,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
                         pin,
                         VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.Output(slot)) == null },
                         enabled = writeEnabled(connected)
-                    ) { coordinator.applyHardware(edits.outputPin(device, slot, it, pins)) }
+                    ) { coordinator.applyHardwareLatest { d, p -> listOf(edits.outputPin(d, slot, it, p)) } }
                 }
                 RowDivider()
             }
@@ -136,7 +136,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
                     device.outputPins.getOrElse(pdm) { PIN_UNSET },
                     VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.Output(pdm)) == null },
                     enabled = writeEnabled(connected)
-                ) { coordinator.applyHardware(edits.outputPin(device, pdm, it, pins)) }
+                ) { coordinator.applyHardwareLatest { d, p -> listOf(edits.outputPin(d, pdm, it, p)) } }
             }
         }
     }
@@ -149,7 +149,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
                         "existing outputs; drive a TOSLINK transmitter from the data pin.",
                     device.adatEnabled,
                     enabled = writeEnabled(connected)
-                ) { coordinator.applyHardware(edits.adatOutEnabled(device, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.adatOutEnabled(d, it)) } }
                 PinRow(
                     "Serial Data",
                     "GPIO driving the ADAT optical output. Default GPIO ${OutputConfigSnapshot.ADAT_PIN_DEFAULT}.",
@@ -159,7 +159,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
                             null
                     },
                     enabled = writeEnabled(connected)
-                ) { coordinator.applyHardware(edits.adatOutPin(device, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.adatOutPin(d, it)) } }
             }
         }
     }
@@ -172,7 +172,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
                     enabled = writeEnabled(connected)
                 ) {
                     OutlinedButton(
-                        onClick = { coordinator.applyHardware(edits.resetPins(device), "All pins reset to defaults") },
+                        onClick = { coordinator.applyHardwareLatest("All pins reset to defaults") { d, _ -> edits.resetPins(d) } },
                         enabled = writeEnabled(connected)
                     ) { Text("Reset") }
                 }
@@ -218,7 +218,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
                 device.i2sBckPin,
                 bckCandidates(pins, PinConsumer.I2sBck, device.i2sBckPin),
                 enabled = writeEnabled(connected) && !device.anySlotIsI2S
-            ) { coordinator.applyHardware(edits.i2sBckPin(device, it)) }
+            ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.i2sBckPin(d, it)) } }
             if (device.i2sClockPinModeSupported) {
                 SegmentedRow(
                     "Clock Pins",
@@ -226,7 +226,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
                     listOf(I2S_CLOCK_PIN_MODE_UNIFIED to "Unified", I2S_CLOCK_PIN_MODE_SPLIT to "Split"),
                     device.i2sClockPinMode,
                     enabled = writeEnabled(connected)
-                ) { coordinator.applyHardware(edits.i2sClockPinMode(device, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.i2sClockPinMode(d, it)) } }
                 PinRow(
                     "Slave BCK Pin",
                     if (device.i2sClockPinMode == I2S_CLOCK_PIN_MODE_SPLIT) {
@@ -237,7 +237,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
                     device.i2sBckPinSlave,
                     bckCandidates(pins, PinConsumer.I2sBckSlave, device.i2sBckPinSlave),
                     enabled = writeEnabled(connected) && device.i2sClockPinMode == I2S_CLOCK_PIN_MODE_SPLIT
-                ) { coordinator.applyHardware(edits.i2sBckPinSlave(device, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.i2sBckPinSlave(d, it)) } }
             }
             FormSwitchRow(
                 "Master Clock (MCK)",
@@ -249,14 +249,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
                 },
                 device.mckEnabled,
                 enabled = writeEnabled(connected) && !device.i2sSlaveActive
-            ) { coordinator.applyHardware(edits.mckEnabled(device, it)) }
+            ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.mckEnabled(d, it)) } }
             PinRow(
                 "MCK Pin",
                 if (device.mckEnabled) "Turn MCK off to change its pin." else null,
                 device.mckPin,
                 device.mckValidPins.filter { pins.pinInUseBy(it, PinConsumer.Mck) == null },
                 enabled = writeEnabled(connected) && !device.mckEnabled && !device.i2sSlaveActive
-            ) { coordinator.applyHardware(edits.mckPin(device, it)) }
+            ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.mckPin(d, it)) } }
             // macOS `mck256UnsupportedAtCurrentRate`: the live rate, not the configured one
             val locked = sampleRateHz >= 96000
             val rateLabel = if (sampleRateHz == 0) "unknown sample rate" else String.format(Locale.ROOT, "%.1f kHz", sampleRateHz / 1000.0)
@@ -266,7 +266,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
                 listOf(0 to "128x", 1 to "256x"),
                 device.mckMultiplier,
                 enabled = writeEnabled(connected) && !locked && !device.i2sSlaveActive
-            ) { coordinator.applyHardware(edits.mckMultiplier(device, it)) }
+            ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.mckMultiplier(d, it)) } }
             if (device.i2sInputSupported) {
                 ChoiceRow(
                     "Input Sample Rate",
@@ -278,7 +278,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
                     OutputConfigSnapshot.INPUT_RATE_LABELS.mapIndexed { i, l -> i to l },
                     device.i2sInputRate,
                     enabled = writeEnabled(connected) && !device.i2sSlaveActive
-                ) { coordinator.applyHardware(edits.inputRate(device, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.inputRate(d, it)) } }
             }
         }
     }
@@ -304,7 +304,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                         (1..device.spdifInputCount).map { it to "$it" },
                         count,
                         enabled = writeEnabled(connected)
-                    ) { coordinator.applyHardware(edits.spdifInputCount(device, it)) }
+                    ) { coordinator.applyHardwareLatest { d, _ -> edits.spdifInputCount(d, it) } }
                 }
                 val shown = if (device.multiSpdifSupported) count else 1
                 for (idx in 0 until shown) {
@@ -314,7 +314,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                         device.spdifRxPins.getOrElse(idx) { PIN_UNSET },
                         VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.SpdifRx(idx)) == null },
                         enabled = writeEnabled(connected)
-                    ) { coordinator.applyHardware(edits.spdifRxPin(device, idx, it, pins)) }
+                    ) { coordinator.applyHardwareLatest { d, p -> listOf(edits.spdifRxPin(d, idx, it, p)) } }
                 }
                 // Not a pipeline rebuild: live and per preset, as on macOS
                 val lg = bridge.state.collectAsState().value.lgSoundSyncEnabled
@@ -340,7 +340,13 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                         enabled = writeEnabled(connected)
                     ) { mode ->
                         // Warn before switching while an output drives an I2S DAC
-                        if (device.anySlotIsI2S) askClockMode(mode) else coordinator.applyHardware(edits.i2sClockMode(device, mode))
+                        if (device.anySlotIsI2S) {
+                            askClockMode(mode)
+                        } else {
+                            coordinator.applyHardwareLatest { d, _ ->
+                                listOf(edits.i2sClockMode(d, mode))
+                            }
+                        }
                     }
                     if (device.i2sSlaveActive) LockStatusRow(bridge, which = 0, adat = false)
                 }
@@ -352,7 +358,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                         (1..device.i2sMaxPairs).map { it * 2 to "${it * 2}" },
                         pairs * 2,
                         enabled = writeEnabled(connected)
-                    ) { coordinator.applyHardware(edits.i2sInputChannels(device, it)) }
+                    ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.i2sInputChannels(d, it)) } }
                 } else {
                     SettingRow("Channels", "One stereo pair of 24-bit audio") { Text("2") }
                 }
@@ -363,7 +369,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                         device.i2sRxPins.getOrElse(pair) { PIN_UNSET },
                         VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.I2sRx(pair)) == null },
                         enabled = writeEnabled(connected)
-                    ) { coordinator.applyHardware(edits.i2sRxPin(device, pair, it)) }
+                    ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.i2sRxPin(d, pair, it)) } }
                 }
                 if (device.i2sActivePairs < device.i2sMaxPairs) {
                     FormCaption("Unused pairs keep their pins parked; they reserve nothing until the channel count is raised.")
@@ -387,7 +393,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                         "Assign a data pin below, then select ADAT as the input source.",
                     device.adatInputEnabled,
                     enabled = writeEnabled(connected) && (device.adatInputPin != PIN_UNSET || device.adatInputEnabled)
-                ) { coordinator.applyHardware(edits.adatInputEnabled(device, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.adatInputEnabled(d, it)) } }
                 PinRow(
                     "Serial Data",
                     "GPIO receiving the ADAT optical input. No default - assign a spare pin (it may match the ADAT output pin for " +
@@ -396,7 +402,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                     VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.AdatIn) == null },
                     enabled = writeEnabled(connected),
                     unsetText = if (device.adatInputEnabled) null else "Not set"
-                ) { coordinator.applyHardware(edits.adatInputPin(device, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.adatInputPin(d, it)) } }
                 SegmentedRow(
                     "Clock Mode",
                     "Master: DSPi owns the sample rate (set in I2S Configuration) and the source syncs to the ADAT output. Slave: " +
@@ -404,7 +410,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                     listOf(0 to "Master", 1 to "Slave"),
                     device.adatInputClockMode,
                     enabled = writeEnabled(connected)
-                ) { coordinator.applyHardware(edits.adatInputClockMode(device, it)) }
+                ) { coordinator.applyHardwareLatest { d, _ -> listOf(edits.adatInputClockMode(d, it)) } }
                 if (device.adatInputEnabled && device.adatInputClockMode == 0 && !device.adatEnabled) {
                     SettingRow(
                         "Clock is free-running",
@@ -415,7 +421,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                         titleColor = MacColors.orange
                     ) {
                         OutlinedButton(onClick = {
-                            coordinator.applyHardware(edits.adatOutEnabled(device, true))
+                            coordinator.applyHardwareLatest { d, _ -> listOf(edits.adatOutEnabled(d, true)) }
                         }, enabled = writeEnabled(connected)) {
                             Text("Enable ADAT Output")
                         }

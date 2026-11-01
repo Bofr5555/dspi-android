@@ -320,10 +320,10 @@ private fun Crosspoint(ui: MatrixUi, row: MatrixInput, out: MatrixOutput, modifi
         isInverted = route.isInverted,
         // .saturation(enabled ? 1 : 0)
         inputColor = if (enabled) ChannelPalette.fromHex(row.color) else Color.Gray,
-        onToggleConnected = { ui.actions.toggleRoute(row.index, out.index, route) },
-        onGainLive = { ui.actions.matrixGainLive(row.index, out.index, route, it) },
-        onGainCommit = { ui.actions.matrixGainCommit(row.index, out.index, route, it) },
-        onToggleInverted = { ui.actions.toggleInvert(row.index, out.index, route) },
+        onToggleConnected = { ui.actions.toggleRoute(row.index, out.index) },
+        onGainLive = { ui.actions.matrixGainLive(row.index, out.index, it) },
+        onGainCommit = { ui.actions.matrixGainCommit(row.index, out.index, it) },
+        onToggleInverted = { ui.actions.toggleInvert(row.index, out.index) },
         outlineColor = conflictOutline(ui.state, out.index),
         modifier = modifier.alpha(if (enabled) 1f else 0.3f)
     )
@@ -600,22 +600,22 @@ private fun PhoneRouteRow(ui: MatrixUi, row: MatrixInput, out: MatrixOutput) {
                 if (route.isConnected) {
                     CompactGainField(
                         gain = route.gain,
-                        onLive = { ui.actions.matrixGainLive(row.index, out.index, route, it) },
-                        onCommit = { ui.actions.matrixGainCommit(row.index, out.index, route, it) },
+                        onLive = { ui.actions.matrixGainLive(row.index, out.index, it) },
+                        onCommit = { ui.actions.matrixGainCommit(row.index, out.index, it) },
                         title = "${row.name} → ${out.name}",
                         quantized = false
                     )
                 }
             }
             Box(Modifier.width(44.dp), contentAlignment = Alignment.Center) {
-                if (route.isConnected) MatrixInvertToggle(route.isInverted, true, { ui.actions.toggleInvert(row.index, out.index, route) })
+                if (route.isConnected) MatrixInvertToggle(route.isInverted, true, { ui.actions.toggleInvert(row.index, out.index) })
             }
             MatrixConnectToggle(
                 route.isConnected,
                 if (enabled) ChannelPalette.fromHex(row.color) else Color.Gray,
                 conflictOutline(s, out.index),
                 true
-            ) { ui.actions.toggleRoute(row.index, out.index, route) }
+            ) { ui.actions.toggleRoute(row.index, out.index) }
         }
     }
 }
