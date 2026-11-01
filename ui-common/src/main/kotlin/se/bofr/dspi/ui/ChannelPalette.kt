@@ -2,6 +2,7 @@
 package se.bofr.dspi.ui
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 
 /**
  * The single source of truth for every per-channel colour in the app
@@ -64,6 +65,9 @@ object ChannelPalette {
         appCh in 2..10 -> (appCh - 2).let { output(it, isPdm = numOutputs > 0 && it == numOutputs - 1) }
         else -> accent
     }
+
+    /** "#RRGGBB" of [c] (the bridge's `channelColor()` format). */
+    fun hex(c: Color): String = String.format(java.util.Locale.ROOT, "#%06X", c.toArgb() and 0xFFFFFF)
 
     /** Parse the bridge's `channelColor()` hex ("#RRGGBB" or "#AARRGGBB"); [fallback] if malformed. */
     fun fromHex(hex: String, fallback: Color = accent): Color {

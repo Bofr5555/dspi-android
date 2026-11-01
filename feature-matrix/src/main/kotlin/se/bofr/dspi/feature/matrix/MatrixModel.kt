@@ -9,6 +9,7 @@ package se.bofr.dspi.feature.matrix
 
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.ui.ChannelPalette
 
 /** One matrix column (macOS `MatrixOutput`). [color] is "#RRGGBB". */
 data class MatrixOutput(
@@ -172,7 +173,8 @@ data class MatrixMixerState(
 
         private fun inputColor(bridge: DspiBridge, row: Int): String {
             val app = bridge.inputAppId(row)
-            return if (app >= 0) bridge.channelColor(app) else INPUT_PALETTE.getOrElse(row) { ACCENT }
+            // Without an app channel: the macOS palette (ChannelPalette.input, accent past the 8-channel model)
+            return if (app >= 0) bridge.channelColor(app) else ChannelPalette.hex(ChannelPalette.input(row))
         }
     }
 }
@@ -194,10 +196,6 @@ const val INPUT_SOURCE_ADAT = 3
 const val INPUT_SOURCE_SPDIF2 = 4
 const val INPUT_SOURCE_SPDIF3 = 5
 const val INPUT_SOURCE_SPDIF4 = 6
-
-/** macOS `ChannelPalette.inputs` (fallback when the bridge has no app id for a row). */
-internal val INPUT_PALETTE = listOf("#4A8FE3", "#F57373", "#73C78C", "#EDB34D", "#998CEB", "#E68CC7", "#66C7D1", "#CCB86B")
-internal const val ACCENT = "#0A84FF"
 
 /**
  * macOS `supports8chInput`: RP2350, firmware wire format == the client's
