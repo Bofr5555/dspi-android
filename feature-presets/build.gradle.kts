@@ -12,6 +12,12 @@ android {
 dependencies {
     implementation(project(":bridge"))
     implementation(project(":ui-common"))
+    // Catalog libraries (no new artifacts): FileProvider for the share sheet.
+    implementation(libs.androidx.core.ktx)
+    // E9: the controller lives in a ViewModel (catalog library, already verified).
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // @Previews (src/debug) run against FakeDspiCore, as PACKAGES.md asks; never in release.
+    debugImplementation(project(":fake-core"))
     testImplementation(project(":fake-core"))
     testImplementation(libs.kotlinx.coroutines.test)
 }

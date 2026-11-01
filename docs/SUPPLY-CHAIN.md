@@ -36,6 +36,12 @@ in `tools/dev.sh`.
 | libusb C sources | bundled in the `libusb1-sys` crate (crates.io) through rusb's `vendored` feature | covered by the Cargo.lock checksum |
 | dspi-core | git submodule `third_party/DSPi-Console-Linux` → https://github.com/WeebLabs/DSPi-Console-Linux | pinned commit `4683a2ca4b41914edbab1b756397e29fec1e88d8` (see `tools/REFERENCE.toml`) |
 
+## Bundled data
+
+| What | Source | Pin / verification |
+|---|---|---|
+| AutoEQ headphone database `feature-presets/src/main/assets/autoeq_database.json` (PRESETS, 2026-11-01; 3,828 entries, `generatedAt` 2026-01-18T05:41:39Z) | The official macOS client's bundled copy: https://github.com/WeebLabs/DSPi-Console `DSPi Console/AutoEQ/autoeq_database.json` at tag `v1.1.6-beta5` (commit `b5fdeac4fdd27781bba18547a537b499be69f758`; file last changed in `8de3c59d94b3d0ab65dacf42869ffdd87854a672`). The data itself comes from the AutoEQ project (jaakkopasanen/AutoEq). Copied byte for byte, not regenerated. | SHA-256 `816593868b796b9af0ea567df9c49330b481834b1e2ca7808c808e131caef37f`; `AutoEQManagerTest.theBundledDatabaseIsTheOfficialOne` checks it in CI. |
+
 ### How the verification metadata was produced
 
 ```
