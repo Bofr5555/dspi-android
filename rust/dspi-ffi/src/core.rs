@@ -13,7 +13,8 @@
 //!   `rta_set_listener`); `dspi_monitor_read`'s TSV becomes `MonitorBatch`;
 //! - stateless math and `bootloader_counts`/`config_inspect` are free
 //!   functions (see `lib.rs`);
-//! - Android additions: `open_fd`, `close`.
+//! - Android additions: `open_fd`, `close_fd` (the plan's `close`; renamed
+//!   because UniFFI's Kotlin object reserves `close()` for freeing the core).
 //!
 //! Channel arguments are firmware WIRE indices; output arguments are output
 //! indices 0..num_output_channels-1; input arguments input indices (as in the
@@ -83,7 +84,7 @@ impl DspiCore {
     /// Adopt an already-open usbfs fd (`UsbDeviceConnection.getFileDescriptor()`).
     /// Claims interface 2 only (never the audio interfaces 0/1), starts the
     /// notify listener, resets state like `select_device`. The caller keeps
-    /// the `UsbDeviceConnection` open until after `close()`; rusb does not
+    /// the `UsbDeviceConnection` open until after `close_fd()`; rusb does not
     /// take ownership of the fd. Needs third_party/patches/0001-android-fd.patch
     /// (`DeviceManager::select_device_handle`, PLAN Appendix A).
     pub fn open_fd(&self, fd: i32, serial: String, vid: u16) -> Result<()> {
@@ -91,10 +92,12 @@ impl DspiCore {
         stub!("open_fd")
     }
 
-    /// Stop the listener/RTA threads and drop the device handle (= `disconnect`),
-    /// after which the Kotlin side may close the `UsbDeviceConnection`.
-    pub fn close(&self) {
-        stub_infallible!("close")
+    /// Stop the listener/RTA threads and drop the device handle opened by
+    /// `open_fd` (= `disconnect`), after which the Kotlin side may close the
+    /// `UsbDeviceConnection`. Named `close_fd`, not `close`, because UniFFI's
+    /// Kotlin object already has `close()` (AutoCloseable = free the core).
+    pub fn close_fd(&self) {
+        stub_infallible!("close_fd")
     }
 
     // ═══ Device management ═══════════════════════════════════════════
