@@ -27,6 +27,7 @@ android {
 
 dependencies {
     implementation(project(":bridge"))
+    // E8: the one release-time :fake-core user (demo mode); tools/ci.sh release-deps allows only :app
     implementation(project(":fake-core"))
     implementation(project(":ffi"))
     implementation(project(":usb"))

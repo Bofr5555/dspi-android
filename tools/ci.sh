@@ -83,29 +83,55 @@ pkg_settings() { feature settings; }
 pkg_analysis() { feature analysis; }
 pkg_firmware() { feature firmware; }
 
-pkg_app() { step "app: :app"; android_module :app; release_deps; }
+pkg_app() { step "app: :app"; android_module :app; apk_fixtures; release_deps; }
 
 # E2: `debugImplementation(project(":fake-core"))` is allowed (for @Previews);
 # release runtime classpaths must not contain :fake-core.
-has_fake_core_in_release() { # :module -> 0 if :fake-core is on its release runtime classpath
-  "${GRADLE[@]}" "$1:dependencies" --configuration releaseRuntimeClasspath | grep -q -- "project :fake-core"
+# E8: the ONE exception is :app, which ships the clearly labelled
+# "Demo (no device)" mode (FakeDspiCore.demo()); its APK may carry only the
+# fixtures/dspstate_*.json files (fake-core/build.gradle.kts) and nothing
+# else from fixtures/.
+has_fake_core_in() { # :module configuration -> 0 if :fake-core is on that classpath
+  "${GRADLE[@]}" "$1:dependencies" --configuration "$2" | grep -q -- "project :fake-core"
 }
 
+RELEASE_ANDROID_MODULES=(:ffi :usb :ui-common :feature-home :feature-graph :feature-matrix :feature-tools
+  :feature-presets :feature-settings :feature-analysis :feature-firmware)
+RELEASE_JVM_MODULES=(:core-api :bridge)
+# Documented allowance (E8): module -> why it may have :fake-core in release.
+FAKE_CORE_RELEASE_ALLOWED=(":app") # demo mode
+
 release_deps() {
-  step "release-deps: no :fake-core in release runtime classpaths"
+  step "release-deps: no :fake-core in release runtime classpaths (E2), except :app for demo mode (E8)"
   local m bad=0
-  for m in :ui-common :feature-home :feature-graph :feature-matrix :feature-tools :feature-presets \
-           :feature-settings :feature-analysis :feature-firmware; do
-    if has_fake_core_in_release "$m"; then echo "ERROR: $m releaseRuntimeClasspath contains :fake-core" >&2; bad=1; fi
+  for m in "${RELEASE_ANDROID_MODULES[@]}"; do
+    if has_fake_core_in "$m" releaseRuntimeClasspath; then echo "ERROR: $m releaseRuntimeClasspath contains :fake-core" >&2; bad=1; fi
   done
-  # :app is reported, not failed, until the coordinator settles release demo
-  # mode (pkg/app's "Demo (no device)" uses FakeDspiCore in release builds).
-  if has_fake_core_in_release :app; then
-    echo "WARNING: :app releaseRuntimeClasspath contains :fake-core (E2; pending the release demo-mode decision)" >&2
-  fi
+  for m in "${RELEASE_JVM_MODULES[@]}"; do
+    if has_fake_core_in "$m" runtimeClasspath; then echo "ERROR: $m runtimeClasspath contains :fake-core" >&2; bad=1; fi
+  done
+  echo "allowed (E8, demo mode): ${FAKE_CORE_RELEASE_ALLOWED[*]}"
   return "$bad"
 }
 pkg_release_deps() { release_deps; }
+
+# E8: the app APK carries fixtures/dspstate_*.json (demo mode needs
+# dspstate_v32.json) and no other file from fixtures/.
+apk_fixtures() {
+  step "app: APK fixtures are dspstate_*.json only (E8)"
+  python3 - app/build/outputs/apk/debug/app-debug.apk fixtures <<'PY'
+import fnmatch, os, sys, zipfile
+apk, fixtures = sys.argv[1], sys.argv[2]
+names = set(zipfile.ZipFile(apk).namelist())
+bad = [f for f in sorted(os.listdir(fixtures))
+       if not fnmatch.fnmatch(f, "dspstate_*.json") and (f in names or "fixtures/" + f in names)]
+if bad:
+    sys.exit("ERROR: APK carries non-dspstate fixtures: " + ", ".join(bad))
+if "dspstate_v32.json" not in names:
+    sys.exit("ERROR: APK lacks dspstate_v32.json (demo mode seed)")
+print("ok: " + ", ".join(sorted(n for n in names if fnmatch.fnmatch(n, "dspstate_*.json"))))
+PY
+}
 
 PACKAGES=(supply contract ffi usb bridge home graph matrix tools presets settings analysis firmware app)
 
