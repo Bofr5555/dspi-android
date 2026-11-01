@@ -152,6 +152,34 @@ class LifecycleAndSafetyTest {
     }
 
     @Test
+    fun aCallWhileDisconnectedLeavesTheTokenValid() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        attach(b, core)
+        b.detachDevice(core.serial)
+        runCurrent()
+        val ops = b.dangerousOps
+        val t = ops.confirm(DangerousOp.SAVE_PRESET)
+        assertEquals(PresetStatus.NO_REPLY, b.savePreset(t, 2))
+        assertTrue(ops.isValid(t)) // review N2: not spent without a device
+        val wrong = ops.confirm(DangerousOp.DELETE_PRESET)
+        assertTrue(runCatching { b.savePreset(wrong, 2) }.exceptionOrNull() is DangerousOpNotConfirmed) // still loud
+        attach(b, core)
+        assertEquals(PresetStatus.OK, b.savePreset(t, 2))
+        assertFalse(ops.isValid(t))
+    }
+
+    @Test
+    fun expiredTokensArePrunedOnConfirm() = runTest {
+        val b = newBridge(FakeDspiCore())
+        val ops = b.dangerousOps as DangerousOpsImpl
+        repeat(5) { ops.confirm(DangerousOp.SAVE_PRESET) }
+        advanceTimeBy(ops.ttlMs + 1)
+        ops.confirm(DangerousOp.SAVE_PRESET)
+        assertEquals(1, ops.liveCount) // review N3
+    }
+
+    @Test
     fun tokensExpire() = runTest {
         val core = FakeDspiCore()
         val b = newBridge(core)
@@ -237,6 +265,12 @@ class LifecycleAndSafetyTest {
                 "loadParams" to { b.loadParams() },
                 "savePreset" to { b.savePreset(ops.confirm(DangerousOp.SAVE_PRESET), 2) },
                 "deletePreset" to { b.deletePreset(ops.confirm(DangerousOp.DELETE_PRESET), 2) },
+                "copyPreset" to { b.copyPreset(ops.confirm(DangerousOp.COPY_PRESET), 0, 3) },
+                "saveParams" to { b.saveParams(ops.confirm(DangerousOp.SAVE_PARAMS)) },
+                "saveOutputConfig" to { b.saveOutputConfig(ops.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)) },
+                "setInputRate" to { b.setInputRate(ops.confirm(DangerousOp.HARDWARE_APPLY), 1).also { runCurrent() } },
+                "setI2sClockMode" to { b.setI2sClockMode(ops.confirm(DangerousOp.HARDWARE_APPLY), 1).also { runCurrent() } },
+                "setI2c" to { b.setI2c(false, 18, 19, 0x42).also { runCurrent() } },
                 "factoryReset" to { b.factoryReset(ops.confirm(DangerousOp.FACTORY_RESET)) },
                 "saveMasterVolume" to { b.saveMasterVolume(ops.confirm(DangerousOp.SAVE_MASTER_VOLUME)) },
                 "setOutputType" to { b.setOutputType(ops.confirm(DangerousOp.HARDWARE_APPLY), 0, 1) },

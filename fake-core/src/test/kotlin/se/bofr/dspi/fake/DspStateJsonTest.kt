@@ -2,6 +2,7 @@ package se.bofr.dspi.fake
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiConstants
 
@@ -76,15 +77,15 @@ class FixtureSeedTest {
         assertEquals(9, s.numOutputChannels)
     }
 
-    /**
-     * FFI's capture (repo-root fixtures/, on the classpath via D10). Skipped
-     * until pkg/ffi is merged; then it must load as the compatible V32 RP2350.
-     */
+    /** FFI's capture (repo-root fixtures/, on the classpath via D10) must be there and load. */
     @Test
-    fun theRealFixtureLoadsWhenPresent() {
+    fun theRealFixtureLoads() {
         val text = FakeDspiCore.fixtureText()
-        org.junit.Assume.assumeTrue("fixtures/dspstate_v32.json not on main yet", text != null)
+        assertTrue("fixtures/dspstate_v32.json is not on fake-core's classpath", text != null)
         val s = DspStateJson.parse(text!!)
+        // seeded() uses it rather than the built-in demo device
+        assertEquals(s.loudnessRefSpl, FakeDspiCore.seeded().getState().loudnessRefSpl)
+        assertEquals(87f, s.loudnessRefSpl)
         assertEquals(32, s.formatVersion)
         assertEquals(DspiConstants.COMPAT_OK, s.compat)
         assertEquals(DspiConstants.BULK_PARAMS_SIZE, s.bulkRaw.size)

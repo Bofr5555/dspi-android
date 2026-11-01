@@ -24,6 +24,9 @@ internal class DangerousOpsImpl(private val clock: () -> Long, override val ttlM
 
     @Synchronized
     override fun confirm(op: DangerousOp): ConfirmationToken {
+        // Prune expired tokens so abandoned confirmations don't accumulate (review N3)
+        val now = clock()
+        live.values.removeAll { now - it.lastUseMs > ttlMs }
         val t = ConfirmationToken(op, nextId++)
         live[t.id] = Entry(t, clock())
         return t
@@ -38,12 +41,20 @@ internal class DangerousOpsImpl(private val clock: () -> Long, override val ttlM
     @Synchronized
     override fun isValid(token: ConfirmationToken): Boolean = reason(token, token.op) == null
 
-    /** Spend [token] for [op] (renew it, if reusable), or throw [DangerousOpNotConfirmed]. */
+    /**
+     * Check [token] for [op] or throw [DangerousOpNotConfirmed]; then spend it
+     * (renew it, if reusable) — unless [spend] is false (no device: the call
+     * cannot reach it, so the user's confirmation stays usable).
+     */
     @Synchronized
-    fun require(token: ConfirmationToken, op: DangerousOp) {
+    fun require(token: ConfirmationToken, op: DangerousOp, spend: Boolean = true) {
         reason(token, op)?.let { throw DangerousOpNotConfirmed(op, it) }
+        if (!spend) return
         if (op.reusable) live.getValue(token.id).lastUseMs = clock() else live.remove(token.id)
     }
+
+    /** Tokens currently held (tests). */
+    internal val liveCount: Int @Synchronized get() = live.size
 
     private fun reason(token: ConfirmationToken, op: DangerousOp): String? {
         if (token.op != op) return "token was confirmed for ${token.op}"
