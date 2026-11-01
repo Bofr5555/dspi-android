@@ -12,6 +12,10 @@ android {
 dependencies {
     implementation(project(":bridge"))
     implementation(project(":ui-common"))
+    // App preferences (General/Graphing/Spectrum), macOS @AppStorage → DataStore.
+    implementation(libs.androidx.datastore.preferences)
+    // @Previews run against FakeDspiCore (src/debug only; never in release).
+    debugImplementation(project(":fake-core"))
     testImplementation(project(":fake-core"))
     testImplementation(libs.kotlinx.coroutines.test)
 }
