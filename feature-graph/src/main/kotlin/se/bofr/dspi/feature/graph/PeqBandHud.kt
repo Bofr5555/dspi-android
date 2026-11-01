@@ -10,7 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,13 +38,17 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 import se.bofr.dspi.core.FilterParams
 
 private val PanelBackground = Color(0xF0262628)
@@ -126,44 +130,43 @@ private fun PeqFrostedPanel(frame: PeqRect, content: @Composable () -> Unit) {
     ) { content() }
 }
 
-private data class HudRow(
+/** One chip row (macOS `PeqBandHUD.Row`): label, number, unit; [adjustable] rows take drags, scrolls and typing. */
+data class PeqHudRow(
     val field: PeqHudField,
     val label: String,
     val number: String,
     val unit: String,
     val adjustable: Boolean,
+    /** The unit follows the number in one field, for a long unit. */
     val inline: Boolean = false
 )
 
 /** The rows a band shows (macOS `PeqBandHUD.show`). */
-internal fun hudRows(p: FilterParams): List<Pair<PeqHudField, Triple<String, String, String>>> = hudRowsFull(p).map {
-    it.field to
-        Triple(it.label, it.number, it.unit)
-}
+fun hudRows(p: FilterParams): List<PeqHudRow> = hudRowsFull(p)
 
-private fun hudRowsFull(p: FilterParams): List<HudRow> {
-    val rows = mutableListOf<HudRow>()
+private fun hudRowsFull(p: FilterParams): List<PeqHudRow> {
+    val rows = mutableListOf<PeqHudRow>()
     val so = PeqShape.of(p.filterType)
     if (so != null) {
         val f = PeqValueText.frequencyParts(p.freq.toDouble())
-        rows += HudRow(PeqHudField.FREQ, "Freq", f.first, f.second, true)
+        rows += PeqHudRow(PeqHudField.FREQ, "Freq", f.first, f.second, true)
         if (FilterTypes.hasGain(p.filterType)) {
             rows +=
-                HudRow(PeqHudField.GAIN, "Gain", PeqValueText.truncated(p.gain.toDouble(), sign = true), "dB", true)
+                PeqHudRow(PeqHudField.GAIN, "Gain", PeqValueText.truncated(p.gain.toDouble(), sign = true), "dB", true)
         }
         rows +=
             when {
                 // "Width", as the band list's column header calls it, with Q as the unit.
-                FilterTypes.hasQ(p.filterType) -> HudRow(PeqHudField.Q, "Width", PeqValueText.truncated(p.q.toDouble()), "Q", true)
-                so.first == PeqShape.ALL_PASS -> HudRow(PeqHudField.Q, "Order", "1st", "", false)
-                else -> HudRow(PeqHudField.Q, "Slope", "6", "dB/oct", false, inline = true)
+                FilterTypes.hasQ(p.filterType) -> PeqHudRow(PeqHudField.Q, "Width", PeqValueText.truncated(p.q.toDouble()), "Q", true)
+                so.first == PeqShape.ALL_PASS -> PeqHudRow(PeqHudField.Q, "Order", "1st", "", false)
+                else -> PeqHudRow(PeqHudField.Q, "Slope", "6", "dB/oct", false, inline = true)
             }
     } else {
         // The Linkwitz Transform: shown here, edited in the band list.
         val f0 = PeqValueText.frequencyParts(p.freq.toDouble())
         val fp = PeqValueText.frequencyParts(p.gain.toDouble())
-        rows += HudRow(PeqHudField.FREQ, "f0", f0.first, f0.second, false)
-        rows += HudRow(PeqHudField.GAIN, "fp", fp.first, fp.second, false)
+        rows += PeqHudRow(PeqHudField.FREQ, "f0", f0.first, f0.second, false)
+        rows += PeqHudRow(PeqHudField.GAIN, "fp", fp.first, fp.second, false)
     }
     return rows
 }
@@ -175,22 +178,20 @@ private fun hudRowsFull(p: FilterParams): List<HudRow> {
  * at exactly the same size.
  */
 @Composable
-fun PeqBandHud(editor: PeqGraphEditor, @Suppress("UNUSED_PARAMETER") tick: Int, onEditField: (PeqHudField) -> Unit) {
-    val band = editor.hudBand ?: return
-    val p = editor.hudParams ?: return
-    if (!editor.hudVisible) return
-    val frame = editor.hudFrame
+fun PeqBandHud(editor: PeqGraphEditor, state: PeqHudState, onEditField: (PeqHudField) -> Unit) {
+    val band = state.band
+    val p = state.params
+    val frame = state.frame
     val color = PeqBandPalette.color(band).toColor(1f)
     val dim = p.bypass
     val muted = Color.White.copy(alpha = 0.4f)
     PeqFrostedPanel(frame) {
-        if (editor.showsShapes && PeqShape.of(p.filterType) != null) {
+        if (state.showsShapes && PeqShape.of(p.filterType) != null) {
             val chooser = remember { PeqShapeChooserState() }
             var step by remember { mutableIntStateOf(0) }
-            remember(band, editor.availableTypes) {
-                chooser.configure(editor.availableTypes)
-                chooser.own = PeqShape.of(p.filterType)
-            }
+            remember(band, state.availableTypes) { chooser.configure(state.availableTypes) }
+            // The band's own shape follows a type change made while the page is open.
+            chooser.own = PeqShape.of(p.filterType)
             PeqShapeChooser(
                 chooser = chooser,
                 step = step,
@@ -227,7 +228,7 @@ fun PeqBandHud(editor: PeqGraphEditor, @Suppress("UNUSED_PARAMETER") tick: Int, 
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                if (editor.bypassSupported) {
+                if (state.bypassSupported) {
                     Box(
                         Modifier
                             .size(18.dp, 17.dp)
@@ -245,7 +246,7 @@ fun PeqBandHud(editor: PeqGraphEditor, @Suppress("UNUSED_PARAMETER") tick: Int, 
                 ).padding(top = 3.dp).fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.09f))
             )
             Spacer(Modifier.height(3.dp))
-            for (row in hudRowsFull(p)) HudValueRow(editor, row, dim, onEditField)
+            for (row in hudRowsFull(p)) HudValueRow(editor, state, row, dim, onEditField)
         }
     }
 }
@@ -269,41 +270,94 @@ private fun PowerGlyph(color: Color) {
 }
 
 @Composable
-private fun HudValueRow(editor: PeqGraphEditor, row: HudRow, dim: Boolean, onEditField: (PeqHudField) -> Unit) {
-    val density = LocalDensity.current
+private fun HudValueRow(editor: PeqGraphEditor, state: PeqHudState, row: PeqHudRow, dim: Boolean, onEditField: (PeqHudField) -> Unit) {
     val quiet = Color.White.copy(alpha = if (dim) 0.28f else 0.45f)
+    // A value that cannot be changed reads as quiet as its label (macOS `number(dim:)`).
+    val numberAlpha = if (dim || !row.adjustable) 0.45f else 0.88f
+    val frame by rememberUpdatedState(state.frame)
     val adjust =
         if (row.adjustable) {
-            Modifier
-                .pointerInput(row.field) {
-                    var dragged = 0.0
-                    detectVerticalDragGestures(
-                        onDragStart = {
-                            dragged = 0.0
-                            editor.hudAdjust(row.field, 0.0, PeqAdjustPhase.BEGAN)
-                        },
-                        onDragEnd = { editor.hudAdjust(row.field, dragged, PeqAdjustPhase.ENDED) },
-                        onDragCancel = { editor.hudAdjust(row.field, dragged, PeqAdjustPhase.ENDED) }
-                    ) { change, dy ->
-                        change.consume()
-                        // Points moved upward since the press.
-                        dragged += -dy / density.density
-                        editor.hudAdjust(row.field, dragged, PeqAdjustPhase.CHANGED)
+            Modifier.pointerInput(row.field) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        val first = ev.changes.firstOrNull() ?: continue
+                        val mods = ev.keyboardModifiers
+                        val fine = mods.isShiftPressed
+                        if (ev.type == PointerEventType.Scroll) {
+                            // macOS `PeqHUDValueField.scrollWheel`: Cmd-scroll is always
+                            // the band's gain, and a gesture that began on the graph keeps
+                            // its band: both go on up to the graph.
+                            val raw = -first.scrollDelta.y * 8.0
+                            if (mods.isCtrlPressed || mods.isMetaPressed || editor.graphWheelActive) {
+                                val at = PeqPoint(frame.x + first.position.x / density, frame.y + first.position.y / density)
+                                var m = PeqMods.NONE
+                                if (mods.isCtrlPressed || mods.isMetaPressed) m = m or PeqMods.CTRL
+                                if (fine) m = m or PeqMods.SHIFT
+                                editor.wheel(at, raw, m)
+                            } else {
+                                editor.hudScroll(row.field, raw, fine)
+                            }
+                            first.consume()
+                            continue
+                        }
+                        if (ev.type != PointerEventType.Press) continue
+                        // A press: a vertical drag adjusts (Shift: ×0.12), a tap types.
+                        val id = first.id
+                        val startY = first.position.y
+                        var lastY = startY
+                        var dragging = false
+                        var dragged = 0.0
+                        first.consume()
+                        try {
+                            while (true) {
+                                val e = awaitPointerEvent()
+                                val c = e.changes.firstOrNull { it.id == id } ?: break
+                                if (!c.pressed) {
+                                    c.consume()
+                                    if (dragging) {
+                                        editor.hudAdjust(row.field, dragged, PeqAdjustPhase.ENDED)
+                                        dragging = false
+                                    } else {
+                                        onEditField(row.field)
+                                    }
+                                    break
+                                }
+                                val y = c.position.y
+                                if (!dragging && abs(y - startY) > viewConfiguration.touchSlop) {
+                                    dragging = true
+                                    lastY = y
+                                    editor.hudAdjust(row.field, 0.0, PeqAdjustPhase.BEGAN)
+                                }
+                                if (dragging) {
+                                    // Points moved upward since the press.
+                                    dragged +=
+                                        -(y - lastY) / density *
+                                        (if (e.keyboardModifiers.isShiftPressed) PeqGraphEditor.Tuning.FINE else 1.0)
+                                    lastY = y
+                                    editor.hudAdjust(row.field, dragged, PeqAdjustPhase.CHANGED)
+                                }
+                                c.consume()
+                            }
+                        } finally {
+                            if (dragging) editor.hudAdjust(row.field, dragged, PeqAdjustPhase.ENDED)
+                        }
                     }
-                }.pointerInput(row.field) { detectTapGestures(onTap = { onEditField(row.field) }) }
+                }
+            }
         } else {
             Modifier
         }
     Row(Modifier.height(15.dp).fillMaxWidth().padding(horizontal = 8.dp).then(adjust), verticalAlignment = Alignment.CenterVertically) {
         Text(row.label, fontSize = 9.5.sp, color = quiet, modifier = Modifier.weight(1f), maxLines = 1)
         if (row.inline) {
-            Text("${row.number} ${row.unit}", fontSize = 11.sp, color = Color.White.copy(alpha = if (dim) 0.45f else 0.88f), maxLines = 1)
+            Text("${row.number} ${row.unit}", fontSize = 11.sp, color = Color.White.copy(alpha = numberAlpha), maxLines = 1)
         } else {
             Text(
                 row.number,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
-                color = Color.White.copy(alpha = if (dim) 0.45f else 0.88f),
+                color = Color.White.copy(alpha = numberAlpha),
                 textAlign = TextAlign.End,
                 modifier = Modifier.width(44.dp),
                 maxLines = 1
@@ -393,17 +447,16 @@ fun PeqShapeChooser(
 
 /** The Add Band card (macOS: Cmd-click; Android: long-press empty graph > Add Band…). */
 @Composable
-fun PeqAddBandCard(editor: PeqGraphEditor, @Suppress("UNUSED_PARAMETER") tick: Int) {
-    if (!editor.cardOpen) return
+fun PeqAddBandCard(editor: PeqGraphEditor, origin: PeqPoint) {
     val chooser = remember { PeqShapeChooserState() }
     var step by remember { mutableIntStateOf(0) }
-    remember(editor.availableTypes, editor.cardOrigin) {
-        chooser.configure(editor.availableTypes)
+    val types = editor.availableTypes
+    remember(types, origin) {
+        chooser.configure(types)
         chooser.own = null
     }
-    val o = editor.cardOrigin
     val size = PeqGraphEditor.Tuning.CARD_SIZE
-    PeqFrostedPanel(PeqRect(o.x, o.y, size.width, size.height)) {
+    PeqFrostedPanel(PeqRect(origin.x, origin.y, size.width, size.height)) {
         PeqShapeChooser(
             chooser = chooser,
             step = step,

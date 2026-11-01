@@ -86,8 +86,23 @@ data class PeqEditorConfig(
     val showFrequencyReadout: Boolean = true,
     val showLevelReadout: Boolean = true
 ) {
-    /** Same graph and same bands, field for field (Windows `SameAs`). */
-    fun sameAs(o: PeqEditorConfig) = this == o
+    /** Same graph and same bands, field for field (Windows `SameAs`; floats compared with `==`). */
+    fun sameAs(o: PeqEditorConfig) = channel == o.channel &&
+        offsetDb == o.offsetDb &&
+        flat == o.flat &&
+        curveColor == o.curveColor &&
+        lineWidth == o.lineWidth &&
+        glow == o.glow &&
+        minFreq == o.minFreq &&
+        maxFreq == o.maxFreq &&
+        dbTop == o.dbTop &&
+        dbBottom == o.dbBottom &&
+        bypassSupported == o.bypassSupported &&
+        showFrequencyReadout == o.showFrequencyReadout &&
+        showLevelReadout == o.showLevelReadout &&
+        availableTypes == o.availableTypes &&
+        bandsSame(bands, o.bands) &&
+        bandsSame(statics, o.statics)
 }
 
 /** One menu entry for the view to show; the editor runs [invoke]. */

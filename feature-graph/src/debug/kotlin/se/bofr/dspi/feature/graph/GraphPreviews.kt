@@ -52,7 +52,7 @@ private fun GraphViewChannelPreview() {
 @Preview(name = "Phase and spectrum", widthDp = 392, heightDp = 320)
 @Composable
 private fun GraphViewPhasePreview() {
-    val store = remember { InMemoryGraphSettingsStore(GraphSettings(showPhase = true, rtaDashboardSelectionKey = "in:0,1")) }
+    val store = remember { InMemoryGraphSettingsStore(GraphSettings(showPhase = true, rtaDashboardSource = "in:0,1")) }
     CompositionLocalProvider(LocalGraphSettings provides store) {
         PreviewFrame { GraphView(rememberFakeBridge(), channels = setOf(0), editable = true) }
     }

@@ -1,7 +1,7 @@
 package se.bofr.dspi.feature.graph
 
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import kotlin.math.exp
 import kotlin.math.log10
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -90,25 +90,30 @@ class GraphModelTest {
         val avail = { tap: Int -> if (tap == DspiConstants.RTA_TAP_OUTPUT) listOf(1, 3) else listOf(0, 1) }
         val s = GraphSettings()
         assertEquals("out:1", SpectrumSelectionState.dashboardSelection(s, avail).storageKey)
-        assertEquals("in:1", SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSelectionKey = "in:1,5"), avail).storageKey)
+        assertEquals("in:1", SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSource = "in:1,5"), avail).storageKey)
         assertEquals(
             "a deliberate nothing stays nothing",
             "in:",
-            SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSelectionKey = "in:"), avail).storageKey
+            SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSource = "in:"), avail).storageKey
         )
-        assertEquals("out:1", SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSelectionKey = "in:7"), avail).storageKey)
+        assertEquals("out:1", SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSource = "in:7"), avail).storageKey)
         assertEquals("in:0", SpectrumSelectionState.dashboardSelection(s, { emptyList() }).storageKey)
     }
 
     // ── Spectrum curves ─────────────────────────────────────────────────────
 
+    private fun smooth(levels: DoubleArray): DoubleArray {
+        val out = DoubleArray(levels.size)
+        rtaSmoothBins(levels, levels.size, RTA_BIN_SMOOTHING_OCTAVES, DoubleArray(levels.size + 1), out)
+        return out
+    }
+
     @Test
     fun binSmoothingAveragesPowerOverASixthOfAnOctave() {
-        val flat = List(64) { -40.0 }
-        rtaSmoothBins(flat, RTA_BIN_SMOOTHING_OCTAVES).forEach { assertEquals(-40.0, it, 1e-9) }
-        val tone = MutableList(512) { -120.0 }
+        smooth(DoubleArray(64) { -40.0 }).forEach { assertEquals(-40.0, it, 1e-9) }
+        val tone = DoubleArray(512) { -120.0 }
         tone[400] = 0.0
-        val out = rtaSmoothBins(tone, RTA_BIN_SMOOTHING_OCTAVES)
+        val out = smooth(tone)
         assertTrue("a treble tone is spread over its window and reads low", out[400] < -10)
         assertTrue(out[395] > -60)
         assertEquals("the bass is left alone", -120.0, out[3], 1e-9)
@@ -116,48 +121,105 @@ class GraphModelTest {
 
     @Test
     fun bandPointsKeepOneBandEitherSideOfTheAxis() {
-        val b = RtaCurveBuilder(20.0, 20000.0, 300.0, 100.0, RtaScale(-90.0, 6.0))
+        val b = RtaCurveBuilder()
+        b.configure(20.0, 20000.0, 300.0, 100.0, RtaScale(-90.0, 6.0))
         val centres = listOf(10, 16, 25, 40, 63, 100, 20000, 25000, 31500)
-        val levels = centres.map { -42f }
-        val pts = b.bandPoints(centres, levels, centres.size, firstBand = 1)
-        assertEquals("16 Hz (the one below), 25 … 20000, and 25000 (the one above)", 7, pts.size)
-        assertTrue(pts.first().x < 0)
-        assertTrue(pts.last().x > 300)
-        assertEquals(50.0, pts[1].y.toDouble(), 1e-4)
+        val levels = DoubleArray(centres.size) { -42.0 }
+        val xs = FloatArray(16)
+        val ys = FloatArray(16)
+        val n = b.bandPoints(centres, levels, levels.size, centres.size, firstBand = 1, xs, ys)
+        assertEquals("16 Hz (the one below), 25 … 20000, and 25000 (the one above)", 7, n)
+        assertTrue(xs[0] < 0)
+        assertTrue(xs[n - 1] > 300)
+        assertEquals(50.0, ys[1].toDouble(), 1e-4)
         assertEquals(0.0, b.y(6.0), 1e-9)
         assertEquals(100.0, b.y(-120.0), 1e-9)
     }
 
     @Test
     fun binsLandOnePerColumnAndBlendIntoTheBands() {
-        val b = RtaCurveBuilder(20.0, 20000.0, 300.0, 100.0, RtaScale(-90.0, 6.0))
-        val bins = List(512) { -42f }
-        val pts = b.binPoints(bins, 512, 48000)
-        assertTrue(pts.size > 100)
-        assertTrue(pts.zipWithNext().all { (a, c) -> c.x - a.x == 1f })
-        pts.forEach { assertEquals(50.0, it.y.toDouble(), 0.01) }
-        val bands = listOf(Offset(0f, 80f), Offset(300f, 80f))
-        val blended = b.blend(bands, pts, listOf(20, 40, 80, 160, 315, 630), bassBands = 3)
-        assertEquals(80f, blended.first().y, 1e-3f)
-        assertEquals(50f, blended.last().y, 1e-3f)
-        assertEquals("one point per column", 300, blended.size)
+        val b = RtaCurveBuilder()
+        b.configure(20.0, 20000.0, 300.0, 100.0, RtaScale(-90.0, 6.0))
+        val cols = DoubleArray(b.columns)
+        assertTrue(b.binColumns(DoubleArray(512) { -42.0 }, 512, 48000, cols))
+        assertTrue(b.binLast - b.binFirst > 100)
+        for (c in b.binFirst..b.binLast) assertEquals(-42.0, cols[c], 1e-9)
+        val bx = floatArrayOf(0f, 300f)
+        val by = floatArrayOf(80f, 80f)
+        val out = FloatArray(b.columns)
+        val filled = b.blend(bx, by, 2, cols, listOf(20, 40, 80, 160, 315, 630), bassBands = 3, outY = out)
+        assertEquals("one point per column", 300, filled)
+        assertEquals(80f, out[0], 1e-3f)
+        assertEquals(50f, out[299], 1e-3f)
+        assertFalse("geometry unchanged: nothing to rebuild", b.configure(20.0, 20000.0, 300.0, 100.0, RtaScale(-90.0, 6.0)))
     }
 
-    // ── Chip rows ───────────────────────────────────────────────────────────
+    @Test
+    fun barSmootherRisesFastFallsSlowAndSnapsOnANewIdentity() {
+        val s = RtaBarSmoother()
+        val target = DoubleArray(2) { -60.0 }
+        assertEquals(-60.0, s.step(0.0, target, 2, 1, 0.1, 0.4)[0], 0.0)
+        target[0] = 0.0
+        target[1] = -100.0
+        val v = s.step(0.1, target, 2, 1, 0.1, 0.4)
+        assertEquals("rise: 1 - e^-1 of the way", -60.0 + 60 * (1 - exp(-1.0)), v[0], 1e-9)
+        assertEquals("fall: 1 - e^-0.25 of the way", -60.0 - 40 * (1 - exp(-0.25)), v[1], 1e-9)
+        assertEquals("no time passed: unchanged", v[0], s.step(0.1, target, 2, 1, 0.1, 0.4)[0], 0.0)
+        assertEquals("tau 0 jumps", 0.0, s.step(0.2, target, 2, 1, 0.0, 0.4)[0], 0.0)
+        target[0] = -30.0
+        assertEquals("a new channel snaps", -30.0, s.step(0.3, target, 2, 2, 0.1, 0.4)[0], 0.0)
+        assertEquals("a new count snaps", -30.0, s.step(0.4, target, 1, 2, 0.1, 0.4)[0], 0.0)
+    }
+
+    @Test
+    fun fallTauFollowsTheRefreshInterval() {
+        assertEquals(0.0, rtaFallTau(0.1, 0.0), 0.0)
+        assertEquals(0.035, rtaFallTau(0.01, RTA_SMOOTHING_AMOUNT), 1e-12)
+        assertEquals(0.40, rtaFallTau(2.0, RTA_SMOOTHING_AMOUNT), 1e-12)
+        assertEquals(0.07, rtaFallTau(0.2, RTA_SMOOTHING_AMOUNT), 1e-12)
+        assertEquals(0.35, GraphSettings().rtaSmoothing, 0.0)
+        assertEquals(0.0, GraphSettings(rtaSmoothingOn = false).rtaSmoothing, 0.0)
+    }
+
+    // ── Chip rows and typing ────────────────────────────────────────────────
 
     @Test
     fun chipRowsFollowTheShape() {
-        fun rows(t: Int, gain: Float = 0f) = hudRows(FilterTypes.band(t, 1234.5f, 0.707f, gain)).map { it.second.first }
+        fun rows(t: Int, gain: Float = 0f) = hudRows(FilterTypes.band(t, 1234.5f, 0.707f, gain)).map { it.label }
         assertEquals(listOf("Freq", "Gain", "Width"), rows(FILTER_PEAKING, 3f))
         assertEquals(listOf("Freq", "Slope"), rows(FILTER_HIGHPASS1))
         assertEquals(listOf("Freq", "Order"), rows(FILTER_ALLPASS1))
         assertEquals(listOf("f0", "fp"), rows(FILTER_LINKWITZ_TRANSFORM, 25f))
-        val freq = hudRows(FilterTypes.band(FILTER_PEAKING, 1234.5f, 0.707f, 3f))[0].second
-        assertEquals("1.23", freq.second)
-        assertEquals("kHz", freq.third)
+        val freq = hudRows(FilterTypes.band(FILTER_PEAKING, 1234.5f, 0.707f, 3f))[0]
+        assertEquals("1.23", freq.number)
+        assertEquals("kHz", freq.unit)
+        assertFalse(hudRows(FilterTypes.band(FILTER_HIGHPASS1, 100f, 0.707f, 0f))[1].adjustable)
         // The editor's chip size counts the same rows.
         assertEquals(28.0 + 3 * 15 + 5, PeqGraphEditor.hudSizeFor(FilterTypes.band(FILTER_PEAKING, 1000f, 1f, 3f)).height, 0.0)
         assertEquals(28.0 + 2 * 15 + 5, PeqGraphEditor.hudSizeFor(FilterTypes.band(FILTER_HIGHPASS1, 1000f, 1f, 0f)).height, 0.0)
+    }
+
+    @Test
+    fun typingSeedsTheBareNumberAndTabSkipsFixedRows() {
+        val bell = FilterTypes.band(FILTER_PEAKING, 1234.5f, 0.707f, -3.456f)
+        assertEquals("1.23k", hudEditSeed(PeqHudField.FREQ, bell))
+        assertEquals("-3.46", hudEditSeed(PeqHudField.GAIN, bell))
+        assertEquals("Q keeps three places, so Apply unchanged is a no-op", "0.707", hudEditSeed(PeqHudField.Q, bell))
+        assertEquals(PeqHudField.GAIN, nextHudField(PeqHudField.FREQ, bell, backwards = false))
+        assertEquals(PeqHudField.FREQ, nextHudField(PeqHudField.Q, bell, backwards = false))
+        assertEquals(PeqHudField.Q, nextHudField(PeqHudField.FREQ, bell, backwards = true))
+        val cut = FilterTypes.band(FILTER_HIGHPASS1, 100f, 0.707f, 0f)
+        assertEquals("a 6 dB cut has only Freq to type", PeqHudField.FREQ, nextHudField(PeqHudField.FREQ, cut, backwards = false))
+    }
+
+    @Test
+    fun negativeZeroIsTheSameBand() {
+        val a = FilterTypes.band(FILTER_PEAKING, 1000f, 1f, 0f)
+        val b = a.copy(gain = -0f)
+        assertFalse("the data class tells them apart", a == b)
+        assertTrue(a.sameAs(b))
+        assertTrue(bandsSame(listOf(a), listOf(b)))
+        assertTrue(PeqEditorConfig(bands = listOf(a)).sameAs(PeqEditorConfig(bands = listOf(b))))
     }
 
     @Test

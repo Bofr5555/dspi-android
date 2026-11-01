@@ -65,6 +65,10 @@ class PeqTouchGestures(private val editor: PeqGraphEditor, var config: PeqTouchC
     /** First finger down. Returns the press id the long-press timer must pass back. */
     fun down(p: PeqPoint, timeMs: Long, mods: Int = PeqMods.NONE): Int {
         pressId++
+        // A finger gets bigger targets than a mouse (the view restores the
+        // mouse values on any mouse event).
+        editor.hitRadius = PeqGraphEditor.Tuning.TOUCH_HIT_RADIUS
+        editor.curveHitDistance = PeqGraphEditor.Tuning.TOUCH_CURVE_HIT_DISTANCE
         val last = lastTapAt
         val isDouble = last != null && timeMs - lastTapTimeMs <= config.doubleTapTimeoutMs && last.distanceTo(p) <= config.doubleTapSlop
         downAt = p
@@ -157,7 +161,10 @@ class PeqTouchGestures(private val editor: PeqGraphEditor, var config: PeqTouchC
             // Spreading the fingers narrows (raises Q); a two-finger push upward
             // raises Q as a Cmd-drag does (60 points an octave).
             val delta = 100 * ln(ratio) / ln(2.0) - dy * 100 / PeqGraphEditor.Tuning.Q_POINTS_PER_OCTAVE
-            if (editor.wheel(at, delta, PeqMods.NONE, begins = pinchBegins)) {
+            // After a pause longer than a wheel session the band is looked up
+            // afresh (as a new trackpad gesture is on macOS) instead of stalling.
+            val begins = pinchBegins || !editor.graphWheelActive
+            if (editor.wheel(at, delta, PeqMods.NONE, begins = begins)) {
                 pinchBegins = false
                 return
             }

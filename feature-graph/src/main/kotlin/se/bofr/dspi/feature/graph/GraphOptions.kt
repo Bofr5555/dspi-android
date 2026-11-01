@@ -35,7 +35,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.util.Locale
 import kotlin.math.roundToInt
 import se.bofr.dspi.bridge.DspiBridge
@@ -75,7 +75,7 @@ class SpectrumSelectionState internal constructor(
     /** macOS `setRtaSelection`. */
     fun set(selection: RtaChannelSelection) {
         if (activeEq == null) {
-            store.update { it.copy(rtaDashboardSelectionKey = selection.storageKey) }
+            store.update { it.copy(rtaDashboardSource = selection.storageKey) }
         } else {
             page.value = selection
             // Hiding the spectrum on one channel page keeps it hidden on the next.
@@ -90,9 +90,9 @@ class SpectrumSelectionState internal constructor(
         if (activeEq == null) {
             val s = store.settings.value
             val other =
-                RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSideKey)?.takeIf { it.tap == tap }
+                RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSide)?.takeIf { it.tap == tap }
                     ?: RtaChannelSelection(tap, emptyList())
-            store.update { it.copy(rtaDashboardSelectionKey = other.storageKey, rtaDashboardOtherSideKey = current.storageKey) }
+            store.update { it.copy(rtaDashboardSource = other.storageKey, rtaDashboardOtherSide = current.storageKey) }
         } else {
             val other = pageOther.value?.takeIf { it.tap == tap } ?: RtaChannelSelection(tap, emptyList())
             pageOther.value = page.value
@@ -103,7 +103,7 @@ class SpectrumSelectionState internal constructor(
     companion object {
         /** macOS `dashboardRtaSelection`: the stored channels that are live, else the first output, else input 1. */
         fun dashboardSelection(s: GraphSettings, available: (Int) -> List<Int>): RtaChannelSelection {
-            val stored = RtaChannelSelection.fromStorageKey(s.rtaDashboardSelectionKey)
+            val stored = RtaChannelSelection.fromStorageKey(s.rtaDashboardSource)
             if (stored != null) {
                 if (stored.isEmpty) return stored
                 val live = stored.restricted(available(stored.tap))
@@ -127,8 +127,8 @@ class SpectrumSelectionState internal constructor(
 @Composable
 internal fun rememberSpectrumSelection(bridge: DspiBridge, store: GraphSettingsStore, activeEq: Int?): SpectrumSelectionState {
     // Recompose when the analyser's caps or the settings change.
-    bridge.rta.caps.collectAsState().value
-    store.settings.collectAsState().value
+    bridge.rta.caps.collectAsStateWithLifecycle().value
+    store.settings.collectAsStateWithLifecycle().value
     val page = remember(activeEq) {
         mutableStateOf(
             if (activeEq !=
@@ -148,8 +148,8 @@ internal fun rememberSpectrumSelection(bridge: DspiBridge, store: GraphSettingsS
 @Composable
 internal fun GraphOptions(bridge: DspiBridge, onDashboard: Boolean, spectrum: SpectrumSelectionState, onDismiss: () -> Unit) {
     val store = LocalGraphSettings.current
-    val settings by store.settings.collectAsState()
-    val caps by bridge.rta.caps.collectAsState()
+    val settings by store.settings.collectAsStateWithLifecycle()
+    val caps by bridge.rta.caps.collectAsStateWithLifecycle()
     var setupPage by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 6.dp) {

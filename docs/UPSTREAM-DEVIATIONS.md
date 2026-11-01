@@ -321,19 +321,31 @@ Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
    targets for a finger (24 dp dots, 14 dp curve). No touch equivalent for
    Cmd/Shift-click selection or the Shift/Option/Control drag modifiers
    (hardware keyboard only). Editor additions for touch: per-instance hit
-   radius and `abandonPress()`.
+   radius (set by `PeqTouchGestures.down`, restored to 10/6 by any mouse
+   event) and `abandonPress()`.
 2. **Chip text entry** opens a dialog on a tap (macOS: in-place field on a
-   double-click), so the phone keyboard has room. The gear is always shown
-   (macOS: on hover).
+   double-click), so the phone keyboard has room; it seeds the bare number as
+   macOS does (Freq short form, Gain `%.2f`, Width `%.3f`), Return/Done
+   applies, Tab/Shift-Tab apply and move to the next adjustable field, and
+   unreadable text keeps it open. Chip values take a vertical drag (Shift
+   ×0.12) and the mouse wheel (`hudScroll`; Cmd/Ctrl or a running graph
+   gesture forwards to the graph) as on macOS. The gear is always shown
+   (macOS: on hover). Android reports no scroll phase, so a mouse wheel never
+   "begins" a gesture (macOS mouse wheels have none either; trackpads do).
 3. **Rendering.** Compose Canvas instead of Metal/Win2D: band lobes are a
    vertical gradient per band instead of the per-pixel `pow(t, 1.5)` fade;
    the curve glow is two wide translucent strokes instead of a blur. Curve
    animation is a tween of the Graphing animation speed (macOS: spring).
-4. **Spectrum overlay.** Bands + bins blend, bin smoothing, peak contour and
-   the left-edge fade are ported; the per-channel time smoothing between
-   device frames (`RtaBarSmoother`, the Smoothing setting) and the
-   Catmull-Rom column sampling of the band picture (linear here) are not yet.
-   The "Following another console" row does not exist (no Link hub).
+   Grid lines are 1 dp (macOS 1 pt). Curves are not clamped to the plot (a
+   clamp bent visible steep segments of an unwrapped phase trace).
+4. **Spectrum overlay.** Bands + bins blend, bin smoothing, peak contour,
+   the left-edge fade and the time smoothing between device frames
+   (`RtaBarSmoother`: rise τ·0.4 / fall τ, peak rise instant, identity snap;
+   τ = `rtaFallTau(channelRefreshInterval, 0.35)` when `rtaSmoothingOn`) are
+   ported; the core's `refreshIntervalS` is used when it reports one. The
+   band picture is sampled linearly per column for the blend (macOS samples
+   its Catmull-Rom curve). The "Following another console" row does not
+   exist (no Link hub).
 5. **Not offered in the gear panel:** RTA Bars (the bar strip belongs with
    ANALYSIS's bar renderer) and Pop Out Graph (the full-screen route is
    `GraphScreen`, reached through app navigation).
@@ -348,12 +360,19 @@ Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
    (macOS checks `firmwareSupports*`). The Linkwitz Transform is shown but
    not created or dragged on the graph, as upstream.
 9. **Preferences.** The graph's AppSettings keys live in `GraphSettings`
-   behind `LocalGraphSettings` (in memory by default) until :app/SETTINGS
-   provide DataStore; the band selection is shared with HOME's band list via
+   behind `LocalGraphSettings` (in memory by default) until the F3
+   consolidation provides the shared store; property names are the exact
+   macOS `@AppStorage` keys (including `rtaDashboardSource` /
+   `rtaDashboardOtherSide`, whose Swift properties are named `…Key`);
+   `popoutGraphFollowsSelection` is not carried (§6); the band selection is shared with HOME's band list via
    `LocalPeqGraphSelection` (`PeqGraphSelection.live` replaces the macOS
    `PeqLiveReadouts`).
 10. **GraphView(channels, editable).** With `editable` and one channel, that
     channel is the page's selected channel and the visible set is drawn too
     (others dashed), as on a macOS channel page; without `editable`, a
     non-empty `channels` draws just those.
-
+11. **Live writes** go through the editor's own 1/30 s device timer (as
+    Windows/macOS) and then the bridge `Throttle(30)` the package rules ask
+    for. At the editor's cadence the throttle passes each value on at once
+    (its window has closed by the next send), so it adds no latency in
+    practice; it only merges a burst.

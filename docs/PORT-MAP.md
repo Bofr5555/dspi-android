@@ -84,14 +84,14 @@ curve 14 dp (macOS 10/6 pt). A move within the system touch slop is a tap.
 | Right-click a dot | Long-press a dot | Band menu: Band N / N Bands, Slope/Order, Bypass/Enable, Invert Gain, Delete. |
 | Right-click empty graph | Long-press empty graph | Graph menu, headed by **Add Band…**, then Select All Bands, Deselect All, Delete Selected. |
 | Cmd-click empty graph (Add Band card) | Long-press empty graph > Add Band… | Same card: shape, then slope. |
-| Scroll over a dot/fill (Q) | Pinch over a band (spread = higher Q) or two-finger vertical drag (up = higher Q, 60 dp per octave like Cmd-drag) | Acts on the selection when the band is part of it; commits 0.45 s after the fingers stop. |
+| Scroll over a dot/fill (Q) | Pinch over a band (spread = higher Q) or two-finger vertical drag (up = higher Q, 60 dp per octave like Cmd-drag) | Any selection owns it: with bands selected the whole selection changes, wherever the fingers are (as the wheel, `selectionOwnsTheWheel`); otherwise the band under the fingers. After a pause longer than 0.5 s the band is looked up again. Committed 0.45 s after the last pinch step. |
 | Cmd-drag (Q) | Pinch / two-finger drag | As above. |
 | Cmd-scroll (gain) | Drag the dot vertically, or the chip's Gain | No separate touch gesture. |
-| Scroll over the dB labels (zoom) | Pinch over empty graph (any graph, also the dashboard) | Changes Graph Setup > Range (10–100 dB). |
+| Scroll over the dB labels (zoom) | Pinch over empty graph (any graph, also the dashboard) | Changes Graph Setup > Range (10–100 dB), by the pinch ratio. A mouse wheel over the left 40 dp strip zooms as macOS: range − Δ·3 dB per notch. |
 | Option-click a dot (bypass) | Chip power button, or long-press > Bypass | |
 | Cmd-click / Shift-click a dot (add to / range select) | Marquee, long-press > Select All Bands, or the band list (HOME) | No touch modifier; a hardware keyboard's Ctrl/Shift still work. |
 | Shift (fine), Option (axis lock), Control (scale gains) while dragging | Hardware keyboard only | |
 | Hover readouts, ghost dot, chip on hover | Mouse/stylus hover only | A finger has no hover; lifting it clears them. The chip stays on the selection. |
-| Chip value: drag vertically / scroll / double-click to type | Drag vertically / tap to type (dialog) | Returns false + haptic "beep" on unreadable text. |
+| Chip value: drag vertically / scroll / double-click to type | Drag vertically / tap to type (dialog); a mouse wheel scrolls the value (Shift fine, Cmd/Ctrl or a running graph scroll goes to the graph) | Drag: Shift (hardware keyboard) = ×0.12. Dialog: Return/Done applies, Tab/Shift-Tab apply and move, unreadable text keeps the field open with a haptic "beep". |
 | Chip shape button / power button | Tap | Shape page: shape, then slope. |
 | Keys: Delete, Escape, Tab, arrows, Option-arrows, Cmd-A | Same, from a hardware keyboard | Graph takes focus on a mouse click. |

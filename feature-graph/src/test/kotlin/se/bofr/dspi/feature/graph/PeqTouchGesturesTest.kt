@@ -24,8 +24,6 @@ class PeqTouchGesturesTest {
     private fun setUp(vararg set: Pair<Int, FilterParams>) {
         val bands = MutableList(10) { FilterTypes.off() }
         for ((i, p) in set) bands[i] = p
-        editor.hitRadius = PeqGraphEditor.Tuning.TOUCH_HIT_RADIUS
-        editor.curveHitDistance = PeqGraphEditor.Tuning.TOUCH_CURVE_HIT_DISTANCE
         editor.resize(800.0, 300.0)
         editor.apply(
             PeqEditorConfig(
@@ -63,9 +61,42 @@ class PeqTouchGesturesTest {
     @Test
     fun aFingerNearADotHitsIt() {
         setUp(0 to FilterTypes.band(FILTER_PEAKING, 1000f, 1f, 6f))
+        assertEquals("a mouse target until a finger touches", PeqGraphEditor.Tuning.NODE_HIT_RADIUS, editor.hitRadius, 0.0)
         val dot = at(1000.0, 6.0)
         tap(PeqPoint(dot.x + 18, dot.y + 10), 0)
         assertEquals(setOf(0), host.selection.selected)
+        assertEquals(PeqGraphEditor.Tuning.TOUCH_HIT_RADIUS, editor.hitRadius, 0.0)
+        assertEquals(PeqGraphEditor.Tuning.TOUCH_CURVE_HIT_DISTANCE, editor.curveHitDistance, 0.0)
+    }
+
+    @Test
+    fun pinchResumesAfterAPause() {
+        setUp(0 to FilterTypes.band(FILTER_PEAKING, 1000f, 1f, 6f))
+        val dot = at(1000.0, 6.0)
+        touch.pinchStart(dot, 100.0)
+        touch.pinch(dot, 141.42)
+        clock.advance(1.0)
+        assertTrue(host.commits.isNotEmpty())
+        // Fingers held still past the wheel session, then spread again.
+        touch.pinch(dot, 200.0)
+        touch.pinchEnd()
+        clock.advance(1.0)
+        assertEquals("Q kept following after the pause", 2.0, host.lastCommitted.q.toDouble(), 0.02)
+    }
+
+    @Test
+    fun aCancelledDragStillCommitsAndAPressIsDropped() {
+        setUp(0 to FilterTypes.band(FILTER_PEAKING, 1000f, 1f, 0f))
+        val dot = at(1000.0, 0.0)
+        touch.down(dot, 0)
+        touch.move(at(1500.0, 3.0))
+        touch.cancel()
+        assertEquals("cancel commits, never reverts (Windows PointerCanceled)", 1, host.commits.size)
+        assertFalse(touch.active)
+        touch.down(at(200.0, -10.0), 1000)
+        touch.cancel()
+        assertEquals(1, host.commits.size)
+        assertFalse(touch.active)
     }
 
     @Test

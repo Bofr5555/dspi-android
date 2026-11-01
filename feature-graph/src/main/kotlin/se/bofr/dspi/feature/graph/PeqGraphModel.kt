@@ -325,8 +325,15 @@ fun FilterParams.interpolated(target: FilterParams, t: Double): FilterParams {
     return target.copy(freq = f, q = qq, gain = gain + (target.gain - gain) * t.toFloat())
 }
 
-/** Exact field-for-field equality (Windows `SameAs`); the data class's equals is exactly that. */
-fun FilterParams.sameAs(b: FilterParams): Boolean = this == b
+/**
+ * Exact field-for-field equality (Windows `SameAs`), with float `==` so 0.0
+ * and -0.0 are the same value (a data class's equals tells them apart).
+ */
+fun FilterParams.sameAs(b: FilterParams): Boolean =
+    filterType == b.filterType && freq == b.freq && q == b.q && gain == b.gain && bypass == b.bypass && qp == b.qp
+
+/** Two band lists, field for field (Windows `PeqEditorConfig.BandsSame`). */
+fun bandsSame(a: List<FilterParams>, b: List<FilterParams>): Boolean = a.size == b.size && a.indices.all { a[it].sameAs(b[it]) }
 
 /**
  * Which band a double-click on the graph makes: always a bell at the pointer's

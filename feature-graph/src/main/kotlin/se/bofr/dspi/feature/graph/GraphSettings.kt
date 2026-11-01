@@ -15,7 +15,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import se.bofr.dspi.core.DspiConstants
 
-/** The graph preferences, named and defaulted as the macOS `@AppStorage` keys. */
+/**
+ * The graph preferences. Every property name is the exact macOS `@AppStorage`
+ * key (DSPi_ConsoleApp.swift l.84-167), so the F3 consolidation can map them
+ * 1:1 onto the shared AppSettings store. (macOS names two of its Swift
+ * properties differently from their keys: `rtaDashboardSelectionKey` is
+ * stored as "rtaDashboardSource", `rtaDashboardOtherSideKey` as
+ * "rtaDashboardOtherSide"; the key names are used here.)
+ * "popoutGraphFollowsSelection" is not carried: GraphScreen does not follow
+ * a main-window selection (UPSTREAM-DEVIATIONS GRAPH §6).
+ */
 data class GraphSettings(
     val showGraphGlow: Boolean = true,
     val graphLineWidth: Double = 2.0,
@@ -37,14 +46,13 @@ data class GraphSettings(
     val graphMaxFreq: Double = 20000.0,
     /** Seconds; how long curve changes take to animate (Settings > Graphing "Animation Speed"). */
     val graphAnimationSpeed: Double = 0.2,
-    val popoutGraphFollowsSelection: Boolean = true,
     // Spectrum (RTA) display
     val rtaDashboardShowGraph: Boolean = true,
     val rtaChannelShowGraph: Boolean = true,
     /** The dashboard's channels as [RtaChannelSelection.storageKey], "" for the default. */
-    val rtaDashboardSelectionKey: String = "",
+    val rtaDashboardSource: String = "",
     /** The dashboard's other side's channels, "" when never used. */
-    val rtaDashboardOtherSideKey: String = "",
+    val rtaDashboardOtherSide: String = "",
     val rtaChannelPagesShowSpectrum: Boolean = true,
     val rtaGraphOpacity: Double = 1.0,
     val rtaFloorDB: Double = -90.0,
@@ -52,6 +60,9 @@ data class GraphSettings(
     val rtaShowPeakHold: Boolean = true,
     val rtaSmoothingOn: Boolean = true
 ) {
+    /** The smoothing amount the spectrum views use (macOS `rtaSmoothing`): 0.35 when on, 0 = off. */
+    val rtaSmoothing get() = if (rtaSmoothingOn) RTA_SMOOTHING_AMOUNT else 0.0
+
     val dbTop get() = graphDBCenter + graphDBRange / 2.0
     val dbBottom get() = graphDBCenter - graphDBRange / 2.0
 

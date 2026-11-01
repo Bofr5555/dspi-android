@@ -20,7 +20,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.bofr.dspi.bridge.ChannelMap
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.DspiRoutes
@@ -53,7 +53,7 @@ internal fun editableChannels(bridge: DspiBridge): List<Int> = (0 until ChannelM
  */
 @Composable
 fun GraphScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    val stateRev by bridge.stateRevision.collectAsState()
+    val stateRev by bridge.stateRevision.collectAsStateWithLifecycle()
     var edited by rememberSaveable { mutableStateOf(-1) }
     var menuOpen by remember { mutableStateOf(false) }
     val choices = remember(stateRev) { editableChannels(bridge) }

@@ -283,7 +283,7 @@ class PeqGraphEditor(private val host: PeqGraphEditorHost, private val clock: Pe
             committed = bands
             shown = bands.toMutableList()
             animationFrom = null
-        } else if (bands != committed) {
+        } else if (!bandsSame(bands, committed)) {
             committed = bands
             if (gesture == GestureKind.IDLE && live.isEmpty()) {
                 startBandAnimation()
@@ -677,7 +677,7 @@ class PeqGraphEditor(private val host: PeqGraphEditorHost, private val clock: Pe
         // return trip, leaving the device on an intermediate value.
         val changes =
             live.keys.sorted()
-                .filter { it < committed.size && (live.getValue(it) != committed[it] || it in deviceSent) }
+                .filter { it < committed.size && (!live.getValue(it).sameAs(committed[it]) || it in deviceSent) }
                 .map { it to live.getValue(it) }
         live.clear()
         deviceSent.clear()
@@ -1620,7 +1620,7 @@ class PeqGraphEditor(private val host: PeqGraphEditorHost, private val clock: Pe
                 p = p.copy(q = PeqLimits.clampQ(q).toFloat())
             }
         }
-        if (p != current(b)) commitNow(mapOf(b to p))
+        if (!p.sameAs(current(b))) commitNow(mapOf(b to p))
         return true
     }
 

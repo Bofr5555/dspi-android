@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -171,30 +171,83 @@ internal fun channelColour(bridge: DspiBridge, ch: Int): Color {
     return hex.toLongOrNull(16)?.let { Color(0xFF000000 or it) } ?: ChannelPalette.color(ch)
 }
 
-/** The curve as a path over [w]×[h] (macOS `BodeLineShape.path(in:)`); [freqs] is the bridge's grid. */
-internal fun bodePath(
-    mags: List<Double>,
-    freqs: List<Double>,
-    dbTop: Double,
-    dbBottom: Double,
-    minFreq: Double,
-    maxFreq: Double,
-    w: Float,
-    h: Float
-): Path {
+/**
+ * A curve's drawing state, kept across frames (macOS `BodeLineShape` +
+ * `AnimatableVector`): the x of each data point for the current axis, the
+ * from/to vectors of the running tween, and one reusable [Path]. A frame
+ * rewinds the path and interpolates in place; nothing is allocated.
+ */
+internal class BodeLineCache {
     val path = Path()
-    if (mags.isEmpty()) return path
-    val logMin = log10(minFreq)
-    val span = log10(maxFreq) - logMin
-    val dbSpan = dbTop - dbBottom
-    for (i in mags.indices) {
-        // The data grid is 10 Hz-20 kHz, 201 log-spaced points.
-        val f = freqs.getOrNull(i) ?: (10.0 * 2000.0.pow(i.toDouble() / max(mags.size - 1, 1)))
-        val x = ((log10(f) - logMin) / span * w).toFloat()
-        val y = (h - (mags[i] - dbBottom) / dbSpan * h).toFloat().coerceIn(-2 * h, 3 * h)
-        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+    private var brush: Brush? = null
+    private var brushKey: Pair<List<Color>, Float>? = null
+    private var xs = FloatArray(0)
+    private var xsFreqs: List<Double>? = null
+    private var xsMin = Double.NaN
+    private var xsMax = Double.NaN
+    private var xsW = Float.NaN
+    var from = DoubleArray(0)
+        private set
+    var to = DoubleArray(0)
+        private set
+
+    /** The gradient of an overlapping group, rebuilt only when its colours or the width change. */
+    fun gradient(colors: List<Color>, w: Float): Brush {
+        val key = colors to w
+        if (brushKey != key || brush == null) {
+            brushKey = key
+            brush = Brush.horizontalGradient(*gradientStops(colors).toTypedArray(), startX = 0f, endX = w)
+        }
+        return brush!!
     }
-    return path
+
+    /** Starts a tween from the curve as drawn at [t] toward [mags]. */
+    fun retarget(mags: List<Double>, t: Double) {
+        val next = DoubleArray(mags.size) { mags[it] }
+        if (from.size == to.size && to.size == next.size) {
+            for (i in to.indices) from[i] = from[i] + (to[i] - from[i]) * t
+        } else {
+            from = next.copyOf()
+        }
+        to = next
+    }
+
+    /** Fills [path] with the curve at tween position [t] (macOS `BodeLineShape.path(in:)`). */
+    fun build(freqs: List<Double>, t: Double, dbTop: Double, dbBottom: Double, minFreq: Double, maxFreq: Double, w: Float, h: Float): Path {
+        path.rewind()
+        val n = to.size
+        if (n == 0) return path
+        if (freqs !== xsFreqs || minFreq != xsMin || maxFreq != xsMax || w != xsW || xs.size != n) {
+            xsFreqs = freqs
+            xsMin = minFreq
+            xsMax = maxFreq
+            xsW = w
+            xs = FloatArray(n)
+            val logMin = log10(minFreq)
+            val span = log10(maxFreq) - logMin
+            for (i in 0 until n) {
+                // The data grid is 10 Hz-20 kHz, 201 log-spaced points.
+                val f = freqs.getOrNull(i) ?: (10.0 * 2000.0.pow(i.toDouble() / max(n - 1, 1)))
+                xs[i] = ((log10(f) - logMin) / span * w).toFloat()
+            }
+        }
+        val dbSpan = dbTop - dbBottom
+        val tween = from.size == n && t < 1
+        for (i in 0 until n) {
+            val v = if (tween) from[i] + (to[i] - from[i]) * t else to[i]
+            // No clamp (a clamp bends the visible part of a steep segment);
+            // only a non-finite value is pinned far off the plot.
+            val y = if (v.isFinite()) {
+                (h - (v - dbBottom) / dbSpan * h).toFloat()
+            } else if (v > 0) {
+                -1e5f
+            } else {
+                1e5f
+            }
+            if (i == 0) path.moveTo(xs[i], y) else path.lineTo(xs[i], y)
+        }
+        return path
+    }
 }
 
 /**
@@ -214,50 +267,53 @@ private fun BodeLine(
     dbBottom: Double,
     phase: Boolean = false
 ) {
-    var from by remember { mutableStateOf(mags) }
-    var to by remember { mutableStateOf(mags) }
+    val cache = remember { BodeLineCache().also { it.retarget(mags, 1.0) } }
+    var target by remember { mutableStateOf(mags) }
     val progress = remember { Animatable(1f) }
     LaunchedEffect(mags) {
-        if (mags == to) return@LaunchedEffect
-        val t = progress.value.toDouble()
-        from = if (from.size == to.size) from.zip(to) { a, b -> a + (b - a) * t } else to
-        to = mags
+        if (mags == target) return@LaunchedEffect
+        cache.retarget(mags, progress.value.toDouble())
+        target = mags
         progress.snapTo(0f)
         progress.animateTo(1f, tween((settings.graphAnimationSpeed * 1000).roundToInt(), easing = FastOutSlowInEasing))
     }
+    val lw = settings.graphLineWidth.toFloat()
+    val strokes =
+        remember(lw, active, phase) {
+            val dash = if (active) null else PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
+            if (phase) {
+                // Dotted, light grey (macOS dash [0.1, lw * 3] with round caps).
+                listOf(Stroke(lw * 0.9f, cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.1f, lw * 3))))
+            } else if (colors.size == 1) {
+                listOf(Stroke(lw * 4), Stroke(lw * 2), Stroke(lw, pathEffect = dash))
+            } else {
+                listOf(Stroke(lw * 5), Stroke(lw * 2.5f), Stroke(lw * 1.25f, pathEffect = dash))
+            }
+        }
     Canvas(Modifier.fillMaxSize()) {
-        val t = progress.value.toDouble()
-        val shown = if (from.size == to.size && t < 1) from.zip(to) { a, b -> a + (b - a) * t } else to
         val d = density
         val w = size.width / d
         val h = size.height / d
-        val lw = settings.graphLineWidth.toFloat()
+        val path = cache.build(freqs, progress.value.toDouble(), dbTop, dbBottom, minFreq, maxFreq, w, h)
         scale(d, d, pivot = Offset.Zero) {
-            val path = bodePath(shown, freqs, dbTop, dbBottom, minFreq, maxFreq, w, h)
             if (phase) {
-                // Dotted, light grey (macOS dash [0.1, lw * 3] with round caps).
-                drawPath(
-                    path,
-                    Color(0xFFEDEDED),
-                    style = Stroke(lw * 0.9f, cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.1f, lw * 3)))
-                )
+                drawPath(path, Color(0xFFEDEDED), style = strokes[0])
                 return@scale
             }
-            val dash = if (active) null else PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
             if (colors.size == 1) {
                 val c = colors[0]
                 if (settings.showGraphGlow && active) {
-                    drawPath(path, c.copy(alpha = 0.12f), style = Stroke(lw * 4))
-                    drawPath(path, c.copy(alpha = 0.25f), style = Stroke(lw * 2))
+                    drawPath(path, c, alpha = 0.12f, style = strokes[0])
+                    drawPath(path, c, alpha = 0.25f, style = strokes[1])
                 }
-                drawPath(path, c, style = Stroke(lw, pathEffect = dash))
+                drawPath(path, c, style = strokes[2])
             } else {
-                val brush = Brush.horizontalGradient(*gradientStops(colors).toTypedArray(), startX = 0f, endX = w)
+                val b = cache.gradient(colors, w)
                 if (settings.showGraphGlow && active) {
-                    drawPath(path, brush, alpha = 0.07f, style = Stroke(lw * 5))
-                    drawPath(path, brush, alpha = 0.07f, style = Stroke(lw * 2.5f))
+                    drawPath(path, b, alpha = 0.07f, style = strokes[0])
+                    drawPath(path, b, alpha = 0.07f, style = strokes[1])
                 }
-                drawPath(path, brush, style = Stroke(lw * 1.25f, pathEffect = dash))
+                drawPath(path, b, style = strokes[2])
             }
         }
     }
@@ -267,11 +323,11 @@ private fun BodeLine(
 @Composable
 internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<Int>, editable: Boolean) {
     val store = LocalGraphSettings.current
-    val settings by store.settings.collectAsState()
-    val stateRev by bridge.stateRevision.collectAsState()
-    val magRev by bridge.magnitudesRevision.collectAsState()
+    val settings by store.settings.collectAsStateWithLifecycle()
+    val stateRev by bridge.stateRevision.collectAsStateWithLifecycle()
+    val magRev by bridge.magnitudesRevision.collectAsStateWithLifecycle()
     val connectedFlow = remember(bridge) { bridge.status.map { it.connected }.distinctUntilChanged() }
-    val connected by connectedFlow.collectAsState(bridge.connected)
+    val connected by connectedFlow.collectAsStateWithLifecycle(bridge.connected)
     val sharedSelection = LocalPeqGraphSelection.current
     val ownSelection = remember { PeqGraphSelection() }
     val selection = sharedSelection ?: ownSelection
@@ -372,6 +428,11 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
                 store.update {
                     it.copy(graphDBRange = (it.graphDBRange / ratio).coerceIn(GraphSettings.DB_RANGE_MIN, GraphSettings.DB_RANGE_MAX))
                 }
+            },
+            onZoomRange = { delta ->
+                store.update {
+                    it.copy(graphDBRange = (it.graphDBRange + delta).coerceIn(GraphSettings.DB_RANGE_MIN, GraphSettings.DB_RANGE_MAX))
+                }
             }
         )
         // The gear at the top right (macOS: shown on hover; touch has none, so always).
@@ -457,12 +518,12 @@ private fun GraphGrid(settings: GraphSettings, minF: Double, maxF: Double, dTop:
                         2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 20000
                     )
                         .map { it.toDouble() }
-                for (f in major) if (f in minF..maxF) drawLine(gridColor(0.15), Offset(xPos(f), 0f), Offset(xPos(f), h), 1f / d)
+                for (f in major) if (f in minF..maxF) drawLine(gridColor(0.15), Offset(xPos(f), 0f), Offset(xPos(f), h), 1f)
                 for (f in minor) {
                     if (f in minF..maxF &&
                         f !in major
                     ) {
-                        drawLine(gridColor(0.06), Offset(xPos(f), 0f), Offset(xPos(f), h), 1f / d)
+                        drawLine(gridColor(0.06), Offset(xPos(f), 0f), Offset(xPos(f), h), 1f)
                     }
                 }
             }
@@ -471,7 +532,7 @@ private fun GraphGrid(settings: GraphSettings, minF: Double, maxF: Double, dTop:
                 var db = ceil(dBot / step) * step
                 while (db <= dTop) {
                     // 0 dB is drawn separately.
-                    if (abs(db) > 0.01) drawLine(gridColor(0.1), Offset(0f, yPos(db)), Offset(w, yPos(db)), 1f / d)
+                    if (abs(db) > 0.01) drawLine(gridColor(0.1), Offset(0f, yPos(db)), Offset(w, yPos(db)), 1f)
                     db += step
                 }
                 if (dBot <= 0 && dTop >= 0) drawLine(gridColor(0.3), Offset(0f, yPos(0.0)), Offset(w, yPos(0.0)), 1f)
@@ -566,9 +627,12 @@ fun GraphResizeHandle(modifier: Modifier = Modifier, height: Int = 20) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GraphLegend(bridge: DspiBridge, modifier: Modifier = Modifier) {
-    val stateRev by bridge.stateRevision.collectAsState()
-    val magRev by bridge.magnitudesRevision.collectAsState()
-    val connected = bridge.connected
+    val stateRev by bridge.stateRevision.collectAsStateWithLifecycle()
+    val magRev by bridge.magnitudesRevision.collectAsStateWithLifecycle()
+    val connectedFlow = remember(bridge) { bridge.status.map { it.connected }.distinctUntilChanged() }
+    val connected by connectedFlow.collectAsStateWithLifecycle(bridge.connected)
+    // Faded rather than removed without a device (a pure crossfade, 0.3 s), and inert while faded.
+    val fade by animateFloatAsState(if (connected) 1f else 0f, tween(300), label = "legend")
     val pills =
         remember(stateRev, magRev) {
             val inputs = (0 until bridge.liveInputCount()).map { bridge.inputAppId(it) }
@@ -578,9 +642,8 @@ fun GraphLegend(bridge: DspiBridge, modifier: Modifier = Modifier) {
                     .map { bridge.rta.appChannel(DspiConstants.RTA_TAP_OUTPUT, it) }
             (inputs + outputs).filter { bridge.channelExists(it) }
         }
-    // Faded rather than removed without a device; invisible pills are inert.
     FlowRow(
-        modifier.padding(top = 6.dp, bottom = 2.dp).alpha(if (connected) 1f else 0f),
+        modifier.padding(top = 6.dp, bottom = 2.dp).alpha(fade),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
