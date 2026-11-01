@@ -354,6 +354,8 @@ interface DspiCoreApi : AutoCloseable {
 
     /**
      * Register (Some) or clear (None) the arrival/departure listener.
+     * Clearing waits for a call in progress on another thread; replacing
+     * (Some -> Some) does not wait.
      */
     fun setHotplugCallback(listener: DeviceEvents?)
 
@@ -526,6 +528,9 @@ interface DspiCoreApi : AutoCloseable {
 
     /**
      * Register (Some) or clear (None) the wake-up listener of the notify thread.
+     * Clearing waits for a call in progress on another thread; replacing
+     * (Some -> Some) does not wait, and the old listener may then be
+     * released on the notify thread when its running call ends.
      */
     fun setNotifyListener(listener: NotifyListener?)
 
@@ -536,7 +541,9 @@ interface DspiCoreApi : AutoCloseable {
 
     /**
      * Register (Some) or clear (None) the analyser wake-up listener. Once it
-     * returns after None, no call is in progress.
+     * returns after None, no call is in progress (on another thread).
+     * Replacing (Some -> Some) does not wait, and the old listener may then
+     * be released on the RTA thread when its running call ends.
      */
     fun rtaSetListener(listener: RtaListener?)
 

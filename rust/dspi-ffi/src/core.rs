@@ -33,14 +33,26 @@
 //! `RtaHub::set_waker`; the Kotlin listeners live in `Listeners` (which
 //! outlives every registration, see `Drop`). A trampoline clones the
 //! listener's `Arc` out of its slot and calls it with no lock of ours held,
-//! so a callback may re-register listeners or call into the core (review
-//! F1); `set_*_listener` only swaps the slot and never takes a hub lock.
+//! so a callback may register, replace or clear listeners without deadlock
+//! (review F1); `set_*_listener` only swaps the slot and never takes the
+//! core lock or a hub lock.
+//!
+//! Calling into the core from a callback is UNSUPPORTED: `disconnect`,
+//! `close_fd`, `select_device`, `open_fd` and `Drop` hold the core lock
+//! while they join the notify thread and the RTA worker, and the RTA
+//! worker's shutdown fires the RTA callback on that very thread, so a core
+//! call from a callback can deadlock. Callbacks only schedule work (the
+//! Kotlin bridge posts to its FFI dispatcher), as in the C ABI.
+//!
 //! Clearing a listener (None) waits for its calls in flight on other
-//! threads, so after it returns the old listener is not running. A panic
-//! or Kotlin exception inside a listener is caught and logged, never
-//! unwound through the core's threads.
+//! threads, so after it returns the old listener is not running (unless the
+//! clearing thread is itself inside that same listener's callback).
+//! Replacing one (Some -> Some) does not wait; a call already running keeps
+//! its reference, so the old listener may be finalised on the hub thread
+//! when that call ends. A panic or Kotlin exception inside a listener is
+//! caught and logged, never unwound through the core's threads.
 
-use std::cell::Cell;
+use std::cell::RefCell;
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
@@ -85,19 +97,27 @@ impl<T: ?Sized> Default for Slot<T> {
 }
 
 thread_local! {
-    /// This thread is inside a listener call (do not wait for ourselves).
-    static IN_CALLBACK: Cell<bool> = const { Cell::new(false) };
+    /// The slots (by address) whose callback this thread is inside, nested
+    /// calls included: a thread never waits for its own calls.
+    static IN_CALLBACK: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
 }
 
 impl<T: ?Sized> Slot<T> {
-    /// Replace the listener. Clearing it waits until no call of it is in
-    /// flight on another thread (a listener clearing itself does not wait).
+    fn key(&self) -> usize {
+        self as *const Self as *const () as usize
+    }
+
+    /// Replace the listener. Clearing it (None) waits until no call of this
+    /// slot is in flight on another thread; calls of this slot the clearing
+    /// thread is itself inside are not waited for. Replacing does not wait.
     fn set(&self, listener: Option<Box<T>>) {
         let clearing = listener.is_none();
         *lock(&self.current) = listener.map(Arc::from);
-        if clearing && !IN_CALLBACK.with(Cell::get) {
+        if clearing {
+            let key = self.key();
+            let own = IN_CALLBACK.with(|v| v.borrow().iter().filter(|&&k| k == key).count());
             let mut busy = lock(&self.busy);
-            while *busy > 0 {
+            while *busy > own {
                 busy = self.idle.wait(busy).unwrap_or_else(|p| p.into_inner());
             }
         }
@@ -114,9 +134,15 @@ impl<T: ?Sized> Slot<T> {
             cb
         };
         let Some(cb) = cb else { return };
-        let outer = IN_CALLBACK.with(|c| c.replace(true));
+        let key = self.key();
+        IN_CALLBACK.with(|v| v.borrow_mut().push(key));
         guarded(|| f(&cb));
-        IN_CALLBACK.with(|c| c.set(outer));
+        IN_CALLBACK.with(|v| {
+            let mut v = v.borrow_mut();
+            if let Some(i) = v.iter().rposition(|&k| k == key) {
+                v.remove(i);
+            }
+        });
         drop(cb);
         let mut busy = lock(&self.busy);
         *busy -= 1;
@@ -613,6 +639,8 @@ impl DspiCore {
     // ═══ Hot-plug ════════════════════════════════════════════════════
 
     /// Register (Some) or clear (None) the arrival/departure listener.
+    /// Clearing waits for a call in progress on another thread; replacing
+    /// (Some -> Some) does not wait.
     pub fn set_hotplug_callback(&self, listener: Option<Box<dyn DeviceEvents>>) {
         self.listeners.device_events.set(listener);
     }
@@ -805,6 +833,9 @@ impl DspiCore {
     // ═══ Device notifications ════════════════════════════════════════
 
     /// Register (Some) or clear (None) the wake-up listener of the notify thread.
+    /// Clearing waits for a call in progress on another thread; replacing
+    /// (Some -> Some) does not wait, and the old listener may then be
+    /// released on the notify thread when its running call ends.
     pub fn set_notify_listener(&self, listener: Option<Box<dyn NotifyListener>>) {
         // The trampoline is registered with the hub in `new`; no core or hub
         // lock is taken here (a callback may call this).
@@ -819,7 +850,9 @@ impl DspiCore {
     // ═══ Spectrum analyser ═══════════════════════════════════════════
 
     /// Register (Some) or clear (None) the analyser wake-up listener. Once it
-    /// returns after None, no call is in progress.
+    /// returns after None, no call is in progress (on another thread).
+    /// Replacing (Some -> Some) does not wait, and the old listener may then
+    /// be released on the RTA thread when its running call ends.
     pub fn rta_set_listener(&self, listener: Option<Box<dyn RtaListener>>) {
         // As `set_notify_listener`; None waits for calls in flight elsewhere.
         self.listeners.rta.set(listener);
@@ -1061,33 +1094,28 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 
-    /// Calls into the core from the callback, signalling when it is inside.
-    struct CallsCore {
-        core: Weak<DspiCore>,
+    /// Blocks inside its callback until released (signals when inside). It
+    /// does not call into the core: that is unsupported from a callback
+    /// (see the module doc).
+    struct Blocking {
         inside: Mutex<Option<mpsc::Sender<()>>>,
         release: Mutex<mpsc::Receiver<()>>,
     }
-    impl RtaListener for CallsCore {
+    impl RtaListener for Blocking {
         fn on_frame(&self) {
             if let Some(tx) = lock(&self.inside).take() {
                 tx.send(()).unwrap();
             }
-            // Wait while the test thread registers/clears other listeners.
             let _ = lock(&self.release).recv_timeout(Duration::from_secs(5));
-            let core = self.core.upgrade().unwrap();
-            let _ = core.get_state();
-            let _ = core.process_notifications();
-            let _ = core.rta_get_snapshot();
         }
     }
 
     #[test]
-    fn a_callback_can_call_the_core_while_listeners_change() {
+    fn listeners_change_while_a_callback_is_in_flight() {
         let core = DspiCore::new();
         let (inside_tx, inside_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
-        core.rta_set_listener(Some(Box::new(CallsCore {
-            core: Arc::downgrade(&core),
+        core.rta_set_listener(Some(Box::new(Blocking {
             inside: Mutex::new(Some(inside_tx)),
             release: Mutex::new(release_rx),
         })));
@@ -1098,17 +1126,61 @@ mod tests {
             done_tx.send(()).unwrap();
         });
         inside_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        // The callback is in flight: registering other listeners and holding
-        // the core lock elsewhere must not block on it.
+        // The RTA callback is in flight: other slots are independent, the core
+        // lock is free, and replacing the RTA listener does not wait.
         core.set_notify_listener(Some(Box::new(Count(Arc::new(AtomicUsize::new(0))))));
         core.set_notify_listener(None);
+        core.set_hotplug_callback(None);
         let _ = core.get_state();
+        core.rta_set_listener(Some(Box::new(Blocking {
+            inside: Mutex::new(None),
+            release: Mutex::new(mpsc::channel().1),
+        })));
         release_tx.send(()).unwrap();
-        // Clearing the RTA listener waits for the call in flight, which
-        // itself calls the core: both must finish.
+        // Clearing waits for the old listener's call in flight.
         core.rta_set_listener(None);
-        done_rx.recv_timeout(Duration::from_secs(5)).expect("deadlock: callback calling the core");
+        done_rx.recv_timeout(Duration::from_secs(5)).expect("callback did not finish");
         worker.join().unwrap();
+    }
+
+    #[test]
+    fn clearing_from_another_slots_callback_still_waits() {
+        // Review N2: being inside the RTA callback must not skip the wait for
+        // a notify call running on another thread.
+        struct SlowNotify(Arc<AtomicUsize>);
+        impl NotifyListener for SlowNotify {
+            fn on_notifications(&self) {
+                std::thread::sleep(Duration::from_millis(200));
+                self.0.store(1, Ordering::SeqCst);
+            }
+        }
+        struct ClearsNotify {
+            core: Weak<DspiCore>,
+            seen: Arc<AtomicUsize>,
+            result: Arc<AtomicUsize>,
+        }
+        impl RtaListener for ClearsNotify {
+            fn on_frame(&self) {
+                self.core.upgrade().unwrap().set_notify_listener(None);
+                // After the clear returns, the slow notify call has finished.
+                self.result.store(self.seen.load(Ordering::SeqCst) + 10, Ordering::SeqCst);
+            }
+        }
+        let core = DspiCore::new();
+        let seen = Arc::new(AtomicUsize::new(0));
+        let result = Arc::new(AtomicUsize::new(0));
+        core.set_notify_listener(Some(Box::new(SlowNotify(seen.clone()))));
+        core.rta_set_listener(Some(Box::new(ClearsNotify {
+            core: Arc::downgrade(&core),
+            seen: seen.clone(),
+            result: result.clone(),
+        })));
+        let c = core.clone();
+        let notify = std::thread::spawn(move || fire_notify(&c));
+        std::thread::sleep(Duration::from_millis(50));
+        fire_rta(&core);
+        notify.join().unwrap();
+        assert_eq!(result.load(Ordering::SeqCst), 11, "cleared while the notify call was still running");
     }
 
     #[test]
