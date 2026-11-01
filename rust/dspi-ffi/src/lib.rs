@@ -17,6 +17,7 @@ mod callbacks;
 mod convert;
 mod core;
 mod error;
+pub mod fixture;
 mod records;
 
 pub use crate::callbacks::{DeviceEvents, NotifyListener, RtaListener};
