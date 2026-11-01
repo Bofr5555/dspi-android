@@ -184,6 +184,34 @@ the implementation does beyond it.
     only while the firmware is the rate authority (I2S or ADAT input in
     master clock mode), otherwise `externalRateHz` (USB host / S/PDIF /
     slave master; 48 kHz by default).
+20. **Read-only on firmware mismatch (G1, owner decision 2026-11-01,
+    `reviews/decisions-waveB-3.md`).** Deliberate deviation: macOS and Qt
+    show the mismatch banner but still send every command, and with
+    compat != OK the core skips the bulk read, so the UI shows defaults that a
+    confirmed save would write to flash. `writesAllowed: StateFlow<Boolean>`
+    = connected && compat == COMPAT_OK. While false, every write/command is
+    refused on the main thread before any USB traffic: all setters
+    (incl. `sendOnly` live drags and the preview `send*ToDevice` calls),
+    matrix, limiter, hardware IO (pins, clocks, input source/rate),
+    preset/flash ops (save/load/delete/copy/rename/startup, Commit, Revert,
+    Factory Reset, Save Master Volume / Output Configuration),
+    `revertOutputConfig`, DAC mute / UART / I2C, clear clips, input links,
+    paste, on-graph band writes, and the controllers' writes (siggen
+    start/stop/stopNow/identify and its live draft apply, control-surface
+    apply/sendOnly/save/revert except the read ops `refresh`/`refreshStatus`,
+    stats watermark reset, configuration and filter import). The member
+    returns its usual failure value (NO_REPLY / ERR_WRITE / 255 / false; DAC
+    mute and UART/I2C also emit their "applied" event as failed) and emits
+    `CommandFailed(name, WritesNotAllowedException)` with "firmware
+    mismatch: read-only" ("device not connected: read-only" when nothing is
+    connected). Gated members validate the token (an invalid one still
+    throws) without spending it. Allowed: `enterBootloader` (the
+    firmware-update path), every read/fetch, RTA subscriptions and app-side
+    state (graph visibility, `beginOutputEdit`, the siggen draft, the
+    clipboard copy, `restoreInputLinks`). A second layer,
+    `WriteGuardedCore`, wraps the core with an explicit write classification
+    of every `DspiCoreApi` method and refuses any write that a member failed
+    to stop (tests assert it never trips).
 
 ## USB
 

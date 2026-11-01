@@ -115,6 +115,20 @@ data class ChannelBands(
     val xover: List<FilterParams>
 )
 
+/**
+ * G1: a write/command refused because [DspiBridge.writesAllowed] is false
+ * (carried by [BridgeEvent.CommandFailed]). Nothing was sent to the device.
+ */
+class WritesNotAllowedException(message: String) : IllegalStateException(message) {
+    companion object {
+        /** Connected, but the firmware's wire format is not this app's (compat != OK). */
+        const val FIRMWARE_MISMATCH = "firmware mismatch: read-only"
+
+        /** No device connected. */
+        const val NOT_CONNECTED = "device not connected: read-only"
+    }
+}
+
 /** Qt signals other than the property NOTIFYs. */
 sealed interface BridgeEvent {
     /** The signal generator started or stopped (device or elsewhere). */
