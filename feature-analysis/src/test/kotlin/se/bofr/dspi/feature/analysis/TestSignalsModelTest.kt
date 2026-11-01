@@ -111,4 +111,13 @@ class TestSignalsModelTest {
         assertEquals("Idle", siggenStateLabel(SIGGEN_STATE_IDLE))
         assertEquals("Fading out", siggenStateLabel(SIGGEN_STATE_FADE_OUT))
     }
+
+    @Test
+    fun readOnlyDisablesTheGeneratorControls() {
+        val caps = SiggenCaps(true, 1, 8, 16, 0xFF, emptyList())
+        val ok = TestSignalsUiState(true, caps, DEFAULT_SIGGEN_DRAFT, null, listOf("Out 1"), listOf(true))
+        assertTrue(ok.controlsEnabled)
+        // Decision G1: firmware mismatch -> the bridge refuses writes, the page offers none
+        assertEquals(false, ok.copy(writable = false).controlsEnabled)
+    }
 }

@@ -226,6 +226,8 @@ private fun CompactValueField(
     title: String,
     unit: String
 ) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     val density = LocalDensity.current
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(value) }

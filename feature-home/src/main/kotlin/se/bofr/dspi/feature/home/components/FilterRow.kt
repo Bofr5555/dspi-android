@@ -58,6 +58,7 @@ import se.bofr.dspi.ui.PeqMenuGroup
 import se.bofr.dspi.ui.PopUpButton
 import se.bofr.dspi.ui.ValueField
 import se.bofr.dspi.ui.ValueFormat
+import se.bofr.dspi.ui.writesAllowed
 
 /** Column widths of the macOS table (pt -> dp), shared by the header and the rows. */
 internal object FilterColumns {
@@ -260,7 +261,7 @@ private fun PeqTypeMenu(p: BandFields, availableTypes: List<FilterType>, onChang
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable {
+                .clickable(enabled = writesAllowed()) {
                     group = null
                     open = true
                 }.heightIn(min = 36.dp),
@@ -445,7 +446,9 @@ fun LinkwitzEditor(
         confirmButton = {
             Row {
                 TextButton(onClick = onClose) { Text("Done") }
-                TextButton(onClick = { onApply(draft) }, enabled = dirty) { Text("Apply", fontWeight = FontWeight.SemiBold) }
+                TextButton(onClick = {
+                    onApply(draft)
+                }, enabled = dirty && writesAllowed()) { Text("Apply", fontWeight = FontWeight.SemiBold) }
             }
         }
     )

@@ -96,6 +96,8 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, trailing: @Compo
 /** The borderless pull-down menu (macOS `Menu` with `.borderlessButton`: "Presets", "Apply preset", "All outputs"). */
 @Composable
 fun PullDownMenu(label: String, enabled: Boolean, items: List<Pair<String, () -> Unit>>, dividerBefore: Set<Int> = emptySet()) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     var open by remember { mutableStateOf(false) }
     Box {
         TextButton(onClick = { open = true }, enabled = enabled) { Text(label, fontSize = 14.sp) }
@@ -127,6 +129,8 @@ fun SwitchRow(
     help: String = "",
     onChange: (Boolean) -> Unit
 ) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     HelpTip(help, modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
@@ -153,6 +157,8 @@ fun <T> SegmentedPicker(
     enabled: Boolean = true,
     fontSize: TextUnit = 13.sp
 ) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
         options.forEachIndexed { i, o ->
             SegmentedButton(
@@ -182,6 +188,7 @@ fun SegmentedPicker(
  * A label (with the live value) above a slider, for app preferences (macOS
  * "Line Width: 2.0 pt" + Slider in Settings › Graphing and Graph Setup).
  * Not for device values: those go through [ParameterRow] / [CustomSlider].
+ * Not gated by [LocalWritesAllowed] (preferences stay editable read-only).
  */
 @Composable
 fun SliderRow(
@@ -216,6 +223,8 @@ fun ToolHeader(
     icon: (@Composable () -> Unit)? = null,
     extras: @Composable () -> Unit = {}
 ) {
+    @Suppress("NAME_SHADOWING")
+    val switchEnabled = writeEnabled(switchEnabled)
     Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         if (icon != null) {
             Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) { icon() }
@@ -263,6 +272,8 @@ fun ChannelChips(
 /** One chip (channel chips, tube shelf). */
 @Composable
 fun ToolChip(text: String, on: Boolean, enabled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     val shape = RoundedCornerShape(6.dp)
     val bg = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f)
     Box(

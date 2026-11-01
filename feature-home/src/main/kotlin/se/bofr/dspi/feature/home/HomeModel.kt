@@ -89,12 +89,18 @@ object HomeModel {
     fun firmwareBannerMessage(compat: Int, device: String, expected: String): String? = when (compat) {
         DspiConstants.COMPAT_FIRMWARE_TOO_NEW ->
             "This device runs firmware ${device.ifEmpty { "unknown" }}, which is newer than DSPi Console $expected. " +
-                "Some of its features may not be shown."
+                "Some of its features may not be shown. $READ_ONLY_NOTE"
         DspiConstants.COMPAT_FIRMWARE_TOO_OLD -> "This device runs firmware ${device.ifEmpty {
             "unknown"
-        }}; DSPi Console expects $expected."
+        }}; DSPi Console expects $expected. $READ_ONLY_NOTE"
         else -> null
     }
+
+    /**
+     * Decision G1 (owner, deliberate deviation): the sentence the banner adds
+     * to the macOS wording while the bridge refuses writes.
+     */
+    const val READ_ONLY_NOTE = "Until the firmware matches, this app is read-only: settings are shown but cannot be changed."
 
     /** The banner button: "Details..." for newer firmware, "Update..." otherwise. */
     fun firmwareBannerButton(compat: Int): String = if (compat == DspiConstants.COMPAT_FIRMWARE_TOO_NEW) "Details..." else "Update..."

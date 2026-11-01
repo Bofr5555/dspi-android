@@ -73,8 +73,10 @@ import se.bofr.dspi.bridge.ChannelMap
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.ui.ChannelPalette
+import se.bofr.dspi.ui.WritesExempt
 import se.bofr.dspi.ui.settings.AppSettings
 import se.bofr.dspi.ui.settings.LocalAppSettings
+import se.bofr.dspi.ui.writesAllowed
 
 /** The graph's panel colour (the macOS card colour under a dark appearance). */
 internal val GraphBackground = Color(0xFF242426)
@@ -399,9 +401,11 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
     val dbBottom = settings.dbBottom
 
     val activeEq: Int? = if (editable && channels.size == 1) channels.first() else null
+    // G1: read-only has no on-graph editor (no dots, drags, chip or menus); the curve is drawn as a plain line
+    val canWrite = writesAllowed()
     val editedChannel: Int? =
-        remember(stateRev, magRev, activeEq, connected) {
-            activeEq?.takeIf { connected && bridge.channelExists(it) && bridge.channelVisible(it) }
+        remember(stateRev, magRev, activeEq, connected, canWrite) {
+            activeEq?.takeIf { connected && canWrite && bridge.channelExists(it) && bridge.channelVisible(it) }
         }
 
     val visible: List<Int> =
@@ -517,14 +521,17 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
             contentAlignment = Alignment.Center
         ) { Text("⚙", color = Color.White.copy(alpha = 0.8f), fontSize = 15.sp) }
     }
+    // The gear panel holds app preferences and the spectrum's channels: no device writes (G1)
     if (optionsOpen) {
-        GraphOptions(
-            bridge = bridge,
-            onDashboard = onDashboard,
-            spectrum = spectrum,
-            onDismiss = { optionsOpen = false },
-            inPopOutWindow = isPopOut
-        )
+        WritesExempt {
+            GraphOptions(
+                bridge = bridge,
+                onDashboard = onDashboard,
+                spectrum = spectrum,
+                onDismiss = { optionsOpen = false },
+                inPopOutWindow = isPopOut
+            )
+        }
     }
 }
 

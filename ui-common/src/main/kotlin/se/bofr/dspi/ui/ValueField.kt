@@ -76,6 +76,8 @@ fun ValueField(
     range: ClosedFloatingPointRange<Float>? = null,
     onCommit: (Float) -> Unit
 ) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     val colors = DspiTheme.colors
     var editing by remember { mutableStateOf(false) }
     var field by remember { mutableStateOf(TextFieldValue("")) }

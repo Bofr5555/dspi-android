@@ -78,6 +78,7 @@ import se.bofr.dspi.ui.ChannelPalette
 import se.bofr.dspi.ui.MacColors
 import se.bofr.dspi.ui.SegmentedPicker
 import se.bofr.dspi.ui.WhileVisible
+import se.bofr.dspi.ui.WritesExempt
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
 
@@ -169,26 +170,29 @@ fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, stor
         }
     }
 
-    SpectrumAnalyserContent(
-        state = state,
-        render = render,
-        tick = tick,
-        snapshot = rta.snapshot,
-        channelName = { tap, ch -> bridge.channelName(rta.appChannel(tap, ch)).ifEmpty { "Ch ${ch + 1}" } },
-        channelColor = { tap, ch ->
-            val app = rta.appChannel(tap, ch)
-            ChannelPalette.fromHex(bridge.channelColor(app), ChannelPalette.color(app, bridge.numOutputChannels))
-        },
-        onSide = { tap ->
-            // Swift switchRtaSide: the stored form, so a channel disabled for now is still remembered
-            val active = RtaChannelSelection.fromStorageKey(selectionKey) ?: selection
-            val (next, remembered) = RtaChannelSelection.switchingSides(active, RtaChannelSelection.fromStorageKey(otherSideKey), tap)
-            storeSelection(next, remembered)
-        },
-        onToggle = { ch -> storeSelection(selection.toggling(selection.tap, ch), RtaChannelSelection.fromStorageKey(otherSideKey)) },
-        onMode = { chosenMode = it },
-        modifier = modifier
-    )
+    // The side, mode and channel choices only pick what to read: usable read-only (G1)
+    WritesExempt {
+        SpectrumAnalyserContent(
+            state = state,
+            render = render,
+            tick = tick,
+            snapshot = rta.snapshot,
+            channelName = { tap, ch -> bridge.channelName(rta.appChannel(tap, ch)).ifEmpty { "Ch ${ch + 1}" } },
+            channelColor = { tap, ch ->
+                val app = rta.appChannel(tap, ch)
+                ChannelPalette.fromHex(bridge.channelColor(app), ChannelPalette.color(app, bridge.numOutputChannels))
+            },
+            onSide = { tap ->
+                // Swift switchRtaSide: the stored form, so a channel disabled for now is still remembered
+                val active = RtaChannelSelection.fromStorageKey(selectionKey) ?: selection
+                val (next, remembered) = RtaChannelSelection.switchingSides(active, RtaChannelSelection.fromStorageKey(otherSideKey), tap)
+                storeSelection(next, remembered)
+            },
+            onToggle = { ch -> storeSelection(selection.toggling(selection.tap, ch), RtaChannelSelection.fromStorageKey(otherSideKey)) },
+            onMode = { chosenMode = it },
+            modifier = modifier
+        )
+    }
 }
 
 @Composable

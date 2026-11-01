@@ -93,6 +93,8 @@ fun CustomSlider(
     onEditingChanged: ((Boolean) -> Unit)? = null,
     onReset: (() -> Unit)? = null
 ) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     val colors = DspiTheme.colors
     val tint = trackColor ?: colors.accent
     val current by rememberUpdatedState(value.coerceIn(valueRange.start, valueRange.endInclusive))
@@ -282,6 +284,8 @@ fun ParameterRow(
     defaultValue: Float? = null,
     live: ((Float) -> Unit)? = null
 ) {
+    @Suppress("NAME_SHADOWING")
+    val isEnabled = writeEnabled(isEnabled)
     val colors = DspiTheme.colors
     val drag = rememberSliderDrag(value)
     val setNow by rememberUpdatedState(set)

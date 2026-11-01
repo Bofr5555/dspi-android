@@ -66,6 +66,7 @@ import se.bofr.dspi.ui.SegmentedPicker
 import se.bofr.dspi.ui.SwitchRow
 import se.bofr.dspi.ui.ValueField
 import se.bofr.dspi.ui.WhileVisible
+import se.bofr.dspi.ui.writesAllowed
 
 /** Everything the Signal Generator draws (the Swift view's `vm.*` reads). */
 data class TestSignalsUiState(
@@ -76,13 +77,15 @@ data class TestSignalsUiState(
     /** Output names, one per chip (Swift `outputName`). */
     val outputNames: List<String>,
     /** Swift `outputEnabled`: dimmed chips are disabled in the matrix mixer. */
-    val outputEnabled: List<Boolean>
+    val outputEnabled: List<Boolean>,
+    /** Decision G1: the device accepts writes (false while read-only on a firmware mismatch). */
+    val writable: Boolean = true
 ) {
     val supported: Boolean get() = caps?.supported == true
 
     /** Swift: the unsupported notice needs a device that answered without a generator. */
     val showUnsupported: Boolean get() = connected && caps != null && !supported
-    val controlsEnabled: Boolean get() = connected && supported
+    val controlsEnabled: Boolean get() = connected && supported && writable
     val running: Boolean get() = status.isRunning
     val info: SiggenTypePresentation get() = typeInfo(draft.signalType)
     val desc get() = siggenTypeDesc(caps, draft.signalType)
@@ -147,7 +150,8 @@ fun TestSignalsView(bridge: DspiBridge, modifier: Modifier = Modifier) {
             draft = draft ?: DEFAULT_SIGGEN_DRAFT,
             status = status,
             outputNames = List(count) { o -> bridge.channelName(o + 2).ifEmpty { "Out ${o + 1}" } },
-            outputEnabled = List(count) { o -> bridge.outputEnabled(o) }
+            outputEnabled = List(count) { o -> bridge.outputEnabled(o) },
+            writable = writesAllowed()
         )
 
     val running by rememberUpdatedState(state.running)
@@ -653,7 +657,7 @@ private fun TransportBar(state: TestSignalsUiState, actions: TestSignalsActions)
                 colors = ButtonDefaults.buttonColors(containerColor = MacColors.red, contentColor = Color.White)
             ) { Text("Stop") }
         } else {
-            Button(onClick = { actions.start() }, enabled = state.startBlocker == null) { Text("▶  Start") }
+            Button(onClick = { actions.start() }, enabled = state.startBlocker == null && state.writable) { Text("▶  Start") }
         }
     }
 }

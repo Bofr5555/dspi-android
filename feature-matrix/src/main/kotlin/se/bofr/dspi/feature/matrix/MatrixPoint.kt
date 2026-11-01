@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.bofr.dspi.ui.CompactGainField
 import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.writeEnabled
 
 /**
  * macOS `MatrixPoint`: gain field above the dot when connected, the connect
@@ -88,7 +89,7 @@ fun MatrixConnectToggle(isConnected: Boolean, inputColor: Color, outlineColor: C
         Modifier
             .size(44.dp)
             .clickable(
-                enabled = enabled,
+                enabled = writeEnabled(enabled),
                 role = Role.Switch,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -111,7 +112,7 @@ fun MatrixInvertToggle(isInverted: Boolean, enabled: Boolean, onToggle: () -> Un
     Box(
         modifier =
         modifier
-            .clickable(enabled = enabled, role = Role.Switch, onClick = onToggle)
+            .clickable(enabled = writeEnabled(enabled), role = Role.Switch, onClick = onToggle)
             .semantics { contentDescription = if (isInverted) "Phase inverted" else "Normal phase" }
             .padding(horizontal = 10.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center

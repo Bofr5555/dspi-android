@@ -14,10 +14,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -35,6 +39,8 @@ import se.bofr.dspi.feature.settings.SettingsScreen
 import se.bofr.dspi.feature.tools.OutputLimiterView
 import se.bofr.dspi.feature.tools.ToolsScreen
 import se.bofr.dspi.ui.DspiRoutes
+import se.bofr.dspi.ui.LocalWritesAllowed
+import se.bofr.dspi.ui.WritesExempt
 import se.bofr.dspi.usb.BootloaderLocator
 
 /**
@@ -71,6 +77,14 @@ fun AppScaffold(
 
 @Composable
 private fun DspiNavHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?) {
+    // G1: every device-writing control is disabled while the bridge refuses writes
+    val writesFlow = remember(bridge) { bridge.writesAllowedFlow() }
+    val writes by writesFlow.collectAsStateWithLifecycle(bridge.writesAllowedNow())
+    CompositionLocalProvider(LocalWritesAllowed provides writes) { DspiRoutesHost(bridge, bootloaderLocator) }
+}
+
+@Composable
+private fun DspiRoutesHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?) {
     val nav = rememberNavController()
     val go: (String) -> Unit = { nav.navigate(it) }
     val back: () -> Unit = { nav.popBackStack() }
@@ -94,7 +108,10 @@ private fun DspiNavHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator
         composable(DspiRoutes.PRESETS) { PresetsScreen(bridge, go, back) }
         composable(DspiRoutes.SETTINGS) { SettingsScreen(bridge, go, back) }
         composable(DspiRoutes.ANALYSIS) { AnalysisScreen(bridge, go, back) }
-        composable(DspiRoutes.FIRMWARE) { FirmwareUpdateView(bridge, go, back, bootloaderLocator = bootloaderLocator) }
+        composable(DspiRoutes.FIRMWARE) {
+            // The firmware update path stays usable read-only (G1: enterBootloader is the one write the bridge allows)
+            WritesExempt { FirmwareUpdateView(bridge, go, back, bootloaderLocator = bootloaderLocator) }
+        }
     }
 }
 

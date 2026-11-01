@@ -9,16 +9,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.writesAllowed
 
 @Composable
-fun AdvancedSettingsTab(bridge: DspiBridge, appSettings: AppSettingsStore) {
+fun AdvancedSettingsTab(bridge: DspiBridge, appSettings: AppSettingsStore, canWrite: Boolean = writesAllowed()) {
     val s by appSettings.settings.collectAsState()
     val connected = bridge.status.collectAsState().value.connected
     SettingsForm {
         item {
             SettingsSection("Channel Names") {
                 SettingRow("Reset all channel names to factory defaults.", null, enabled = connected) {
-                    OutlinedButton(onClick = { bridge.resetChannelNames() }, enabled = connected) { Text("Reset") }
+                    OutlinedButton(onClick = { bridge.resetChannelNames() }, enabled = connected && canWrite) { Text("Reset") }
                 }
             }
         }

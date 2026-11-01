@@ -51,6 +51,7 @@ import se.bofr.dspi.ui.ValueFormat
 import se.bofr.dspi.ui.VerticalRule
 import se.bofr.dspi.ui.dspiCard
 import se.bofr.dspi.ui.rememberSliderDrag
+import se.bofr.dspi.ui.writesAllowed
 
 /**
  * The output channel's settings card (macOS `ChannelSettingsView`): input
@@ -170,6 +171,7 @@ private fun MuteLimiterColumn(bridge: DspiBridge, outputIndex: Int, isMuted: Boo
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
+    val canWrite = writesAllowed()
     val reduction = bridge.observeStatus { it.limiterReduction.getOrElse(outputIndex) { 0f } }
     val enabled = s.limiterEnabled.getOrElse(outputIndex) { false }
     val limiting = enabled && reduction >= 0.05f
@@ -177,7 +179,9 @@ private fun MuteLimiterColumn(bridge: DspiBridge, outputIndex: Int, isMuted: Boo
         Box(
             Modifier
                 .size(44.dp)
-                .clickable(onClickLabel = if (isMuted) "Unmute" else "Mute") { bridge.setOutputMute(outputIndex, !isMuted) },
+                .clickable(enabled = writesAllowed(), onClickLabel = if (isMuted) "Unmute" else "Mute") {
+                    bridge.setOutputMute(outputIndex, !isMuted)
+                },
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -204,6 +208,8 @@ private fun MuteLimiterColumn(bridge: DspiBridge, outputIndex: Int, isMuted: Boo
                         enabled = connected,
                         onClickLabel = desc,
                         onClick = {
+                            // G1: read-only keeps the long-press to the settings page, not the toggle
+                            if (!canWrite) return@combinedClickable
                             // Part of the output configuration in independent mode (macOS beginOutputEdit, F2).
                             bridge.beginOutputEdit()
                             bridge.setLimiterEnabled(outputIndex, !enabled)
@@ -266,7 +272,10 @@ private fun InputRoutingRow(
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             Modifier
-                .clickable(onClickLabel = if (connected) "Disconnect from $outputName" else "Connect to $outputName") {
+                .clickable(
+                    enabled = writesAllowed(),
+                    onClickLabel = if (connected) "Disconnect from $outputName" else "Connect to $outputName"
+                ) {
                     bridge.setMatrixRoute(input, output, !connected, liveGain, inverted)
                 }.padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -307,7 +316,7 @@ private fun InputRoutingRow(
             color = if (inverted) c.orange else c.secondaryLabel.copy(alpha = if (connected) 0.45f else 0.3f),
             modifier =
             Modifier
-                .clickable(enabled = connected, onClickLabel = if (inverted) "Phase inverted" else "Normal phase") {
+                .clickable(enabled = connected && writesAllowed(), onClickLabel = if (inverted) "Phase inverted" else "Normal phase") {
                     bridge.setMatrixRoute(input, output, connected, liveGain, !inverted)
                 }.padding(8.dp)
         )

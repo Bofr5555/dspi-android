@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.writeEnabled
 
 /**
  * Shown at the bottom of every Settings page while anything is pending
@@ -98,10 +99,10 @@ internal fun SettingsSaveBar(coordinator: SettingsSaveCoordinator) {
                 // a CS revert is a device operation.
                 OutlinedButton(
                     onClick = { coordinator.onRevert() },
-                    enabled = !csBusy && !saving && !(csOnly && !connected)
+                    enabled = writeEnabled(!csBusy && !saving && !(csOnly && !connected))
                 ) { Text("Revert") }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { coordinator.onSave() }, enabled = !csBusy && !saving && connected) { Text("Save") }
+                Button(onClick = { coordinator.onSave() }, enabled = !csBusy && !saving && writeEnabled(connected)) { Text("Save") }
             }
         }
     }

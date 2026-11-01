@@ -51,6 +51,7 @@ import se.bofr.dspi.ui.SectionHeader
 import se.bofr.dspi.ui.SectionLabel
 import se.bofr.dspi.ui.SwitchRow
 import se.bofr.dspi.ui.ToolHeader
+import se.bofr.dspi.ui.writeEnabled
 
 /** `CrossfeedCurveView.computeCurves()`: the BS2B lowpass and its complement. */
 object CrossfeedCurve {
@@ -118,10 +119,12 @@ fun CrossfeedView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                 SectionLabel("PRESET")
                 CrossfeedParameters.presets.forEachIndexed { i, p ->
                     Row(
-                        Modifier.fillMaxWidth().clickable(enabled = connected) { bridge.setCrossfeedPreset(i) },
+                        Modifier.fillMaxWidth().clickable(enabled = writeEnabled(connected)) { bridge.setCrossfeedPreset(i) },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RadioButton(selected = crossfeed.preset == i, onClick = { bridge.setCrossfeedPreset(i) }, enabled = connected)
+                        RadioButton(selected = crossfeed.preset == i, onClick = {
+                            bridge.setCrossfeedPreset(i)
+                        }, enabled = writeEnabled(connected))
                         Column(Modifier.padding(start = 4.dp)) {
                             Text(p.name, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                             Caption(p.description)

@@ -75,6 +75,7 @@ import se.bofr.dspi.ui.rememberSliderDrag
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
 import se.bofr.dspi.ui.state.LocalAppState
+import se.bofr.dspi.ui.writesAllowed
 
 /** Saves a [SidebarSelection] across configuration changes. */
 private val SelectionSaver =
@@ -329,15 +330,16 @@ private fun ChannelContextMenu(
 ) {
     // macOS siggenSupported, announced through the generator's caps probe.
     bridge.siggen.caps.collectAsStateWithLifecycle().value
+    val canWrite = writesAllowed()
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         if (outputIndex != null && bridge.connected && bridge.siggenSupported) {
-            DropdownMenuItem(text = { Text("Identify") }, onClick = {
+            DropdownMenuItem(text = { Text("Identify") }, enabled = canWrite, onClick = {
                 onDismiss()
                 bridge.siggen.identify(outputIndex)
             })
             HorizontalDivider()
         }
-        DropdownMenuItem(text = { Text("Rename") }, onClick = {
+        DropdownMenuItem(text = { Text("Rename") }, enabled = canWrite, onClick = {
             onDismiss()
             onRename()
         })
@@ -346,7 +348,7 @@ private fun ChannelContextMenu(
             onDismiss()
             bridge.copyChannel(ch)
         })
-        DropdownMenuItem(text = { Text("Paste Parameters") }, enabled = bridge.canPaste(), onClick = {
+        DropdownMenuItem(text = { Text("Paste Parameters") }, enabled = canWrite && bridge.canPaste(), onClick = {
             onDismiss()
             bridge.pasteChannel(ch)
         })
@@ -365,6 +367,8 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: App
     val connected = bridge.observeStatus { it.connected }
     Column(Modifier.fillMaxWidth()) {
         HorizontalRule(Modifier.fillMaxWidth())
+        // G1: the effect toggles write; navigation (long-press, Matrix, Stats, Settings) stays
+        val canWrite = writesAllowed()
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp, horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             SidebarIconButton(DspiIcons.sliders, false, "Matrix Mixer", { onNavigate(DspiRoutes.MATRIX) })
             SidebarIconButton(
@@ -372,6 +376,7 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: App
                 s.crossfeedEnabled,
                 "Headphone Crossfeed",
                 { bridge.setCrossfeed(!s.crossfeedEnabled) },
+                enabled = canWrite,
                 onLongClick = { onNavigate(DspiRoutes.TOOLS) }
             )
             SidebarIconButton(
@@ -379,6 +384,7 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: App
                 s.loudnessEnabled,
                 "Loudness Compensation",
                 { bridge.setLoudness(!s.loudnessEnabled) },
+                enabled = canWrite,
                 onLongClick = { onNavigate(DspiRoutes.TOOLS) }
             )
             SidebarIconButton(
@@ -386,6 +392,7 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: App
                 s.levellerEnabled,
                 "Volume Leveller",
                 { bridge.setLevellerEnabled(!s.levellerEnabled) },
+                enabled = canWrite,
                 onLongClick = { onNavigate(DspiRoutes.TOOLS) }
             )
             SidebarIconButton(
@@ -393,11 +400,12 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: App
                 s.psybassEnabled,
                 "Psychoacoustic Bass",
                 { bridge.setPsybassEnabled(!s.psybassEnabled) },
+                enabled = canWrite,
                 onLongClick = { onNavigate(DspiRoutes.TOOLS) }
             )
             SidebarIconButton(DspiIcons.info, false, "Stats for Nerbs", { onNavigate(DspiRoutes.ANALYSIS) })
             SidebarIconButton(DspiIcons.gear, false, "Settings", { onNavigate(DspiRoutes.SETTINGS) })
-            SidebarIconButton(DspiIcons.xmark, s.bypass, "Bypass Master EQ", { bridge.setBypass(!s.bypass) })
+            SidebarIconButton(DspiIcons.xmark, s.bypass, "Bypass Master EQ", { bridge.setBypass(!s.bypass) }, enabled = canWrite)
         }
         HorizontalRule(Modifier.fillMaxWidth())
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

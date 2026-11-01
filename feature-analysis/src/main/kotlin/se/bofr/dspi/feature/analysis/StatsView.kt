@@ -70,6 +70,7 @@ import se.bofr.dspi.ui.ChannelPalette
 import se.bofr.dspi.ui.MacColors
 import se.bofr.dspi.ui.SectionLabel
 import se.bofr.dspi.ui.WhileVisible
+import se.bofr.dspi.ui.writeEnabled
 
 /** What System Statistics shows apart from the 60 ms buffer fills. */
 data class StatsUiState(
@@ -427,7 +428,7 @@ private fun BufferFillSection(
     val b by buffers.collectAsState()
     Row(verticalAlignment = Alignment.CenterVertically) {
         SectionLabel("BUFFER FILL LEVELS", Modifier.weight(1f))
-        OutlinedButton(onClick = onResetWatermarks, enabled = state.connected) { Text("Reset Watermarks", fontSize = 12.sp) }
+        OutlinedButton(onClick = onResetWatermarks, enabled = writeEnabled(state.connected)) { Text("Reset Watermarks", fontSize = 12.sp) }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Dot(if (b?.streaming == true) MacColors.green else MacColors.gray, 6.dp)

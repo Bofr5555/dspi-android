@@ -39,8 +39,10 @@ import androidx.compose.ui.unit.dp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.DspiRoutes
 import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.WritesExempt
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
+import se.bofr.dspi.ui.writesAllowed
 
 /**
  * Entry point of :feature-settings (route [DspiRoutes.SETTINGS]).
@@ -204,12 +206,14 @@ private fun SettingsDetail(
     onOpen: (SettingsCategory) -> Unit,
     @Suppress("UNUSED_PARAMETER") onNavigate: (String) -> Unit
 ) {
+    // G1: the app-preference pages stay editable read-only; only Advanced's Reset writes to the device
+    val canWrite = writesAllowed()
     when (page) {
         SettingsCategory.OVERVIEW -> PinOverviewTab(bridge, coordinator, onOpen)
-        SettingsCategory.GENERAL -> GeneralSettingsTab()
-        SettingsCategory.ADVANCED -> AdvancedSettingsTab(bridge, appSettings)
-        SettingsCategory.GRAPHING -> GraphingSettingsTab(appSettings)
-        SettingsCategory.SPECTRUM -> SpectrumSettingsTab(bridge, appSettings)
+        SettingsCategory.GENERAL -> WritesExempt { GeneralSettingsTab() }
+        SettingsCategory.ADVANCED -> WritesExempt { AdvancedSettingsTab(bridge, appSettings, canWrite) }
+        SettingsCategory.GRAPHING -> WritesExempt { GraphingSettingsTab(appSettings) }
+        SettingsCategory.SPECTRUM -> WritesExempt { SpectrumSettingsTab(bridge, appSettings) }
         SettingsCategory.GLOBAL_PARAMS -> GlobalSettingsTab(bridge, coordinator)
         SettingsCategory.OUTPUT_ASSIGNMENT -> HardwareSettingsTab(HardwarePage.OUTPUTS, bridge, coordinator, onOpen)
         SettingsCategory.I2S_CONFIG -> HardwareSettingsTab(HardwarePage.I2S, bridge, coordinator, onOpen)

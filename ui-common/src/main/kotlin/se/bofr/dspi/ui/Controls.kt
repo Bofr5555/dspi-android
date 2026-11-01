@@ -131,6 +131,13 @@ fun SplitActionPill(
 ) {
     val c = DspiTheme.colors
     val shape = RoundedCornerShape(6.dp)
+    val canWrite = LocalWritesAllowed.current
+
+    @Suppress("NAME_SHADOWING")
+    val leftDisabled = leftDisabled || !canWrite
+
+    @Suppress("NAME_SHADOWING")
+    val rightDisabled = rightDisabled || !canWrite
     Row(modifier.height(IntrinsicSize.Min).clip(shape).border(1.dp, c.pillStroke, shape), verticalAlignment = Alignment.CenterVertically) {
         PillHalf(leftTitle, leftDisabled, onLeft)
         Box(Modifier.width(1.dp).height(16.dp).background(c.pillStroke))
@@ -165,6 +172,8 @@ fun PillButton(
     enabled: Boolean = true,
     cornerRadius: Dp = 6.dp
 ) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     val c = DspiTheme.colors
     val shape = RoundedCornerShape(cornerRadius)
     val fg = if (selected) c.accent else c.secondaryLabel
@@ -203,6 +212,8 @@ fun <T> PopUpButton(
     textStyle: androidx.compose.ui.text.TextStyle = DspiType.body,
     dimWhenDisabled: Boolean = true
 ) {
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     val c = DspiTheme.colors
     var open by remember { mutableStateOf(false) }
     Box(modifier) {
@@ -248,7 +259,8 @@ fun <T> PopUpButton(
 /**
  * A quick-access icon (macOS `SidebarIconButton`): white when active,
  * secondary otherwise. [onLongClick] is the touch counterpart of the macOS
- * right-click that opens the tool's settings window.
+ * right-click that opens the tool's settings window. [enabled] false
+ * ignores the tap (a toggle while read-only, G1) but keeps the long-press.
  */
 @Composable
 fun SidebarIconButton(
@@ -258,7 +270,8 @@ fun SidebarIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     activeColor: Color? = null,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    enabled: Boolean = true
 ) {
     val c = DspiTheme.colors
     val tint = if (isActive) activeColor ?: (if (c.isDark) Color.White else c.accent) else c.secondaryLabel.copy(alpha = 0.6f)
@@ -266,7 +279,8 @@ fun SidebarIconButton(
         modifier
             .size(44.dp)
             .clip(CircleShape)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = tooltip),
+            .combinedClickable(onClick = { if (enabled) onClick() }, onLongClick = onLongClick, onLongClickLabel = tooltip)
+            .alpha(if (enabled) 1f else 0.4f),
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, contentDescription = tooltip, tint = tint, modifier = Modifier.size(20.dp))
@@ -280,6 +294,8 @@ fun SidebarIconButton(
  */
 @Composable
 fun BypassCheckbox(isActive: Boolean, isEnabled: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier, color: Color? = null) {
+    @Suppress("NAME_SHADOWING")
+    val isEnabled = writeEnabled(isEnabled)
     val c = DspiTheme.colors
     val base = color ?: Color(0.5f, 0.5f, 0.5f)
     val fillAlpha by animateFloatAsState(if (isActive) 1f else 0f, label = "bypass")

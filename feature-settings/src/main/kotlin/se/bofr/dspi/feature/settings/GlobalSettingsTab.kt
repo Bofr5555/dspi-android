@@ -30,6 +30,7 @@ import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.MASTER_VOLUME
 import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.OUTPUT_CONFIG_MODE_INDEPENDENT
 import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.OUTPUT_CONFIG_MODE_WITH_PRESET
 import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.writeEnabled
 
 /**
  * Settings that live in the device's flash directory (board-level, not in
@@ -170,7 +171,8 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                             coordinator.editGlobal { it.copy(dacHwMuteConfig = it.dacHwMuteConfig.copy(releaseMs = v)) }
                         }
                         val device = DacHwMuteConfig.from(state)
-                        val canTest = connected && device.pin != DacHwMuteConfig.DAC_HW_MUTE_PIN_NONE && device.enabled && !globalDirty
+                        val canTest =
+                            writeEnabled(connected) && device.pin != DacHwMuteConfig.DAC_HW_MUTE_PIN_NONE && device.enabled && !globalDirty
                         SettingRow(
                             "Test",
                             if (globalDirty) {
