@@ -328,8 +328,105 @@ class DspiBridgeImpl(
         refreshOutputConfigDirty()
     }
 
-    override suspend fun revertOutputConfig(token: ConfirmationToken): Boolean =
-        TODO("BRIDGE: E1b revertOutputConfig — re-apply outputBaseline in macOS SettingsSaveCoordinator.revert order")
+    /** Bumped on every device selection / loss (macOS `transport.generation`). */
+    @Volatile private var generation = 0L
+
+    /**
+     * macOS `SettingsSaveCoordinator.revert` (output part): re-apply the
+     * captured baseline, best effort, in the macOS order — slot types, pins,
+     * BCK, MCK enable/pin/multiplier, S/PDIF 1 pin; S/PDIF 2-4 disable,
+     * repin, enable; I2S channels down, RX pins, channels up; input rate;
+     * clock mode; slave BCK then clock-pin mode; ADAT pin then enable;
+     * limiters last (ungang, set, regang). Only fields that differ are
+     * written. Stops when the device changes mid-sequence. GATED
+     * [DangerousOp.HARDWARE_APPLY]; arms the retry blackout.
+     */
+    override suspend fun revertOutputConfig(token: ConfirmationToken): Boolean {
+        requireToken(token, DangerousOp.HARDWARE_APPLY)
+        val base = outputBaseline
+        if (!_outputConfigDirty.value || base == null) return false
+        val gen = generation
+        val caps = hardwareCaps
+        val done =
+            onFfi {
+                fun sameDevice() = generation == gen
+                fun step(block: () -> Unit) = runCatching(block)
+                var v = core.getState()
+                try {
+                    if (!sameDevice()) return@onFfi false
+                    for (slot in 0 until minOf(maxOf(v.numPinOutputs - 1, 0), base.outputTypes.size, v.outputTypes.size)) {
+                        if (v.outputTypes[slot] != base.outputTypes[slot]) step { core.setOutputType(slot, base.outputTypes[slot]) }
+                    }
+                    for (i in 0 until minOf(v.numPinOutputs, base.outputPins.size)) {
+                        if (v.outputPins[i] != base.outputPins[i]) step { core.setOutputPin(i, base.outputPins[i]) }
+                    }
+                    if (!sameDevice()) return@onFfi false
+                    if (v.i2sBckPin != base.i2sBckPin) step { core.setI2sBckPin(0, base.i2sBckPin) }
+                    if (v.mckEnabled != base.mckEnabled) step { core.setMckEnabled(base.mckEnabled) }
+                    if (v.mckPin != base.mckPin) step { core.setMckPin(base.mckPin) }
+                    if (v.mckMultiplier != base.mckMultiplier) step { core.setMckMultiplier(base.mckMultiplier) }
+                    if (v.spdifRxPins[0] != base.spdifRxPins[0]) step { core.setSpdifRxPin(0, base.spdifRxPins[0]) }
+                    if (!sameDevice()) return@onFfi false
+                    // S/PDIF 2-4: drop an enable first (so a repin can't clash), repin, then enable
+                    if (caps.multiSpdifSupported) {
+                        for (idx in 1 until minOf(caps.spdifInputCount, 4)) {
+                            val on = (v.spdifInputsEnabled shr idx) and 1 == 1
+                            val want = (base.spdifInputsEnabled shr idx) and 1 == 1
+                            if (on && !want) step { core.setSpdifInputEnabled(idx, false) }
+                            if (v.spdifRxPins[idx] != base.spdifRxPins[idx]) step { core.setSpdifRxPin(idx, base.spdifRxPins[idx]) }
+                            if (!on && want) step { core.setSpdifInputEnabled(idx, true) }
+                        }
+                    }
+                    if (!sameDevice()) return@onFfi false
+                    // I2S input: a lowered count first (frees pairs), a raised count last
+                    // (the firmware checks the newly active pairs' pins, restored first)
+                    val raising = base.i2sInputChannels > v.i2sInputChannels
+                    if (!raising && v.i2sInputChannels != base.i2sInputChannels) step { core.setI2sInputChannels(base.i2sInputChannels) }
+                    for (pair in 0 until minOf(v.i2sRxPins.size, base.i2sRxPins.size)) {
+                        if (v.i2sRxPins[pair] != base.i2sRxPins[pair]) step { core.setI2sRxPin(pair, base.i2sRxPins[pair]) }
+                    }
+                    if (raising) step { core.setI2sInputChannels(base.i2sInputChannels) }
+                    if (v.i2sInputRate != base.i2sInputRate) step { core.setInputRate(base.i2sInputRate) }
+                    if (v.i2sClockMode != base.i2sClockMode) step { core.setI2sClockMode(base.i2sClockMode) }
+                    // Clock-pin mode: the slave pair first, so re-entering split finds it valid
+                    if (caps.i2sClockPinModeSupported) {
+                        if (v.i2sBckPinSlave != base.i2sBckPinSlave) step { core.setI2sBckPin(1, base.i2sBckPinSlave) }
+                        if (v.i2sClockPinMode != base.i2sClockPinMode) step { core.setI2sClockPinMode(base.i2sClockPinMode) }
+                    }
+                    if (!sameDevice()) return@onFfi false
+                    // ADAT: the data pin first, then the enable
+                    if (caps.adatOutSupported) {
+                        if (v.adatOutPin != base.adatOutPin) step { core.setAdatOutPin(base.adatOutPin) }
+                        if (v.adatOutEnabled != base.adatOutEnabled) step { core.setAdatOutEnabled(base.adatOutEnabled) }
+                    }
+                    if (!sameDevice()) return@onFfi false
+                    // Output limiters last
+                    v = core.getState()
+                    val targets =
+                        (0 until minOf(v.numOutputChannels, MAX_OUTPUTS)).filter {
+                            v.limiterEnabled[it] != base.limiterEnabled[it] ||
+                                v.limiterThresholdDb[it] != base.limiterThresholdDb[it] ||
+                                v.limiterReleaseMs[it] != base.limiterReleaseMs[it] ||
+                                v.limiterLinkGroup[it] != base.limiterLinkGroup[it]
+                        }.associateWith {
+                            LimiterTarget(
+                                base.limiterEnabled[it],
+                                base.limiterThresholdDb[it],
+                                base.limiterReleaseMs[it],
+                                base.limiterLinkGroup[it]
+                            )
+                        }
+                    if (targets.isNotEmpty()) applyLimiterSettings(targets)
+                    true
+                } finally {
+                    flashWritten()
+                }
+            }
+        if (!done || generation != gen) return false
+        clearOutputEdit()
+        publish(onFfi { snapshot() }, magnitudes = true)
+        return true
+    }
 
     /** FFI: a filter of app channel [appCh] changed (Qt markDirty). */
     private fun markDirty(appCh: Int) {
@@ -1123,28 +1220,75 @@ class DspiBridgeImpl(
         core.setOutputDelay(output, ms)
     }
 
-    override fun directRouting() {
-        val n = current.numOutputChannels
-        val nIn = current.numInputChannels
+    /**
+     * macOS `numMatrixInputs` = `effectiveInputChannels`: the input rows the
+     * current source carries (S/PDIF 2, I2S its channel count, ADAT 8, USB the
+     * host's active channels), at least 2, at most the device's inputs.
+     */
+    override val effectiveInputChannels: Int
+        get() {
+            val s = current
+            val base =
+                when (s.inputSource) {
+                    1, 4, 5, 6 -> 2
+                    2 -> s.i2sInputChannels
+                    3 -> 8
+                    else -> _status.value.activeInputChannels
+                }
+            return maxOf(2, minOf(base, s.numInputChannels))
+        }
+
+    private fun rowsOr(rows: Int) = if (rows < 0) effectiveInputChannels else minOf(rows, current.numInputChannels)
+
+    /**
+     * macOS `applyDirectRouting` (E5): input i -> output i at 0 dB for
+     * i < n = min(rows, outputs), every other crosspoint of the [rows] input
+     * rows reset to off / 0 dB / normal polarity, the diagonal outputs enabled
+     * and the PDM sub disabled first (it shares Core 1 with the EQ workers).
+     * As macOS `setOutputEnable` in overview mode, the outputs it switches
+     * show/hide their curves when [overview].
+     */
+    override fun directRouting() = directRouting(-1, true)
+
+    override fun clearRouting() = clearRouting(-1)
+
+    override fun directRouting(rows: Int, overview: Boolean) {
+        val r = rowsOr(rows)
+        val nOut = current.numOutputChannels
+        val n = minOf(r, nOut)
+        val pdm = nOut - 1
+        val before = current.outputEnabled
         fire("directRouting", Emit.CURVES) {
             val s = core.getState()
-            // PDM shares Core 1 with the EQ-worker outputs, so a 1:1 layout turns it off
-            if (n > 0 && s.outputEnabled[n - 1]) core.setOutputEnable(n - 1, false)
-            for (i in 0 until nIn) {
-                for (o in 0 until n) {
-                    val on = i == o && o != n - 1
-                    core.setMatrixRoute(i, o, on, if (on) 0f else s.matrixGain[i][o], if (on) false else s.matrixInvert[i][o])
+            if (pdm >= 0 && s.outputEnabled[pdm]) core.setOutputEnable(pdm, false)
+            for (i in 0 until r) {
+                for (o in 0 until nOut) {
+                    val on = i == o && i < n
+                    if (s.matrixRouting[i][o] != on ||
+                        s.matrixGain[i][o] != 0f ||
+                        s.matrixInvert[i][o]
+                    ) {
+                        core.setMatrixRoute(i, o, on, 0f, false)
+                    }
                 }
             }
-            for (o in 0 until minOf(nIn, n - 1)) if (!s.outputEnabled[o]) core.setOutputEnable(o, true)
+            for (o in 0 until n) if (o != pdm && !s.outputEnabled[o]) core.setOutputEnable(o, true)
+        }
+        if (overview) {
+            if (pdm >= 0 && before[pdm]) setChannelVisible(pdm + 2, false) // output app id = output + 2
+            for (o in 0 until n) if (o != pdm && !before[o]) setChannelVisible(o + 2, true)
         }
     }
 
-    override fun clearRouting() = fire("clearRouting") {
-        val s = core.getState()
-        for (i in 0 until s.numInputChannels) {
-            for (o in 0 until s.numOutputChannels) {
-                if (s.matrixRouting[i][o]) core.setMatrixRoute(i, o, false, s.matrixGain[i][o], s.matrixInvert[i][o])
+    /** macOS `clearAllRoutes`: disconnect every crosspoint of the [rows] input rows, gains/polarity untouched. */
+    override fun clearRouting(rows: Int) {
+        val r = rowsOr(rows)
+        fire("clearRouting") {
+            val s = core.getState()
+            for (i in 0 until r) {
+                for (o in 0 until s.numOutputChannels) {
+                    if (s.matrixRouting[i][o]) core.setMatrixRoute(i, o, false, s.matrixGain[i][o], s.matrixInvert[i][o])
+                }
             }
         }
     }
@@ -1373,6 +1517,7 @@ class DspiBridgeImpl(
 
     /** DSPiBridge::selectDevice after a successful open: read everything, baseline, RTA probe. */
     private suspend fun deviceSelected(serial: String) {
+        generation++
         links = linkStore.load(serial)
         // macOS noteSelectedDevice: a different unit discards pending output edits; a re-plug keeps them
         if (serial != outputEditSerial) {
@@ -1421,6 +1566,7 @@ class DspiBridgeImpl(
     }
 
     private fun setDisconnected() {
+        generation++
         _status.value = _status.value.copy(connected = false, cpu0 = 0, cpu1 = 0, clipFlags = 0, peaks = BridgeStatus().peaks)
         _devices.value = _devices.value.copy(selectedSerial = "")
         magnitudeCache.fill(null)
@@ -1587,22 +1733,43 @@ class DspiBridgeImpl(
 
     override fun setLimiterEnabled(out: Int, en: Boolean) {
         if (!validOut(out)) return
-        fire("setLimiterEnabled") { core.setLimiterParam(out, DspiConstants.LIMITER_PARAM_ENABLED, if (en) 1f else 0f) }
+        fire("setLimiterEnabled") { limiterSetGanged(out, DspiConstants.LIMITER_PARAM_ENABLED, if (en) 1f else 0f) }
     }
 
     override fun setLimiterThreshold(out: Int, db: Float, sendOnly: Boolean) {
         if (!validOut(out)) return
-        fire("setLimiterThreshold", live(sendOnly)) { core.setLimiterParam(out, DspiConstants.LIMITER_PARAM_THRESHOLD_DB, db) }
+        // sendOnly: device only (macOS sendLimiterParamToDevice); the commit gangs
+        fire("setLimiterThreshold", live(sendOnly)) {
+            if (sendOnly) {
+                core.setLimiterParam(
+                    out,
+                    DspiConstants.LIMITER_PARAM_THRESHOLD_DB,
+                    db
+                )
+            } else {
+                limiterSetGanged(out, DspiConstants.LIMITER_PARAM_THRESHOLD_DB, db)
+            }
+        }
     }
 
     override fun setLimiterRelease(out: Int, ms: Float, sendOnly: Boolean) {
         if (!validOut(out)) return
-        fire("setLimiterRelease", live(sendOnly)) { core.setLimiterParam(out, DspiConstants.LIMITER_PARAM_RELEASE_MS, ms) }
+        fire("setLimiterRelease", live(sendOnly)) {
+            if (sendOnly) {
+                core.setLimiterParam(
+                    out,
+                    DspiConstants.LIMITER_PARAM_RELEASE_MS,
+                    ms
+                )
+            } else {
+                limiterSetGanged(out, DspiConstants.LIMITER_PARAM_RELEASE_MS, ms)
+            }
+        }
     }
 
     override fun setLimiterLinkGroup(out: Int, group: Int) {
         if (!validOut(out)) return
-        fire("setLimiterLinkGroup") { core.setLimiterParam(out, DspiConstants.LIMITER_PARAM_LINK_GROUP, group.toFloat()) }
+        fire("setLimiterLinkGroup") { limiterSetGroup(out, group) }
     }
 
     override fun copyLimiterToAll(out: Int) {
@@ -1622,21 +1789,69 @@ class DspiBridgeImpl(
     override fun linkAllLimiterPairs() {
         val n = current.numOutputChannels
         fire("linkAllLimiterPairs") {
-            for (o in 0 until n) {
-                core.setLimiterParam(
-                    o,
-                    DspiConstants.LIMITER_PARAM_LINK_GROUP,
-                    if (o ==
-                        n - 1
-                    ) {
-                        0f
-                    } else {
-                        minOf(4, o / 2 + 1).toFloat()
-                    }
-                )
+            // In ascending order, so each pair's first output leads (as the firmware does)
+            for (o in 0 until n) limiterSetGroup(o, if (o == n - 1) 0 else minOf(4, o / 2 + 1))
+        }
+    }
+
+    /**
+     * FFI: an enable/threshold/release SET as the firmware gangs it (limiter
+     * spec §2.2, macOS `LimiterGang.edit`): it reaches every output of the
+     * link group. The core keeps per-output state and does not mirror the
+     * ganging, so the bridge repeats the SET for each other member — the same
+     * value the device already applied to them (idempotent), which keeps the
+     * core's state (and its preset diff / export) equal to the device's.
+     */
+    private fun limiterSetGanged(out: Int, param: Int, value: Float) {
+        core.setLimiterParam(out, param, value)
+        val s = core.getState()
+        val g = s.limiterLinkGroup[out]
+        if (g == 0) return
+        for (k in 0 until minOf(s.numOutputChannels, MAX_OUTPUTS)) {
+            if (k != out &&
+                s.limiterLinkGroup[k] == g
+            ) {
+                core.setLimiterParam(k, param, value)
             }
         }
     }
+
+    /**
+     * FFI: macOS `LimiterGang.setGroup` — joining a group adopts the settings
+     * of its lowest-numbered existing member; the first member keeps its own,
+     * leaving (0) keeps the current ones. Mirrored into the core by re-sending
+     * the adopted values to the joiner (the device already holds them).
+     */
+    private fun limiterSetGroup(out: Int, group: Int) {
+        core.setLimiterParam(out, DspiConstants.LIMITER_PARAM_LINK_GROUP, group.toFloat())
+        val s = core.getState()
+        val g = s.limiterLinkGroup[out]
+        if (g == 0) return
+        val peer = (0 until minOf(s.numOutputChannels, MAX_OUTPUTS)).firstOrNull { it != out && s.limiterLinkGroup[it] == g } ?: return
+        core.setLimiterParam(out, DspiConstants.LIMITER_PARAM_THRESHOLD_DB, s.limiterThresholdDb[peer])
+        core.setLimiterParam(out, DspiConstants.LIMITER_PARAM_RELEASE_MS, s.limiterReleaseMs[peer])
+        core.setLimiterParam(out, DspiConstants.LIMITER_PARAM_ENABLED, if (s.limiterEnabled[peer]) 1f else 0f)
+    }
+
+    /**
+     * FFI: macOS `applyLimiterSettings` — put outputs back to exact per-output
+     * settings: the targets leave their groups, take their own values
+     * unlinked, then rejoin in ascending order; enable last.
+     */
+    private fun applyLimiterSettings(targets: Map<Int, LimiterTarget>) {
+        val outs = targets.keys.sorted()
+        val s = core.getState()
+        for (k in outs) if (s.limiterLinkGroup[k] != 0) runCatching { limiterSetGroup(k, 0) }
+        for (k in outs) {
+            val t = targets.getValue(k)
+            runCatching { core.setLimiterParam(k, DspiConstants.LIMITER_PARAM_THRESHOLD_DB, t.threshold) }
+            runCatching { core.setLimiterParam(k, DspiConstants.LIMITER_PARAM_RELEASE_MS, t.release) }
+            runCatching { core.setLimiterParam(k, DspiConstants.LIMITER_PARAM_ENABLED, if (t.enabled) 1f else 0f) }
+        }
+        for (k in outs) targets.getValue(k).group.takeIf { it != 0 }?.let { runCatching { limiterSetGroup(k, it) } }
+    }
+
+    private data class LimiterTarget(val enabled: Boolean, val threshold: Float, val release: Float, val group: Int)
 
     override fun unlinkAllLimiters() = fire("unlinkAllLimiters") {
         core.setLimiterParam(LIMITER_ALL_OUTPUTS, DspiConstants.LIMITER_PARAM_LINK_GROUP, 0f)
@@ -1826,6 +2041,52 @@ class DspiBridgeImpl(
             runCatching { get { core.fetchLgStatus() } }.getOrNull()
         }
     }
+
+    override suspend fun fetchSpdifRxStatus(): se.bofr.dspi.core.SpdifRxStatus? =
+        if (!usable) null else onFfi { runCatching { get { core.fetchSpdifRxStatus() } }.getOrNull() }
+
+    /** Qt StatsController: channel status only while locked (state 2). */
+    override suspend fun fetchSpdifChannelStatus(): SpdifChannelStatus? {
+        if (!usable) return null
+        return onFfi {
+            runCatching {
+                val st = get { core.fetchSpdifRxStatus() }
+                if (st.state != 2) return@runCatching null
+                decodeChannelStatus(get { core.fetchSpdifRxChannelStatus() })
+            }.getOrNull()
+        }
+    }
+
+    override suspend fun fetchActiveSpdifRxPin(): Int? {
+        if (!usable) return null
+        return onFfi {
+            runCatching {
+                val src = get { core.fetchSpdifRxStatus() }.inputSource
+                val index = if (src in 4..6) src - 3 else 0
+                get { core.fetchSpdifRxPin(index) }.takeIf { it != 0 }
+            }.getOrNull()
+        }
+    }
+
+    override val hardwareCaps: HardwareCaps
+        get() {
+            if (!usable) return HardwareCaps()
+            val rp2350 = current.platformId == 1
+            val v32 = current.formatVersion >= DspiConstants.WIRE_FORMAT_VERSION
+            return HardwareCaps(
+                multiSpdifSupported = v32,
+                spdifInputCount = if (v32) 4 else 1,
+                i2sInputSupported = v32,
+                i2sMultichannelInput = v32 && rp2350,
+                i2sClockModeSupported = v32,
+                i2sClockPinModeSupported = v32,
+                adatOutSupported = rp2350,
+                adatInputSupported = rp2350,
+                limiterSupported = v32
+            )
+        }
+
+    override val siggenSupported: Boolean get() = siggen.caps.value?.supported == true
 
     override suspend fun fetchInputRate(): Int = if (!usable) {
         0
@@ -2045,4 +2306,44 @@ class DspiBridgeImpl(
             Thread(r, "dspi-ffi").apply { isDaemon = true }
         }.asCoroutineDispatcher()
     }
+}
+
+/** Qt StatsController categoryName / wordLengthName over the 24 channel-status bytes. */
+internal fun decodeChannelStatus(cs: List<Int>): SpdifChannelStatus? {
+    if (cs.size < 5) return null
+    val category =
+        when (val c = cs[1] and 0xFF) {
+            0x00 -> "General"
+            0x01 -> "CD Player"
+            0x02 -> "DAT"
+            0x03 -> "DCC"
+            0x04 -> "MiniDisc"
+            0x06 -> "Synthesizer"
+            0x08 -> "Broadcast Receiver"
+            0x09 -> "Musical Instrument"
+            0x0A -> "A/D Converter"
+            0x0C -> "Mixer"
+            0x0D -> "Rate Converter"
+            0x0E -> "Sampler"
+            0x0F -> "Digital Signal Processor"
+            else -> "0x%02X".format(c)
+        }
+    val word =
+        when (cs[4] and 0x0F) {
+            0x00 -> "Not indicated"
+            0x02 -> "16-bit"
+            0x04 -> "20-bit"
+            0x08 -> "17-bit"
+            0x0A -> "22-bit"
+            0x0B -> "24-bit"
+            else -> "-"
+        }
+    return SpdifChannelStatus(
+        consumer = cs[0] and 0x01 == 0,
+        pcm = cs[0] and 0x02 == 0,
+        copyPermitted = cs[0] and 0x04 != 0,
+        category = category,
+        wordLength = word,
+        raw = cs
+    )
 }

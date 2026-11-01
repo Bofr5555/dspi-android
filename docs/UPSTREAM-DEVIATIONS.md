@@ -122,6 +122,26 @@ the implementation does beyond it.
     `inspectConfiguration` adds `crossPlatform` as Qt does, not the localised
     `saved` string.
 
+12. **Limiter ganging (macOS `LimiterGang`).** The core keeps per-output
+    limiter state and does not mirror the firmware's link-group ganging, so
+    the bridge repeats a committed enable/threshold/release SET for every
+    other member of the group, and re-sends the adopted values to an output
+    joining a group — the values the device already applied (idempotent).
+    This keeps the core's state, preset diff and export equal to the device
+    at the cost of a few extra control transfers per commit (not per drag:
+    `sendOnly` sends once). A core-side mirror would remove them (FFI
+    follow-up). Revert and applyLimiterSettings ungang, set, regang as macOS.
+13. **Matrix helpers.** `directRouting(rows)`/`clearRouting(rows)` follow
+    macOS `applyDirectRouting`/`clearAllRoutes` over the active input rows
+    (`effectiveInputChannels` when not given); Qt touched every input row and
+    left off-diagonal gains/polarity alone. Graph visibility follows macOS
+    overview-mode `setOutputEnable` when `overview = true`.
+14. **Capabilities.** `hardwareCaps` is derived (V32 firmware always carries
+    multi-S/PDIF, I2S input, clock mode and clock-pin mode; ADAT out/in and
+    multichannel I2S are RP2350-only) instead of macOS's per-feature probes;
+    the S/PDIF receiver count is the wire maximum (4) because the core has no
+    0xEF inventory. `siggenSupported` is the caps probe, as macOS.
+
 ## USB
 
 1. **Notification instead of the macOS menu-bar item** (`MenuBarMode.swift`,
@@ -138,7 +158,6 @@ the implementation does beyond it.
 4. Multi-device: like macOS, a second unit never takes over an open
    connection; when the open unit leaves, the session switches to a survivor,
    preferring the last serial (Linux `rescan()`).
-
 ## MATRIX
 
 Reference: macOS `MatrixMixerView.swift` (+ the matrix helpers of

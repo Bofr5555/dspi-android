@@ -821,8 +821,8 @@ open class FakeDspiCore(
 
     override fun loadPreset(slot: Int) = op("loadPreset", "$slot") {
         checkSlot(slot)
-        val p = presets[slot] ?: refuse(DspiConstants.PRESET_ERR_SLOT_EMPTY)
-        state = restorePreset(p, slot)
+        // Firmware commands.md §15.1: loading an unconfigured slot applies factory defaults
+        state = restorePreset(presets[slot] ?: factory, slot)
         log("PRESET_LOAD $slot")
     }
 
@@ -962,21 +962,29 @@ open class FakeDspiCore(
             supported = rtaStarted,
             inputChannels = if (rtaStarted) s.numInputChannels else 0,
             outputChannels = if (rtaStarted) s.numOutputChannels else 0,
-            orderMin = 8, orderMax = 12, orderDefault = 10, bassBands = 6, maxBands = RTA_BANDS.size,
+            orderMin = 8, orderMax = 10, orderDefault = 10, bassBands = RTA_BASS_BANDS, maxBands = DspiConstants.RTA_MAX_BANDS,
             dynamicRangeDb = 100, bassDynamicRangeDb = 90,
-            centres = RTA_BANDS + List(DspiConstants.RTA_MAX_BANDS - RTA_BANDS.size) { 0 }
+            centres = List(DspiConstants.RTA_MAX_BANDS) { b -> if (b < RTA_BANDS.size) RTA_BANDS[b] else 0 }
         )
     }
 
+    /**
+     * As core rta.rs `build`: the requested channels' frames packed into the
+     * first `count` entries (ascending channel), the rest default; `populated`
+     * = bitmask of BANDS that carry a level ([populatedBands]).
+     */
     override fun rtaGetSnapshot(): RtaSnapshot = op("rtaGetSnapshot", device = false) {
         val r = rtaRequest
-        val frames =
-            List(DspiConstants.RTA_MAX_CHANNELS) { ch ->
-                val on = (r.mask shr ch) and 1 == 1
+        val nBands = RTA_BANDS.size
+        val empty = RtaChannelFrame(0, 0, true, List(DspiConstants.RTA_MAX_BANDS) { 0f }, List(DspiConstants.RTA_MAX_BANDS) { 0f })
+        val channels = (0 until DspiConstants.RTA_MAX_CHANNELS).filter { (r.mask shr it) and 1 == 1 }
+        val populated = populatedBands(nBands, 0, 48_000, r.fftOrder)
+        val packed =
+            channels.map { ch ->
                 val avg =
                     List(DspiConstants.RTA_MAX_BANDS) { b ->
-                        if (!on || b >= RTA_BANDS.size) {
-                            DspiConstants.RTA_FLOOR_DB
+                        if (b >= nBands || (populated shr b) and 1L == 0L) {
+                            0f
                         } else {
                             // Pink-ish: a tilt around −30 dBFS with a little motion
                             (-30.0 - 10 * log10(RTA_BANDS[b] / 1000.0) + 3 * sin(rtaVersion * 0.4 + b + ch)).toFloat()
@@ -984,19 +992,26 @@ open class FakeDspiCore(
                     }
                 RtaChannelFrame(
                     channel = ch,
-                    nBands = if (on) RTA_BANDS.size else 0,
-                    silent = !on,
+                    nBands = nBands,
+                    silent = false,
                     avgDb = avg,
                     peakDb = avg.map {
-                        it + 4f
+                        if (it ==
+                            0f
+                        ) {
+                            0f
+                        } else {
+                            it + 4f
+                        }
                     }
                 )
             }
-        val count = Integer.bitCount(r.mask)
+        val frames = packed + List(DspiConstants.RTA_MAX_CHANNELS - packed.size) { empty }
+        val count = packed.size
         RtaSnapshot(
             version = rtaVersion, telemetryVersion = rtaTelemetry, tap = r.tap, count = count, frames = frames,
-            populated = r.mask.toLong(), binsCount = if (r.wantsBins && count == 1) 256 else 0,
-            binsChannel = Integer.numberOfTrailingZeros(r.mask).coerceAtMost(15), binsSampleRate = 48_000,
+            populated = if (count > 0) populated else 0L, binsCount = if (r.wantsBins && count == 1) 256 else 0,
+            binsChannel = if (count > 0) channels[0] else 0, binsSampleRate = 48_000,
             binsDb = List(DspiConstants.RTA_MAX_BINS) { b -> (-40.0 - 15 * log10(1.0 + b)).toFloat() },
             running = r.mask != 0, liveCount = count, liveMask = r.mask, framesPerS = if (r.mask != 0) 10 else 0,
             busyUsPerS = 42_000, lastFrameUs = 900, bassBusyUsPerS = 8_000, sampleRate = 48_000, firstBand = 0,
@@ -1202,12 +1217,35 @@ open class FakeDspiCore(
         const val MAGNITUDE_POINTS = 201
         const val DEMO_SERIAL = "DEMO0000E6614103"
 
-        /** ISO third-octave centres 20 Hz .. 20 kHz (31 bands). */
-        val RTA_BANDS: List<Int> =
-            listOf(
-                20, 25, 31, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000,
-                2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
-            )
+        /** Bands below this index come from the bass bank (core rta.rs test caps). */
+        const val RTA_BASS_BANDS = 14
+
+        /** Core rta.rs `band_centre`: 1000 · 10^((b − 20)/10) Hz, bands 0..33 (10 Hz .. 20 kHz). */
+        val RTA_BANDS: List<Int> = List(34) { b -> Math.round(1000.0 * Math.pow(10.0, (b - 20) / 10.0)).toInt() }
+
+        /**
+         * Port of core rta.rs `populated_bands`: the bass bank always; an FFT
+         * band only when a bin centre falls inside its edges; none below
+         * [firstBand]. Bit b = band b.
+         */
+        fun populatedBands(nBands: Int, firstBand: Int, sampleRate: Int, fftOrder: Int): Long {
+            if (firstBand == 0xFF || sampleRate == 0 || fftOrder !in 8..10) return 0
+            val n = 1 shl fftOrder
+            val df = sampleRate.toDouble() / n
+            var mask = 0L
+            for (b in firstBand until minOf(nBands, DspiConstants.RTA_MAX_BANDS)) {
+                val on =
+                    b < RTA_BASS_BANDS ||
+                        run {
+                            val fc = 1000.0 * Math.pow(10.0, (b - 20) / 10.0)
+                            val lo = maxOf(Math.ceil(fc * Math.pow(10.0, -0.05) / df), 1.0)
+                            val hi = minOf(Math.floor(fc * Math.pow(10.0, 0.05) / df), (n / 2 - 1).toDouble())
+                            lo <= hi
+                        }
+                if (on) mask = mask or (1L shl b)
+            }
+            return mask
+        }
 
         private fun p(semantic: Int, min: Float, max: Float, def: Float) = SiggenParam(semantic, min, max, def)
 

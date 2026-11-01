@@ -292,9 +292,15 @@ data class RtaSnapshot(
     val tap: Int,
     val count: Int,
     /**
-     * RTA_MAX_CHANNELS = 16 entries; `populated` bit k = frames[k] valid.
+     * RTA_MAX_CHANNELS = 16 entries; the first `count` are the analysed
+     * channels (packed, ascending channel), the rest are defaults.
      */
     val frames: List<RtaChannelFrame>,
+    /**
+     * Bands that carry a level (`rta::populated_bands`): bit b = band b
+     * (RTA_MAX_BANDS = 37); the bass bank always, an FFT band only when a bin
+     * centre falls inside its edges, none below `first_band`.
+     */
     val populated: Long,
     val binsCount: Int,
     val binsChannel: Int,

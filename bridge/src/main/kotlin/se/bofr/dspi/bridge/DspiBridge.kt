@@ -47,6 +47,8 @@ import se.bofr.dspi.core.PresetStatus
  * without a confirmation in the official clients either, and the bridge arms
  * its retry blackout after them (commands.md §1.3).
  */
+// Wave B batch 3 members carry default bodies only so StubDspiBridge keeps
+// compiling until APP deletes it (D9); DspiBridgeImpl overrides every one.
 interface DspiBridge {
     // ═══ Observable state (Qt NOTIFY signals) ═══════════════════════════
 
@@ -405,10 +407,30 @@ interface DspiBridge {
 
     fun sendOutputDelayToDevice(output: Int, ms: Float)
 
-    /** Input k -> output k at 0 dB, PDM off. */
+    /**
+     * macOS `numMatrixInputs` (`effectiveInputChannels`): the input rows the
+     * current source carries — S/PDIF 2, I2S its channel count, ADAT 8, USB the
+     * host's active channels — clamped to 2..[numInputChannels].
+     */
+    val effectiveInputChannels: Int get() = numInputChannels
+
+    /**
+     * macOS `applyDirectRouting` (E5): with n = min([rows], outputs), input
+     * i -> output i at 0 dB for i < n; every other crosspoint of the [rows]
+     * input rows reset to off / 0 dB / normal polarity; the PDM sub disabled
+     * first, the diagonal outputs enabled. [rows] < 0 = [effectiveInputChannels].
+     * [overview] = the graph is in its overview (macOS `isOverviewMode`): the
+     * outputs it switches show/hide their curves, as macOS `setOutputEnable`.
+     */
+    fun directRouting(rows: Int, overview: Boolean = true) = directRouting()
+
+    /** [directRouting] over [effectiveInputChannels] rows, overview visibility (Qt name, no arguments). */
     fun directRouting()
 
-    /** Disconnect all, keep gains/polarity. */
+    /** macOS `clearAllRoutes`: disconnect every crosspoint of the [rows] input rows (< 0 = [effectiveInputChannels]), keep gains/polarity. */
+    fun clearRouting(rows: Int) = clearRouting()
+
+    /** [clearRouting] over [effectiveInputChannels] rows. */
     fun clearRouting()
 
     /** Outputs that would be switched off to enable `output` (PDM vs Core 1 EQ worker). */
@@ -650,6 +672,25 @@ interface DspiBridge {
 
     suspend fun fetchInputRate(): Int
 
+    /** S/PDIF receiver status (lock, source, rate, counters), null on failure. */
+    suspend fun fetchSpdifRxStatus(): se.bofr.dspi.core.SpdifRxStatus? = null
+
+    /** The received IEC 60958 channel status, decoded as macOS StatsView shows it; null when not locked or on failure. */
+    suspend fun fetchSpdifChannelStatus(): SpdifChannelStatus? = null
+
+    /**
+     * GPIO of the S/PDIF receiver the current input source uses (Qt
+     * StatsController: source 1 -> RX 1, sources 4..6 -> RX 2..4), null if
+     * none / on failure.
+     */
+    suspend fun fetchActiveSpdifRxPin(): Int? = null
+
+    /**
+     * What the connected firmware supports, for SETTINGS (derived from
+     * platform + wire format; see [HardwareCaps]). All false while not usable.
+     */
+    val hardwareCaps: HardwareCaps get() = HardwareCaps()
+
     // ═══ Input stereo-pair links (IN1/2, IN3/4, …) ═════════════════════
 
     fun liveInputCount(): Int
@@ -704,6 +745,9 @@ interface DspiBridge {
 
     val rta: RtaController
     val siggen: SiggenController
+
+    /** macOS `siggenSupported`: the generator's caps probe answered with a generator (false until it did). */
+    val siggenSupported: Boolean get() = siggen.caps.value?.supported == true
     val stats: StatsController
     val cs: CsController
     val monitor: MonitorModel

@@ -92,8 +92,6 @@ class FakeDspiCoreTest {
         core.setBypass(false)
         core.loadPreset(4)
         assertTrue(core.getState().bypass)
-        val empty = runCatching { core.loadPreset(7) }.exceptionOrNull() as DspiException.Refused
-        assertEquals(DspiConstants.PRESET_ERR_SLOT_EMPTY, empty.status)
         core.deletePreset(4)
         assertEquals(0, (core.getState().presetOccupied shr 4) and 1)
         assertFalse(core.getState().bypass) // active slot deleted: factory values
@@ -167,5 +165,42 @@ class FakeDspiCoreTest {
         assertEquals(2, snap.count)
         assertFalse(snap.frames[0].silent)
         assertTrue(snap.frames[2].silent)
+    }
+
+    /** As core rta.rs: frames packed first-`count`, `populated` a BAND mask (populated_bands). */
+    @Test
+    fun analyserFramesArePackedAndPopulatedIsABandMask() {
+        val core = FakeDspiCore()
+        core.rtaStart()
+        core.rtaSetRequest(se.bofr.dspi.core.RtaRequest(1, 0b1010_0000, false, 10, 300, 12))
+        val snap = core.rtaGetSnapshot()
+        assertEquals(2, snap.count)
+        assertEquals(listOf(5, 7), snap.frames.take(2).map { it.channel })
+        assertTrue(snap.frames.drop(2).all { it.silent && it.nBands == 0 })
+        // 1024 points at 48 kHz: bass bank plus every FFT band up to 20 kHz (rta.rs test)
+        assertEquals((1L shl 34) - 1, snap.populated)
+        assertEquals((1L shl 34) - 1, FakeDspiCore.populatedBands(34, 0, 48000, 10))
+        // 256 points at 44.1 kHz: band 16 (400 Hz) holds no bin; bass bands always populated
+        val m = FakeDspiCore.populatedBands(34, 0, 44100, 8)
+        assertEquals(0L, m and (1L shl 16))
+        assertTrue(m and (1L shl 13) != 0L)
+        assertEquals(0L, FakeDspiCore.populatedBands(34, 0xFF, 48000, 10))
+        assertEquals(10, core.rtaGetCaps().centres[0])
+        assertEquals(19953, core.rtaGetCaps().centres[33]) // 1000 · 10^1.3
+    }
+
+    /** Firmware commands.md §15.1: loading an unconfigured slot applies factory defaults. */
+    @Test
+    fun loadingAnEmptySlotAppliesFactoryDefaults() {
+        val core = FakeDspiCore()
+        core.setBypass(true)
+        core.setOutputGain(0, -6f)
+        core.loadPreset(7)
+        val s = core.getState()
+        assertEquals(7, s.activePresetSlot)
+        assertFalse(s.bypass)
+        assertEquals(0f, s.outputGainDb[0])
+        assertEquals(DspiConstants.FILTER_FLAT, s.filters[0][0].filterType)
+        assertEquals(9, s.numOutputChannels) // the device's identity stays
     }
 }
