@@ -376,7 +376,7 @@ private fun BodeLine(
 
 /** The graph (macOS `BodePlotView`). */
 @Composable
-internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<Int>, editable: Boolean) {
+internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<Int>, editable: Boolean, isPopOut: Boolean = false) {
     val store = LocalAppSettings.current
     val settings by store.settings.collectAsStateWithLifecycle()
     val stateRev by bridge.stateRevision.collectAsStateWithLifecycle()
@@ -408,8 +408,16 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
         }
     // No curves without a device: the grid and axes stay.
     val groups =
-        remember(stateRev, magRev, visible, editedChannel, connected) {
-            if (!connected) emptyList() else groupedChannels(visible, { bridge.magnitudeCurve(it) }, activeEq, editedChannel)
+        remember(stateRev, magRev, visible, editedChannel, connected, isPopOut, settings.popoutGraphFollowsSelection) {
+            // macOS: a pop-out that does not follow the selection draws every curve as active
+            val followsSelection = !isPopOut || settings.popoutGraphFollowsSelection
+            if (!connected) {
+                emptyList()
+            } else {
+                groupedChannels(visible, {
+                    bridge.magnitudeCurve(it)
+                }, activeEq, editedChannel, followsSelection)
+            }
         }
     val freqs = remember(bridge) { bridge.curveFrequencies }
     val phases =
@@ -508,7 +516,8 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
             bridge = bridge,
             onDashboard = onDashboard,
             spectrum = spectrum,
-            onDismiss = { optionsOpen = false }
+            onDismiss = { optionsOpen = false },
+            inPopOutWindow = isPopOut
         )
     }
 }

@@ -152,7 +152,13 @@ internal fun rememberSpectrumSelection(bridge: DspiBridge, store: AppSettingsSto
 
 /** The gear's panel: SPECTRUM channels, FFT Graph, and Graph Setup. */
 @Composable
-internal fun GraphOptions(bridge: DspiBridge, onDashboard: Boolean, spectrum: SpectrumSelectionState, onDismiss: () -> Unit) {
+internal fun GraphOptions(
+    bridge: DspiBridge,
+    onDashboard: Boolean,
+    spectrum: SpectrumSelectionState,
+    onDismiss: () -> Unit,
+    inPopOutWindow: Boolean = false
+) {
     val store = LocalAppSettings.current
     val settings by store.settings.collectAsStateWithLifecycle()
     val caps by bridge.rta.caps.collectAsStateWithLifecycle()
@@ -161,7 +167,7 @@ internal fun GraphOptions(bridge: DspiBridge, onDashboard: Boolean, spectrum: Sp
         Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 6.dp) {
             Column(Modifier.width(320.dp).verticalScroll(rememberScrollState())) {
                 if (setupPage) {
-                    GraphSetupPage(settings, store) { setupPage = false }
+                    GraphSetupPage(settings, store, inPopOutWindow) { setupPage = false }
                     return@Column
                 }
                 Text(
@@ -323,7 +329,7 @@ private fun hz(f: Double) = if (f >= 1000) "${(f / 1000).roundToInt()}k" else f.
 
 /** Graph Setup (README "Graph Setup"; Settings > Graphing holds the same). */
 @Composable
-private fun GraphSetupPage(settings: AppSettings, store: AppSettingsStore, onBack: () -> Unit) {
+private fun GraphSetupPage(settings: AppSettings, store: AppSettingsStore, inPopOutWindow: Boolean, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onBack).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("‹ Back", fontSize = 13.sp)
         Spacer(Modifier.weight(1f))
@@ -374,6 +380,11 @@ private fun GraphSetupPage(settings: AppSettings, store: AppSettingsStore, onBac
     ToggleRow("Glow", settings.showGraphGlow) { on -> store.update { it.copy(showGraphGlow = on) } }
     ToggleRow("Phase Response", settings.showPhase) { on -> store.update { it.copy(showPhase = on) } }
     ToggleRow("Unwrap Phase", settings.phaseUnwrapped, enabled = settings.showPhase) { on -> store.update { it.copy(phaseUnwrapped = on) } }
+    if (inPopOutWindow) {
+        ToggleRow("Follow Channel Selection", settings.popoutGraphFollowsSelection) { on ->
+            store.update { it.copy(popoutGraphFollowsSelection = on) }
+        }
+    }
     // "Follow Channel Selection" (pop-out only) has no counterpart: GraphScreen
     // picks the channel it edits itself (docs/UPSTREAM-DEVIATIONS.md GRAPH).
     Spacer(Modifier.size(12.dp))
