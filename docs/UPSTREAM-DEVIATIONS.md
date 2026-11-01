@@ -42,3 +42,73 @@ irreversible/flash operations, not a UX change. Contract:
    invalid token (other op, spent, revoked, expired, other bridge) throws
    `DangerousOpNotConfirmed` before any USB traffic: a programming error,
    never a transport-style failure value.
+
+## BRIDGE
+
+Reference: DSPi-Console-Linux `qt/src/DSPiBridge.{h,cpp}` and controllers
+@ `4683a2c`. Gating is the coordinator's policy above; this section is what
+the implementation does beyond it.
+
+1. **Threading.** Qt calls the core on the GUI thread. Here every core call
+   runs on one serial FFI dispatcher and results are published on the main
+   dispatcher (PLAN §3.4/§5.4). Getters read the last published `DspState`
+   snapshot instead of the core live; plain `sendOnly` calls therefore do not
+   refresh getters until the commit. The "preview" setters
+   (`setInputPreamp(sendOnly)`, `sendOutputGainToDevice`) refresh the
+   snapshot silently and emit `PreviewChanged` (Qt `previewChanged`);
+   `sendBandLive` refreshes the snapshot and the dragged channels' cached
+   curves without any signal (Qt: `markDirty`, recomputed on the next draw).
+   Read-modify-write setters (`setFilter`, `setCrossover`, …) read the band
+   from the core on the FFI thread so queued edits compose; every emitting
+   setter re-reads the whole state (`getState()` copy) once afterwards — cost
+   to profile on a phone. The bridge reads the state once at construction
+   (before it hands the core to anyone; no USB) and starts disconnected.
+2. **Curves.** `magnitudeCurve` includes the channel's gain offset (contract);
+   Qt leaves that to `BodePlotItem`. Curves are recomputed eagerly on the FFI
+   thread for the channels a change touched (Qt: lazily on draw).
+   `magnitudesRevision` is bumped whenever a curve or a gain offset changed,
+   and on every link change (Qt `magnitudesChanged`).
+3. **Android devices.** No libusb enumeration: `:usb` hands fds to
+   `attachDevice`/`detachDevice`. `scanDevices`/`selectDevice` keep Qt's
+   behaviour for cores that can enumerate (desktop, the fake). The 500 ms
+   hotplug timer runs only with `hotplugPolling = true`. `reconnect`/`rescan`
+   re-open the remembered fd instead of reselecting by serial. Connection
+   error texts mention reconnecting instead of the udev rule;
+   `installUdevRule` has no Android equivalent. `scanDevices` also selects
+   the first device when none is selected (not only when disconnected), so
+   a core that starts connected (the fake, demo mode) is picked up.
+4. **Status poll at 0 Hz** when no UI is visible (`setUiVisible(false)`,
+   PLAN §5.3) and while disconnected; Qt's timer always runs. The limiter
+   meter is part of `BridgeStatus.limiterReduction` (D4), so its changes are
+   status changes as in Qt.
+5. **Gating** follows the policy above. Tokens (`DangerousOpsImpl`) are valid
+   for their own op on their own bridge (identity), single use (HARDWARE_APPLY:
+   reusable, each use renews its 10 s lifetime), and are not bound to call
+   arguments (the contract token carries only the op). A refused call throws
+   `DangerousOpNotConfirmed` before any device traffic and leaves the
+   caller's token untouched. `cs.apply`/`cs.sendOnly` with `{op: "save"}`
+   throw; the flash save goes through `cs.save(token)` only.
+6. **Retry blackout** (no Qt equivalent; DESIGN §4.5 rule 4): idempotent GETs
+   are retried up to 4× at 150 ms on a transfer error within 2 s after any of:
+   preset load/save/delete/copy, revert (`loadParams`), factory reset, save
+   master volume / output config, CS save, configuration import (bulk apply),
+   every HARDWARE_APPLY call (pins, output type, input source/rate, clocks —
+   commands.md §1.3), and the ungated D3 directory/config writes (preset
+   rename/startup, output-config mode, master-volume mode, DAC HW mute
+   config, UART/I2C). Plain SETs never arm it, and SETs are never retried.
+7. **Errors.** Qt ignores the core's bool for fire-and-forget setters; here a
+   failure is also reported as `BridgeEvent.CommandFailed`.
+8. **Limits from the core.** `preampMaxDB`/`maxDelayMs` come from
+   `DspiCoreApi.preampMaxDb()/maxDelayMs()`, read with every state snapshot
+   (Qt reads them live).
+9. **Notification drain.** Batched as Qt (≤ 1 per 30 ms); a wake arriving
+   while a drain is in flight re-arms it, so the last notification of a burst
+   always lands (Qt's single-shot timer is inactive by then). For
+   `NOTIFY_INPUT_FORMAT` the status is polled before the state is published,
+   as Qt does.
+10. **StatsController.info** carries the STAT_* counters only (contract); the
+    receiver/LG/ADAT/I2S-slave readings Qt folds into `info` come from the
+    bridge's `fetch*` calls. Buffer history for the traces is the UI's job.
+11. **ConfigFiles** works on text, not file URLs (SAF lives in the UI);
+    `inspectConfiguration` adds `crossPlatform` as Qt does, not the localised
+    `saved` string.
