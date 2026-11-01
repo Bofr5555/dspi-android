@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiConstants
-import se.bofr.dspi.core.DspiException
 
 class FakeDspiCoreTest {
     @Test
@@ -27,6 +26,6 @@ class FakeDspiCoreTest {
     fun unimplementedThrows() {
         val core = FakeDspiCore()
         val e = runCatching { core.savePreset(0) }.exceptionOrNull()
-        assertTrue(e is DspiException.Unimplemented)
+        assertTrue(e is NotImplementedError)
     }
 }

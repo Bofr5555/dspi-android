@@ -9,11 +9,22 @@ data class BridgeStatus(
     val connectionError: String = "",
     val cpu0: Int = 0,
     val cpu1: Int = 0,
-    /** Sticky clip flags, bit per WIRE channel (as the core reports them). */
+    /**
+     * Sticky clip flags (10 s latch), bit per WIRE channel as the core reports
+     * them. [DspiBridge.clipFlags] is the same re-keyed by app id.
+     */
     val clipFlags: Long = 0,
     val activeInputChannels: Int = 0,
     /** 0..1 per app id, size [ChannelMap.APP_CHANNEL_COUNT]. */
-    val peaks: List<Float> = List(ChannelMap.APP_CHANNEL_COUNT) { 0f }
+    val peaks: List<Float> = List(ChannelMap.APP_CHANNEL_COUNT) { 0f },
+    /**
+     * D4: limiter gain reduction in dB (> 0 while limiting) per OUTPUT index
+     * (Qt `m_limiterGR`, refreshed every 4th poll while a limiter is enabled).
+     * Size [se.bofr.dspi.core.DspiConstants.MAX_OUTPUTS] while connected with a
+     * limiter enabled; empty otherwise (read a missing index as 0). Any change
+     * of a value is a status change, as Qt's `changed = true`.
+     */
+    val limiterReduction: List<Float> = emptyList()
 )
 
 data class DeviceListState(

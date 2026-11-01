@@ -4,15 +4,15 @@
 package se.bofr.dspi.core
 
 /**
- * Base [DspiCoreApi] where nothing works: fallible methods throw
- * [DspiException.Unimplemented], infallible ones [NotImplementedError].
- * `FakeDspiCore` and test doubles extend it and override what they support,
- * so they keep compiling when the contract grows.
+ * Base [DspiCoreApi] for test doubles: every method throws
+ * [NotImplementedError]. Doubles extend it and override what they support,
+ * so they keep compiling when the contract grows. Test helper only (no
+ * production class extends it).
  */
 open class UnimplementedDspiCore : DspiCoreApi {
     override fun close() {}
 
-    override fun openFd(fd: Int, serial: String, vid: Int): Unit = throw DspiException.Unimplemented("open_fd")
+    override fun openFd(fd: Int, serial: String, vid: Int): Unit = throw NotImplementedError("open_fd")
 
     override fun closeFd(): Unit = throw NotImplementedError("close_fd")
 
@@ -22,219 +22,219 @@ open class UnimplementedDspiCore : DspiCoreApi {
 
     override fun inaccessibleDevices(): Long = throw NotImplementedError("inaccessible_devices")
 
-    override fun selectDevice(serial: String): Unit = throw DspiException.Unimplemented("select_device")
+    override fun selectDevice(serial: String): Unit = throw NotImplementedError("select_device")
 
     override fun disconnect(): Unit = throw NotImplementedError("disconnect")
 
     override fun isConnected(): Boolean = throw NotImplementedError("is_connected")
 
-    override fun fetchAll(): Unit = throw DspiException.Unimplemented("fetch_all")
+    override fun fetchAll(): Unit = throw NotImplementedError("fetch_all")
 
-    override fun refreshParams(): Unit = throw DspiException.Unimplemented("refresh_params")
+    override fun refreshParams(): Unit = throw NotImplementedError("refresh_params")
 
-    override fun applyAllParams(): Unit = throw DspiException.Unimplemented("apply_all_params")
+    override fun applyAllParams(): Unit = throw NotImplementedError("apply_all_params")
 
-    override fun fetchStatus(): SystemStatus = throw DspiException.Unimplemented("fetch_status")
+    override fun fetchStatus(): SystemStatus = throw NotImplementedError("fetch_status")
 
     override fun getState(): DspState = throw NotImplementedError("get_state")
 
     override fun maxDelayMs(): Float = throw NotImplementedError("max_delay_ms")
 
-    override fun setFilter(ch: Int, band: Int, params: FilterParams): Unit = throw DspiException.Unimplemented("set_filter")
+    override fun setFilter(ch: Int, band: Int, params: FilterParams): Unit = throw NotImplementedError("set_filter")
 
-    override fun setCrossover(ch: Int, xband: Int, params: FilterParams): Unit = throw DspiException.Unimplemented("set_crossover")
+    override fun setCrossover(ch: Int, xband: Int, params: FilterParams): Unit = throw NotImplementedError("set_crossover")
 
-    override fun setBandBypass(ch: Int, band: Int, bypass: Boolean): Unit = throw DspiException.Unimplemented("set_band_bypass")
+    override fun setBandBypass(ch: Int, band: Int, bypass: Boolean): Unit = throw NotImplementedError("set_band_bypass")
 
-    override fun setPreamp(db: Float): Unit = throw DspiException.Unimplemented("set_preamp")
+    override fun setPreamp(db: Float): Unit = throw NotImplementedError("set_preamp")
 
-    override fun setInputPreamp(input: Int, db: Float): Unit = throw DspiException.Unimplemented("set_input_preamp")
+    override fun setInputPreamp(input: Int, db: Float): Unit = throw NotImplementedError("set_input_preamp")
 
-    override fun setBypass(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_bypass")
+    override fun setBypass(enabled: Boolean): Unit = throw NotImplementedError("set_bypass")
 
-    override fun setMasterVolume(db: Float): Unit = throw DspiException.Unimplemented("set_master_volume")
+    override fun setMasterVolume(db: Float): Unit = throw NotImplementedError("set_master_volume")
 
-    override fun setMasterVolumeMode(mode: Int): Unit = throw DspiException.Unimplemented("set_master_volume_mode")
+    override fun setMasterVolumeMode(mode: Int): Unit = throw NotImplementedError("set_master_volume_mode")
 
-    override fun saveMasterVolume(): Unit = throw DspiException.Unimplemented("save_master_volume")
+    override fun saveMasterVolume(): Unit = throw NotImplementedError("save_master_volume")
 
-    override fun setUserVolume(db: Float): Unit = throw DspiException.Unimplemented("set_user_volume")
+    override fun setUserVolume(db: Float): Unit = throw NotImplementedError("set_user_volume")
 
-    override fun setUserMute(muted: Boolean): Unit = throw DspiException.Unimplemented("set_user_mute")
+    override fun setUserMute(muted: Boolean): Unit = throw NotImplementedError("set_user_mute")
 
-    override fun setDelay(ch: Int, ms: Float): Unit = throw DspiException.Unimplemented("set_delay")
+    override fun setDelay(ch: Int, ms: Float): Unit = throw NotImplementedError("set_delay")
 
-    override fun setLoudness(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_loudness")
+    override fun setLoudness(enabled: Boolean): Unit = throw NotImplementedError("set_loudness")
 
-    override fun setLoudnessRef(spl: Float): Unit = throw DspiException.Unimplemented("set_loudness_ref")
+    override fun setLoudnessRef(spl: Float): Unit = throw NotImplementedError("set_loudness_ref")
 
-    override fun setLoudnessIntensity(pct: Float): Unit = throw DspiException.Unimplemented("set_loudness_intensity")
+    override fun setLoudnessIntensity(pct: Float): Unit = throw NotImplementedError("set_loudness_intensity")
 
-    override fun setLoudnessMask(mask: Int): Unit = throw DspiException.Unimplemented("set_loudness_mask")
+    override fun setLoudnessMask(mask: Int): Unit = throw NotImplementedError("set_loudness_mask")
 
-    override fun setCrossfeed(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_crossfeed")
+    override fun setCrossfeed(enabled: Boolean): Unit = throw NotImplementedError("set_crossfeed")
 
-    override fun setCrossfeedPreset(preset: Int): Unit = throw DspiException.Unimplemented("set_crossfeed_preset")
+    override fun setCrossfeedPreset(preset: Int): Unit = throw NotImplementedError("set_crossfeed_preset")
 
-    override fun setCrossfeedFreq(freq: Float): Unit = throw DspiException.Unimplemented("set_crossfeed_freq")
+    override fun setCrossfeedFreq(freq: Float): Unit = throw NotImplementedError("set_crossfeed_freq")
 
-    override fun setCrossfeedFeed(feed: Float): Unit = throw DspiException.Unimplemented("set_crossfeed_feed")
+    override fun setCrossfeedFeed(feed: Float): Unit = throw NotImplementedError("set_crossfeed_feed")
 
-    override fun setCrossfeedItd(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_crossfeed_itd")
+    override fun setCrossfeedItd(enabled: Boolean): Unit = throw NotImplementedError("set_crossfeed_itd")
 
-    override fun setCrossfeedOutputs(pairMask: Int): Unit = throw DspiException.Unimplemented("set_crossfeed_outputs")
+    override fun setCrossfeedOutputs(pairMask: Int): Unit = throw NotImplementedError("set_crossfeed_outputs")
 
-    override fun setLevellerEnabled(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_leveller_enabled")
+    override fun setLevellerEnabled(enabled: Boolean): Unit = throw NotImplementedError("set_leveller_enabled")
 
-    override fun setLevellerAmount(pct: Float): Unit = throw DspiException.Unimplemented("set_leveller_amount")
+    override fun setLevellerAmount(pct: Float): Unit = throw NotImplementedError("set_leveller_amount")
 
-    override fun setLevellerSpeed(speed: Int): Unit = throw DspiException.Unimplemented("set_leveller_speed")
+    override fun setLevellerSpeed(speed: Int): Unit = throw NotImplementedError("set_leveller_speed")
 
-    override fun setLevellerMaxGain(db: Float): Unit = throw DspiException.Unimplemented("set_leveller_max_gain")
+    override fun setLevellerMaxGain(db: Float): Unit = throw NotImplementedError("set_leveller_max_gain")
 
-    override fun setLevellerLookahead(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_leveller_lookahead")
+    override fun setLevellerLookahead(enabled: Boolean): Unit = throw NotImplementedError("set_leveller_lookahead")
 
-    override fun setLevellerGate(db: Float): Unit = throw DspiException.Unimplemented("set_leveller_gate")
+    override fun setLevellerGate(db: Float): Unit = throw NotImplementedError("set_leveller_gate")
 
-    override fun setLevellerMasks(detector: Int, apply: Int): Unit = throw DspiException.Unimplemented("set_leveller_masks")
+    override fun setLevellerMasks(detector: Int, apply: Int): Unit = throw NotImplementedError("set_leveller_masks")
 
-    override fun setInputSource(source: Int): Unit = throw DspiException.Unimplemented("set_input_source")
+    override fun setInputSource(source: Int): Unit = throw NotImplementedError("set_input_source")
 
-    override fun setPsybassParam(param: Int, value: Float): Unit = throw DspiException.Unimplemented("set_psybass_param")
+    override fun setPsybassParam(param: Int, value: Float): Unit = throw NotImplementedError("set_psybass_param")
 
-    override fun setPsybassMask(mask: Int): Unit = throw DspiException.Unimplemented("set_psybass_mask")
+    override fun setPsybassMask(mask: Int): Unit = throw NotImplementedError("set_psybass_mask")
 
-    override fun setPsybassEnabled(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_psybass_enabled")
+    override fun setPsybassEnabled(enabled: Boolean): Unit = throw NotImplementedError("set_psybass_enabled")
 
-    override fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean): Unit = throw DspiException.Unimplemented("set_matrix_route")
+    override fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean): Unit = throw NotImplementedError("set_matrix_route")
 
-    override fun setOutputEnable(output: Int, enabled: Boolean): Boolean = throw DspiException.Unimplemented("set_output_enable")
+    override fun setOutputEnable(output: Int, enabled: Boolean): Boolean = throw NotImplementedError("set_output_enable")
 
-    override fun setOutputGain(output: Int, db: Float): Unit = throw DspiException.Unimplemented("set_output_gain")
+    override fun setOutputGain(output: Int, db: Float): Unit = throw NotImplementedError("set_output_gain")
 
-    override fun setOutputMute(output: Int, muted: Boolean): Unit = throw DspiException.Unimplemented("set_output_mute")
+    override fun setOutputMute(output: Int, muted: Boolean): Unit = throw NotImplementedError("set_output_mute")
 
-    override fun setOutputDelay(output: Int, ms: Float): Unit = throw DspiException.Unimplemented("set_output_delay")
+    override fun setOutputDelay(output: Int, ms: Float): Unit = throw NotImplementedError("set_output_delay")
 
-    override fun setLimiterParam(output: Int, param: Int, value: Float): Unit = throw DspiException.Unimplemented("set_limiter_param")
+    override fun setLimiterParam(output: Int, param: Int, value: Float): Unit = throw NotImplementedError("set_limiter_param")
 
-    override fun fetchLimiterMeter(): List<Float> = throw DspiException.Unimplemented("fetch_limiter_meter")
+    override fun fetchLimiterMeter(): List<Float> = throw NotImplementedError("fetch_limiter_meter")
 
-    override fun setOutputPin(slot: Int, pin: Int): Unit = throw DspiException.Unimplemented("set_output_pin")
+    override fun setOutputPin(slot: Int, pin: Int): Unit = throw NotImplementedError("set_output_pin")
 
-    override fun fetchOutputPin(slot: Int): Int = throw DspiException.Unimplemented("fetch_output_pin")
+    override fun fetchOutputPin(slot: Int): Int = throw NotImplementedError("fetch_output_pin")
 
-    override fun setOutputConfigMode(mode: Int): Unit = throw DspiException.Unimplemented("set_output_config_mode")
+    override fun setOutputConfigMode(mode: Int): Unit = throw NotImplementedError("set_output_config_mode")
 
-    override fun saveOutputConfig(): Unit = throw DspiException.Unimplemented("save_output_config")
+    override fun saveOutputConfig(): Unit = throw NotImplementedError("save_output_config")
 
-    override fun setChannelName(ch: Int, name: String): Unit = throw DspiException.Unimplemented("set_channel_name")
+    override fun setChannelName(ch: Int, name: String): Unit = throw NotImplementedError("set_channel_name")
 
-    override fun getChannelName(ch: Int): String = throw DspiException.Unimplemented("get_channel_name")
+    override fun getChannelName(ch: Int): String = throw NotImplementedError("get_channel_name")
 
-    override fun savePreset(slot: Int): Unit = throw DspiException.Unimplemented("save_preset")
+    override fun savePreset(slot: Int): Unit = throw NotImplementedError("save_preset")
 
-    override fun loadPreset(slot: Int): Unit = throw DspiException.Unimplemented("load_preset")
+    override fun loadPreset(slot: Int): Unit = throw NotImplementedError("load_preset")
 
-    override fun copyPreset(source: Int, dest: Int): Unit = throw DspiException.Unimplemented("copy_preset")
+    override fun copyPreset(source: Int, dest: Int): Unit = throw NotImplementedError("copy_preset")
 
-    override fun deletePreset(slot: Int): Unit = throw DspiException.Unimplemented("delete_preset")
+    override fun deletePreset(slot: Int): Unit = throw NotImplementedError("delete_preset")
 
-    override fun setPresetName(slot: Int, name: String): Unit = throw DspiException.Unimplemented("set_preset_name")
+    override fun setPresetName(slot: Int, name: String): Unit = throw NotImplementedError("set_preset_name")
 
-    override fun getPresetName(slot: Int): String = throw DspiException.Unimplemented("get_preset_name")
+    override fun getPresetName(slot: Int): String = throw NotImplementedError("get_preset_name")
 
-    override fun getPresetDirectory(): PresetDirectory = throw DspiException.Unimplemented("get_preset_directory")
+    override fun getPresetDirectory(): PresetDirectory = throw NotImplementedError("get_preset_directory")
 
-    override fun setPresetStartup(mode: Int, defaultSlot: Int): Unit = throw DspiException.Unimplemented("set_preset_startup")
+    override fun setPresetStartup(mode: Int, defaultSlot: Int): Unit = throw NotImplementedError("set_preset_startup")
 
-    override fun saveParams(): Unit = throw DspiException.Unimplemented("save_params")
+    override fun saveParams(): Unit = throw NotImplementedError("save_params")
 
-    override fun loadParams(): Unit = throw DspiException.Unimplemented("load_params")
+    override fun loadParams(): Unit = throw NotImplementedError("load_params")
 
-    override fun factoryReset(): Unit = throw DspiException.Unimplemented("factory_reset")
+    override fun factoryReset(): Unit = throw NotImplementedError("factory_reset")
 
-    override fun enterBootloader(): Unit = throw DspiException.Unimplemented("enter_bootloader")
+    override fun enterBootloader(): Unit = throw NotImplementedError("enter_bootloader")
 
-    override fun fetchCore1Mode(): Int = throw DspiException.Unimplemented("fetch_core1_mode")
+    override fun fetchCore1Mode(): Int = throw NotImplementedError("fetch_core1_mode")
 
-    override fun checkCore1Conflict(output: Int): Boolean = throw DspiException.Unimplemented("check_core1_conflict")
+    override fun checkCore1Conflict(output: Int): Boolean = throw NotImplementedError("check_core1_conflict")
 
-    override fun clearClips(): Unit = throw DspiException.Unimplemented("clear_clips")
+    override fun clearClips(): Unit = throw NotImplementedError("clear_clips")
 
     override fun setHotplugCallback(listener: DeviceEvents?): Unit = throw NotImplementedError("set_hotplug_callback")
 
     override fun pollHotplug(): Unit = throw NotImplementedError("poll_hotplug")
 
-    override fun setUpmixParam(id: Int, value: Float): Unit = throw DspiException.Unimplemented("set_upmix_param")
+    override fun setUpmixParam(id: Int, value: Float): Unit = throw NotImplementedError("set_upmix_param")
 
-    override fun fetchUpmixStatus(): UpmixStatus = throw DspiException.Unimplemented("fetch_upmix_status")
+    override fun fetchUpmixStatus(): UpmixStatus = throw NotImplementedError("fetch_upmix_status")
 
-    override fun setSubharmParam(id: Int, value: Float): Unit = throw DspiException.Unimplemented("set_subharm_param")
+    override fun setSubharmParam(id: Int, value: Float): Unit = throw NotImplementedError("set_subharm_param")
 
-    override fun setSubharmSolo(solo: Boolean): Unit = throw DspiException.Unimplemented("set_subharm_solo")
+    override fun setSubharmSolo(solo: Boolean): Unit = throw NotImplementedError("set_subharm_solo")
 
-    override fun fetchSubharmHeadroom(): Float = throw DspiException.Unimplemented("fetch_subharm_headroom")
+    override fun fetchSubharmHeadroom(): Float = throw NotImplementedError("fetch_subharm_headroom")
 
-    override fun fetchSubharmMeter(): List<Float> = throw DspiException.Unimplemented("fetch_subharm_meter")
+    override fun fetchSubharmMeter(): List<Float> = throw NotImplementedError("fetch_subharm_meter")
 
-    override fun setTubeParam(idx: Int, value: Float): Unit = throw DspiException.Unimplemented("set_tube_param")
+    override fun setTubeParam(idx: Int, value: Float): Unit = throw NotImplementedError("set_tube_param")
 
-    override fun setOutputType(slot: Int, kind: Int): Unit = throw DspiException.Unimplemented("set_output_type")
+    override fun setOutputType(slot: Int, kind: Int): Unit = throw NotImplementedError("set_output_type")
 
-    override fun setI2sBckPin(role: Int, pin: Int): Unit = throw DspiException.Unimplemented("set_i2s_bck_pin")
+    override fun setI2sBckPin(role: Int, pin: Int): Unit = throw NotImplementedError("set_i2s_bck_pin")
 
-    override fun setI2sClockPinMode(mode: Int): Unit = throw DspiException.Unimplemented("set_i2s_clock_pin_mode")
+    override fun setI2sClockPinMode(mode: Int): Unit = throw NotImplementedError("set_i2s_clock_pin_mode")
 
-    override fun setMckEnabled(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_mck_enabled")
+    override fun setMckEnabled(enabled: Boolean): Unit = throw NotImplementedError("set_mck_enabled")
 
-    override fun setMckPin(pin: Int): Unit = throw DspiException.Unimplemented("set_mck_pin")
+    override fun setMckPin(pin: Int): Unit = throw NotImplementedError("set_mck_pin")
 
-    override fun setMckMultiplier(mult: Int): Unit = throw DspiException.Unimplemented("set_mck_multiplier")
+    override fun setMckMultiplier(mult: Int): Unit = throw NotImplementedError("set_mck_multiplier")
 
-    override fun setAdatOutEnabled(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_adat_out_enabled")
+    override fun setAdatOutEnabled(enabled: Boolean): Unit = throw NotImplementedError("set_adat_out_enabled")
 
-    override fun setAdatOutPin(pin: Int): Unit = throw DspiException.Unimplemented("set_adat_out_pin")
+    override fun setAdatOutPin(pin: Int): Unit = throw NotImplementedError("set_adat_out_pin")
 
-    override fun setSpdifRxPin(index: Int, pin: Int): Unit = throw DspiException.Unimplemented("set_spdif_rx_pin")
+    override fun setSpdifRxPin(index: Int, pin: Int): Unit = throw NotImplementedError("set_spdif_rx_pin")
 
-    override fun setSpdifInputEnabled(index: Int, enabled: Boolean): Unit = throw DspiException.Unimplemented("set_spdif_input_enabled")
+    override fun setSpdifInputEnabled(index: Int, enabled: Boolean): Unit = throw NotImplementedError("set_spdif_input_enabled")
 
-    override fun setI2sRxPin(pair: Int, pin: Int): Unit = throw DspiException.Unimplemented("set_i2s_rx_pin")
+    override fun setI2sRxPin(pair: Int, pin: Int): Unit = throw NotImplementedError("set_i2s_rx_pin")
 
-    override fun setI2sInputChannels(channels: Int): Unit = throw DspiException.Unimplemented("set_i2s_input_channels")
+    override fun setI2sInputChannels(channels: Int): Unit = throw NotImplementedError("set_i2s_input_channels")
 
-    override fun setAdatInputEnabled(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_adat_input_enabled")
+    override fun setAdatInputEnabled(enabled: Boolean): Unit = throw NotImplementedError("set_adat_input_enabled")
 
-    override fun setAdatInputPin(pin: Int): Unit = throw DspiException.Unimplemented("set_adat_input_pin")
+    override fun setAdatInputPin(pin: Int): Unit = throw NotImplementedError("set_adat_input_pin")
 
-    override fun setAdatInputClockMode(mode: Int): Unit = throw DspiException.Unimplemented("set_adat_input_clock_mode")
+    override fun setAdatInputClockMode(mode: Int): Unit = throw NotImplementedError("set_adat_input_clock_mode")
 
-    override fun setInputRate(index: Int): Unit = throw DspiException.Unimplemented("set_input_rate")
+    override fun setInputRate(index: Int): Unit = throw NotImplementedError("set_input_rate")
 
-    override fun fetchInputRate(): Long = throw DspiException.Unimplemented("fetch_input_rate")
+    override fun fetchInputRate(): Long = throw NotImplementedError("fetch_input_rate")
 
-    override fun setI2sClockMode(mode: Int): Unit = throw DspiException.Unimplemented("set_i2s_clock_mode")
+    override fun setI2sClockMode(mode: Int): Unit = throw NotImplementedError("set_i2s_clock_mode")
 
-    override fun fetchInputLock(which: Int): InputLockStatus = throw DspiException.Unimplemented("fetch_input_lock")
+    override fun fetchInputLock(which: Int): InputLockStatus = throw NotImplementedError("fetch_input_lock")
 
-    override fun fetchAdatOutStatus(): AdatOutStatus = throw DspiException.Unimplemented("fetch_adat_out_status")
+    override fun fetchAdatOutStatus(): AdatOutStatus = throw NotImplementedError("fetch_adat_out_status")
 
-    override fun setDacMute(enabled: Boolean, activeLow: Boolean, pin: Int, holdMs: Int, releaseMs: Int): Unit = throw DspiException.Unimplemented("set_dac_mute")
+    override fun setDacMute(enabled: Boolean, activeLow: Boolean, pin: Int, holdMs: Int, releaseMs: Int): Unit = throw NotImplementedError("set_dac_mute")
 
-    override fun fetchDacMute(): Unit = throw DspiException.Unimplemented("fetch_dac_mute")
+    override fun fetchDacMute(): Unit = throw NotImplementedError("fetch_dac_mute")
 
-    override fun testDacMute(): Unit = throw DspiException.Unimplemented("test_dac_mute")
+    override fun testDacMute(): Unit = throw NotImplementedError("test_dac_mute")
 
-    override fun setLgSoundSync(enabled: Boolean): Unit = throw DspiException.Unimplemented("set_lg_sound_sync")
+    override fun setLgSoundSync(enabled: Boolean): Unit = throw NotImplementedError("set_lg_sound_sync")
 
-    override fun fetchLgStatus(): LgStatus = throw DspiException.Unimplemented("fetch_lg_status")
+    override fun fetchLgStatus(): LgStatus = throw NotImplementedError("fetch_lg_status")
 
-    override fun fetchCtrlIfaces(): Unit = throw DspiException.Unimplemented("fetch_ctrl_ifaces")
+    override fun fetchCtrlIfaces(): Unit = throw NotImplementedError("fetch_ctrl_ifaces")
 
-    override fun setUart(config: UartConfig): Unit = throw DspiException.Unimplemented("set_uart")
+    override fun setUart(config: UartConfig): Unit = throw NotImplementedError("set_uart")
 
-    override fun setI2c(config: I2cConfig): Unit = throw DspiException.Unimplemented("set_i2c")
+    override fun setI2c(config: I2cConfig): Unit = throw NotImplementedError("set_i2c")
 
     override fun setNotifyListener(listener: NotifyListener?): Unit = throw NotImplementedError("set_notify_listener")
 
@@ -250,27 +250,27 @@ open class UnimplementedDspiCore : DspiCoreApi {
 
     override fun rtaGetSnapshot(): RtaSnapshot = throw NotImplementedError("rta_get_snapshot")
 
-    override fun siggenFetchCaps(): SiggenCaps = throw DspiException.Unimplemented("siggen_fetch_caps")
+    override fun siggenFetchCaps(): SiggenCaps = throw NotImplementedError("siggen_fetch_caps")
 
-    override fun siggenGetConfig(): SiggenConfig = throw DspiException.Unimplemented("siggen_get_config")
+    override fun siggenGetConfig(): SiggenConfig = throw NotImplementedError("siggen_get_config")
 
-    override fun siggenSetConfig(config: SiggenConfig): Unit = throw DspiException.Unimplemented("siggen_set_config")
+    override fun siggenSetConfig(config: SiggenConfig): Unit = throw NotImplementedError("siggen_set_config")
 
-    override fun siggenControl(action: Int): Unit = throw DspiException.Unimplemented("siggen_control")
+    override fun siggenControl(action: Int): Unit = throw NotImplementedError("siggen_control")
 
-    override fun siggenGetStatus(): SiggenStatus = throw DspiException.Unimplemented("siggen_get_status")
+    override fun siggenGetStatus(): SiggenStatus = throw NotImplementedError("siggen_get_status")
 
-    override fun fetchStat(which: Int): Long = throw DspiException.Unimplemented("fetch_stat")
+    override fun fetchStat(which: Int): Long = throw NotImplementedError("fetch_stat")
 
-    override fun fetchBufferStats(): BufferStats = throw DspiException.Unimplemented("fetch_buffer_stats")
+    override fun fetchBufferStats(): BufferStats = throw NotImplementedError("fetch_buffer_stats")
 
-    override fun resetBufferStats(): Unit = throw DspiException.Unimplemented("reset_buffer_stats")
+    override fun resetBufferStats(): Unit = throw NotImplementedError("reset_buffer_stats")
 
-    override fun fetchSpdifRxStatus(): SpdifRxStatus = throw DspiException.Unimplemented("fetch_spdif_rx_status")
+    override fun fetchSpdifRxStatus(): SpdifRxStatus = throw NotImplementedError("fetch_spdif_rx_status")
 
-    override fun fetchSpdifRxChannelStatus(): List<Int> = throw DspiException.Unimplemented("fetch_spdif_rx_channel_status")
+    override fun fetchSpdifRxChannelStatus(): List<Int> = throw NotImplementedError("fetch_spdif_rx_channel_status")
 
-    override fun fetchSpdifRxPin(index: Int): Int = throw DspiException.Unimplemented("fetch_spdif_rx_pin")
+    override fun fetchSpdifRxPin(index: Int): Int = throw NotImplementedError("fetch_spdif_rx_pin")
 
     override fun monitorRead(afterId: Long): MonitorBatch = throw NotImplementedError("monitor_read")
 
@@ -286,7 +286,7 @@ open class UnimplementedDspiCore : DspiCoreApi {
 
     override fun filtersImport(text: String, wires: List<Int>): String = throw NotImplementedError("filters_import")
 
-    override fun csFetch(): Unit = throw DspiException.Unimplemented("cs_fetch")
+    override fun csFetch(): Unit = throw NotImplementedError("cs_fetch")
 
     override fun csSnapshot(): String = throw NotImplementedError("cs_snapshot")
 

@@ -71,13 +71,14 @@ interface SiggenController {
 
     fun setGapMs(ms: Int)
 
+    /** Ungated (D1): one click in the official clients. */
     suspend fun start(): Boolean
 
     fun stop()
 
     fun stopNow()
 
-    /** Short pink-noise burst on one output ("Identify"). */
+    /** Short pink-noise burst on one output ("Identify"). Ungated (D1). */
     fun identify(output: Int)
 }
 
@@ -85,11 +86,16 @@ interface SiggenController {
 interface StatsController {
     var watching: Boolean
 
-    /** STAT_* counter id -> value, refreshed slowly while watching. */
+    /**
+     * STAT_* counter id -> value, refreshed slowly while watching. Counters
+     * only: the receiver/LG/ADAT/I2S-slave readings Qt folds into `info` come
+     * from [DspiBridge.fetchInputLock]/[DspiBridge.fetchLgStatus]/… .
+     */
     val info: StateFlow<Map<Int, Long>>
     val buffers: StateFlow<BufferStats?>
     val reconnects: StateFlow<Int>
 
+    /** Ungated (D1). */
     fun resetWatermarks()
 }
 
@@ -101,16 +107,23 @@ interface CsController {
     val loaded: StateFlow<Boolean>
     val unsaved: StateFlow<Boolean>
 
-    /** One op `{op, index, ...}` -> result JSON {ok, status, error, ...}. Some ops write flash. */
+    /**
+     * One op `{op, index, ...}` -> result JSON {ok, status, error, ...}.
+     * `{op: "save"}` (flash write) is GATED and goes through [save] only:
+     * passed here it throws [DangerousOpNotConfirmed]. `revert`, `learnArm`,
+     * `macroFire` are ungated (D1).
+     */
     suspend fun apply(opJson: String): String
 
-    /** Live edit without waiting for the result. */
+    /** Live edit without waiting for the result. Same `save` rule as [apply]. */
     fun sendOnly(opJson: String)
 
     fun refresh()
 
-    suspend fun save(): Int
+    /** GATED [DangerousOp.CS_SAVE] — flash write (0x9D). */
+    suspend fun save(token: ConfirmationToken): Int
 
+    /** Ungated (D1). */
     suspend fun revert(): Int
 
     fun statusMessage(code: Int): String
@@ -138,11 +151,11 @@ interface ConfigFiles {
     /** The `.dspipreset` document text. */
     suspend fun exportConfiguration(name: String): String
 
-    /** JSON {ok, error, name, platform, firmware, savedUtc}. */
+    /** JSON {ok, error, name, platform, firmware, savedUtc, crossPlatform} (Qt adds crossPlatform). */
     fun inspectConfiguration(text: String): String
 
-    /** JSON {ok, error, lines, clean, links, hardwareWritten}. */
-    suspend fun importConfiguration(text: String, volumes: Boolean, hardware: Boolean): String
+    /** GATED [DangerousOp.CONFIG_IMPORT] (bulk apply + pin writes). JSON {ok, error, lines, clean, links, hardwareWritten}. */
+    suspend fun importConfiguration(token: ConfirmationToken, text: String, volumes: Boolean, hardware: Boolean): String
 
     suspend fun exportFilters(): String
 

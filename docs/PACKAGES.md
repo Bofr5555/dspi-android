@@ -13,11 +13,37 @@ owns. To change a **contract** (see below), the package asks the coordinator.
 |---|---|---|
 | Rust FFI surface | `rust/dspi-ffi/src/{core,records,callbacks,error,lib}.rs`: **signatures** only. Bodies belong to FFI. | FFI, generator |
 | `DspiCoreApi` + domain types | `core-api/` (`DspiCoreApi.kt`, `CoreTypes.kt`, `DspiConstants.kt`, `UnimplementedDspiCore.kt` are **generated** by `tools/gen_kotlin_contract.py`; `DspiException`, `Listeners`, `StatusCodes` are hand-written) | FFI (implements), BRIDGE (consumes, fakes) |
-| `DspiBridge` + controllers | `bridge/src/main/kotlin/se/bofr/dspi/bridge/{DspiBridge,BridgeTypes,Controllers}.kt` | every UI package |
-| `UsbSession`, `BootloaderLocator` | `usb/src/main/kotlin/se/bofr/dspi/usb/{UsbSession,BootloaderLocator}.kt` | app, FIRMWARE |
+| `DspiBridge` + controllers + confirmation gate | `bridge/src/main/kotlin/se/bofr/dspi/bridge/{DspiBridge,BridgeTypes,Controllers,DangerousOpsContract}.kt` | every UI package |
+| `UsbSession` (+ `UsbSessionState`, `DspiUsbDevice`), `BootloaderLocator` (+ `BootloaderPermissionResult`) | `usb/src/main/kotlin/se/bofr/dspi/usb/{UsbSession,BootloaderLocator}.kt` | app, FIRMWARE |
 | Routes and entry composables | `ui-common/.../DspiRoutes.kt`; each feature's entry `@Composable fun X(bridge, [arg,] onNavigate, onBack, modifier)`; `feature-graph/.../GraphView.kt` | app, HOME (GraphView) |
 | Build and CI | `container/`, `tools/dev.sh`, `tools/ci.sh`, `buildSrc/`, `gradle/`, `settings.gradle.kts`, root `*.gradle.kts`/`.properties`, `rust-toolchain.toml`, `tools/REFERENCE.toml` | all |
 | App wiring | `app/` | — |
+
+### Gating policy (coordinator decisions D1–D3, `reviews/decisions-wave-0A.md`)
+
+Stay as close to the official clients as possible (macOS v1.1.6-beta5 is the
+behavioural reference). Confirmation is a safety net for irreversible/flash
+operations, not a UX change. Full text: `UPSTREAM-DEVIATIONS.md` "Gating policy".
+
+- **Gated** (`DangerousOp`, a `ConfirmationToken` parameter on the member):
+  `saveParams` 0x51, `saveOutputConfig` 0x52, `factoryReset` 0x53,
+  `savePreset` 0x90, `copyPreset`, `deletePreset` 0x92, `saveMasterVolume`
+  0xD6, `cs.save` 0x9D, `configFiles.importConfiguration` (0xA3/0xA1),
+  `enterBootloader` 0xF0; plus every pipeline-rebuilding hardware call
+  (pins, output type, I2S BCK/clock pin mode/clock mode, MCK, ADAT/S/PDIF/I2S
+  pins and enables, input source, input rate) under one reusable
+  `HARDWARE_APPLY` token minted by the Settings save bar.
+- **Ungated** (one click in the official clients): `loadPreset`,
+  `loadParams`, `clearClips`, `testDacMute`, `stats.resetWatermarks`,
+  `siggen.start`/`identify`, `cs.revert`/IR learn/macro fire. Preset load is
+  gated only by the official Unsaved Changes flow (UI; USB's `canCyclePreset`).
+- **Ungated flash writes** (D3; official clients don't confirm): preset
+  rename/startup, output-config mode, master-volume mode, DAC HW mute config,
+  UART/I2C persist. The bridge arms its retry blackout after them.
+- Token usage: `val t = bridge.dangerousOps.confirm(op)` in the confirmation
+  handler (main thread), then `bridge.savePreset(t, slot)`. An invalid token
+  (other op, spent, revoked, expired, foreign) throws `DangerousOpNotConfirmed`
+  before any USB traffic. Gated members never silently no-op.
 
 Rules for changing a contract:
 - Rust FFI signatures are **final** for Wave A. If FFI finds a signature that cannot be implemented, it proposes a change. Once the coordinator approves, FFI edits the Rust and regenerates with `tools/dev.sh python3 tools/gen_kotlin_contract.py`. FFI owns that tool. FFI then fixes `UnimplementedDspiCore` users if needed.
@@ -66,7 +92,7 @@ Rules for changing a contract:
 ### BRIDGE: DspiBridge implementation and the full FakeDspiCore
 
 - **Owns:** `bridge/` (except the contract files listed above), `fake-core/`.
-- **Consumes:** `DspiCoreApi`, `fixtures/dspstate_v32.json` from FFI. Until that lands, use `defaultDspState()`.
+- **Consumes:** `DspiCoreApi`, `fixtures/dspstate_v32.json` from FFI (on fake-core's classpath as `/dspstate_v32.json`: `fake-core/build.gradle.kts` adds the repo-root `fixtures/` as a resource dir). Until that lands, use `defaultDspState()`.
 - **Provides:** `DspiBridgeImpl : DspiBridge` and the controller implementations, then deletes `StubDspiBridge`. The coordinator switches `:app` to `DspiBridgeImpl`. Also a full `FakeDspiCore`.
 - **CI:** `tools/ci.sh bridge`
 - **Definition of done:**
@@ -78,7 +104,7 @@ Rules for changing a contract:
     - `sendOnly` semantics;
     - input-pair links persisted per device serial through an injected `LinkStore`;
     - channel clipboard, limiter helpers, `pinOwners`, `inputSources`, Core 1 conflict helpers, `directRouting`/`clearRouting`, `clearPeq`/`setAllBandsBypass`, dirty tracking (`captureBaseline` after fetch/load/save, `presetDirty` after each setter), retry 4× / 150 ms for idempotent GETs after flash ops (never for SETs).
-  - A `DangerousOps` gate: the flash-writing and bootloader calls require an explicit confirmation token (PLAN §4 "Write-as-read safety").
+  - Implements the contract's `DangerousOps` (`DangerousOpsContract.kt`) with the gating policy above (PLAN §4 "Write-as-read safety").
   - Controllers ported from `RtaController.cpp`, `SiggenController.cpp`, `StatsController.cpp`, `CsController.cpp`, `MonitorModel.cpp`, `ConfigFiles.cpp`.
   - `FakeDspiCore` is seeded from the V32 fixture, models every setter on the state the way the core does (`commands.rs`), and computes curves with a Kotlin port of `dsp_math.rs` that lives in fake-core only (so demo graphs look real; its tests compare against values from the Rust tests). It also simulates notifications, the RTA, the siggen and presets well enough for the UI packages' tests and demo mode.
   - Unit tests: mapping, throttle, notify batching, dirty prompt, links, every setter path against the fake.
@@ -120,7 +146,7 @@ Not assigned yet (Phase 6): onboarding / What's New (`Onboarding/*`, `WhatsNew.j
 |---|---|---|
 | (coordinator) | `tools/ci.sh supply` | wrapper jar checksum, wrapper sha pin, verification metadata present |
 | (coordinator) | `tools/ci.sh contract` | `gen_kotlin_contract.py --check`, `:core-api` ktlint + tests |
-| FFI | `tools/ci.sh ffi` | stage core; cargo fmt/clippy (-D warnings)/test; cargo-ndk aarch64; contract check; opcode coverage; `:ffi` ktlint + unit tests + assemble |
+| FFI | `tools/ci.sh ffi` | stage core; cargo fmt/clippy (-D warnings)/test; cargo-ndk arm64-v8a + armeabi-v7a + x86_64; contract check; opcode coverage; `:ffi` ktlint + unit tests + assemble |
 | USB | `tools/ci.sh usb` | `:usb` ktlint + unit tests + assemble |
 | BRIDGE | `tools/ci.sh bridge` | `:bridge`, `:fake-core` ktlint + tests |
 | HOME | `tools/ci.sh home` | `:ui-common`, `:feature-home` |

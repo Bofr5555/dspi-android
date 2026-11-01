@@ -362,7 +362,6 @@ internal fun FfiException.toDomain(): DspiException =
         is FfiException.Refused -> DspiException.Refused(status.toInt())
         is FfiException.InvalidArgument -> DspiException.InvalidArgument(msg)
         is FfiException.Unsupported -> DspiException.Unsupported()
-        is FfiException.Unimplemented -> DspiException.Unimplemented(what)
     }
 
 // ── Record mapping (UniFFI <-> domain) ──

@@ -21,20 +21,19 @@
 //! core). App-id mapping is the Kotlin bridge's job.
 //!
 //! WAVE 0 STATUS: signatures are final; bodies are stubs owned by package FFI
-//! (docs/PACKAGES.md). Fallible stubs return `DspiError::Unimplemented`,
-//! infallible ones `todo!()` (UniFFI turns the panic into a Kotlin
-//! `InternalException`). Implemented already: `get_state`, `max_delay_ms`,
+//! (docs/PACKAGES.md). Stubs `todo!()` (UniFFI turns the panic into a
+//! Kotlin `InternalException`). Implemented already: `get_state`, `max_delay_ms`,
 //! `preamp_max_db` and the free math functions.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::callbacks::{DeviceEvents, NotifyListener, RtaListener};
-use crate::error::{DspiError, Result};
+use crate::error::Result;
 use crate::records::*;
 
 macro_rules! stub {
     ($name:literal) => {
-        Err(DspiError::Unimplemented { what: $name.to_string() })
+        todo!(concat!("dspi-ffi: ", $name, " not implemented yet (package FFI)"))
     };
 }
 

@@ -20,12 +20,10 @@ pub enum DspiError {
     /// Bad argument (index out of range, malformed JSON op, ...).
     #[error("invalid argument: {msg}")]
     InvalidArgument { msg: String },
-    /// The firmware does not have this feature (e.g. no siggen / RTA / CS).
+    /// The firmware or transport does not have this feature (e.g. no siggen /
+    /// RTA / CS; reserved for transports such as DSPi-Link).
     #[error("not supported by the connected firmware")]
     Unsupported,
-    /// Not implemented in this build of dspi-ffi (Wave 0 stubs).
-    #[error("not implemented: {what}")]
-    Unimplemented { what: String },
 }
 
 impl From<UsbError> for DspiError {

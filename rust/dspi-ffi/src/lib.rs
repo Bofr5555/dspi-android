@@ -115,9 +115,8 @@ mod tests {
     }
 
     #[test]
-    fn stubs_report_unimplemented() {
+    fn new_core_has_default_state() {
         let core = DspiCore::new();
-        assert!(matches!(core.fetch_all(), Err(DspiError::Unimplemented { .. })));
         assert_eq!(core.get_state().num_output_channels, 5);
     }
 }

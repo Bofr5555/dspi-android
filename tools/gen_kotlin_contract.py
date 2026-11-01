@@ -375,7 +375,6 @@ class FfiDspiCore : DspiCoreApi {
         is FfiException.Refused -> DspiException.Refused(status.toInt())
         is FfiException.InvalidArgument -> DspiException.InvalidArgument(msg)
         is FfiException.Unsupported -> DspiException.Unsupported()
-        is FfiException.Unimplemented -> DspiException.Unimplemented(what)
     }
 """)
     out.append("\n// ── Record mapping (UniFFI <-> domain) ──\n")
@@ -392,25 +391,21 @@ def gen_unimpl(fns: list[Fn]) -> str:
 package se.bofr.dspi.core
 
 /**
- * Base [DspiCoreApi] where nothing works: fallible methods throw
- * [DspiException.Unimplemented], infallible ones [NotImplementedError].
- * `FakeDspiCore` and test doubles extend it and override what they support,
- * so they keep compiling when the contract grows.
+ * Base [DspiCoreApi] for test doubles: every method throws
+ * [NotImplementedError]. Doubles extend it and override what they support,
+ * so they keep compiling when the contract grows. Test helper only (no
+ * production class extends it).
  */
 open class UnimplementedDspiCore : DspiCoreApi {
     override fun close() {}
 """]
     for f in fns:
-        ret, throws = unwrap_result(f.ret) if f.ret else ("()", False)
+        ret, _ = unwrap_result(f.ret) if f.ret else ("()", False)
         params = ", ".join(f"{camel(p.name)}: {kt(p.ty, p.name)}" for p in f.params)
         r = kt(ret)
         sig = f"    override fun {camel(f.name)}({params})" + ("" if r == "Unit" else f": {r}")
-        if throws:
-            out.append(f"\n{sig}: Unit = throw DspiException.Unimplemented(\"{f.name}\")\n" if r == "Unit"
-                       else f"\n{sig} = throw DspiException.Unimplemented(\"{f.name}\")\n")
-        else:
-            out.append(f"\n{sig}: Unit = throw NotImplementedError(\"{f.name}\")\n" if r == "Unit"
-                       else f"\n{sig} = throw NotImplementedError(\"{f.name}\")\n")
+        out.append(f"\n{sig}: Unit = throw NotImplementedError(\"{f.name}\")\n" if r == "Unit"
+                   else f"\n{sig} = throw NotImplementedError(\"{f.name}\")\n")
     out.append("}\n")
     return "".join(out)
 

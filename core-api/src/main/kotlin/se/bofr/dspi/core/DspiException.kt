@@ -22,9 +22,6 @@ sealed class DspiException(message: String) : Exception(message) {
 
     class InvalidArgument(val msg: String) : DspiException("invalid argument: $msg")
 
-    /** The connected firmware lacks the feature. */
+    /** The connected firmware (or transport) lacks the feature. */
     class Unsupported : DspiException("not supported by the connected firmware")
-
-    /** Not implemented in this build (Wave 0 stubs). */
-    class Unimplemented(val what: String) : DspiException("not implemented: $what")
 }

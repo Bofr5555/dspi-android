@@ -50,8 +50,8 @@ pkg_ffi() {
   (cd rust && cargo fmt --check -p dspi-ffi -p uniffi-bindgen)
   (cd rust && cargo clippy --locked -p dspi-ffi --all-targets -- -D warnings)
   (cd rust && cargo test --locked -p dspi-ffi)
-  step "ffi: cross-compile for aarch64-linux-android"
-  (cd rust && cargo ndk -t arm64-v8a -P 26 build --locked -p dspi-ffi)
+  step "ffi: cross-compile for every shipped ABI (arm64-v8a, armeabi-v7a, x86_64)"
+  (cd rust && cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 26 build --locked -p dspi-ffi)
   step "ffi: generated Kotlin contract up to date"
   python3 tools/gen_kotlin_contract.py --check
   step "ffi: opcode coverage"

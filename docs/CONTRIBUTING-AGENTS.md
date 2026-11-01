@@ -57,8 +57,8 @@ Only `:ffi` and `:app` builds compile Rust: cargo-ndk, the NDK, and roughly 1 to
 - One branch per package: `pkg/<name>`, e.g. `pkg/ffi`, `pkg/usb`, `pkg/bridge`, `pkg/home`, `pkg/graph`, …, branched from `main`.
 - Work in a worktree beside the main checkout:
   ```
-  git -C dspi-android worktree add ../dspi-android-wt/pkg-<name> -b pkg/<name> main
-  cd ../dspi-android-wt/pkg-<name>
+  git -C dspi-android worktree add ../wt/<name> -b pkg/<name> main
+  cd ../wt/<name>
   git submodule update --init          # the submodule is needed by :ffi/:app/contract only
   tools/ci.sh <name>
   ```
@@ -82,7 +82,7 @@ Only `:ffi` and `:app` builds compile Rust: cargo-ndk, the NDK, and roughly 1 to
 - Keep names parallel (see the naming rule in PORT-MAP.md).
 - Put a header comment on each ported file: `Port of <repo>:<path> @ <ref>`.
 - Record intentional deviations (touch gestures, phone layout, no hub) in `docs/UPSTREAM-DEVIATIONS.md` under your package's heading.
-- Wave B UI must never call a flash-writing or bootloader operation without a confirmation dialog that uses the macOS wording. The bridge enforces this through its DangerousOps token.
+- Wave B UI must never call a gated operation (PACKAGES.md "Gating policy") without a confirmation dialog that uses the macOS wording; the token from `bridge.dangerousOps.confirm(op)` is minted in that dialog's OK handler (the Settings save bar's Save for `HARDWARE_APPLY`). Ungated operations stay one click, as in the official clients.
 
 ## Definition of done (every package)
 

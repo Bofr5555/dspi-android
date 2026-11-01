@@ -96,6 +96,16 @@ open class StubDspiBridge(
         }
     }
 
+    override val dangerousOps: DangerousOps = StubDangerousOps()
+
+    /** Throws [DangerousOpNotConfirmed] unless [token] is valid for [op]; spends it. */
+    protected fun gate(token: ConfirmationToken, op: DangerousOp): StubDspiBridge {
+        (dangerousOps as StubDangerousOps).use(token, op)
+        return this
+    }
+
+    protected fun hw(token: ConfirmationToken) = gate(token, DangerousOp.HARDWARE_APPLY)
+
     protected suspend fun <T> onFfi(block: DspiCoreApi.() -> T): T = withContext(ffi) { core.block() }
 
     protected suspend fun presetStatus(block: DspiCoreApi.() -> Unit): PresetStatus =
@@ -296,7 +306,9 @@ open class StubDspiBridge(
 
     override fun setMasterVolumeMode(mode: Int) = fire("setMasterVolumeMode") { setMasterVolumeMode(mode) }
 
-    override suspend fun saveMasterVolume() = presetStatus { saveMasterVolume() }
+    override suspend fun saveMasterVolume(token: ConfirmationToken) = gate(token, DangerousOp.SAVE_MASTER_VOLUME).presetStatus {
+        saveMasterVolume()
+    }
 
     override fun setUserVolume(db: Float, sendOnly: Boolean) = fire("setUserVolume") { setUserVolume(db) }
 
@@ -391,11 +403,13 @@ open class StubDspiBridge(
 
     override suspend fun checkCore1Conflict(output: Int): Boolean = onFfi { runCatching { checkCore1Conflict(output) }.getOrDefault(false) }
 
-    override suspend fun setOutputPin(output: Int, pin: Int) = pinStatus { setOutputPin(output, pin) }
+    override suspend fun setOutputPin(token: ConfirmationToken, output: Int, pin: Int) = hw(token).pinStatus { setOutputPin(output, pin) }
 
     override fun setOutputConfigMode(mode: Int) = fire("setOutputConfigMode") { setOutputConfigMode(mode) }
 
-    override suspend fun saveOutputConfig() = presetStatus { saveOutputConfig() }
+    override suspend fun saveOutputConfig(token: ConfirmationToken) = gate(token, DangerousOp.SAVE_OUTPUT_CONFIG).presetStatus {
+        saveOutputConfig()
+    }
 
     override fun setChannelName(ch: Int, name: String) {
         val w = map.wire(ch).takeIf { it >= 0 } ?: return
@@ -404,13 +418,18 @@ open class StubDspiBridge(
 
     override fun resetChannelNames() = Unit // TODO(BRIDGE)
 
-    override suspend fun savePreset(slot: Int) = presetStatus { savePreset(slot) }
+    override suspend fun savePreset(token: ConfirmationToken, slot: Int) = gate(token, DangerousOp.SAVE_PRESET).presetStatus {
+        savePreset(slot)
+    }
 
     override suspend fun loadPreset(slot: Int) = presetStatus { loadPreset(slot) }
 
-    override suspend fun deletePreset(slot: Int) = presetStatus { deletePreset(slot) }
+    override suspend fun deletePreset(token: ConfirmationToken, slot: Int) = gate(token, DangerousOp.DELETE_PRESET).presetStatus {
+        deletePreset(slot)
+    }
 
-    override suspend fun copyPreset(fromSlot: Int, toSlot: Int) = presetStatus { copyPreset(fromSlot, toSlot) }
+    override suspend fun copyPreset(token: ConfirmationToken, fromSlot: Int, toSlot: Int) =
+        gate(token, DangerousOp.COPY_PRESET).presetStatus { copyPreset(fromSlot, toSlot) }
 
     override fun setPresetName(slot: Int, name: String) = fire("setPresetName") { setPresetName(slot, name) }
 
@@ -418,13 +437,15 @@ open class StubDspiBridge(
 
     override suspend fun presetChanges(): List<String> = onFfi { presetChanges() }
 
-    override suspend fun saveParams() = flashStatus { saveParams() }
+    override suspend fun saveParams(token: ConfirmationToken) = gate(token, DangerousOp.SAVE_PARAMS).flashStatus { saveParams() }
 
     override suspend fun loadParams() = flashStatus { loadParams() }
 
-    override suspend fun factoryReset() = flashStatus { factoryReset() }
+    override suspend fun factoryReset(token: ConfirmationToken) = gate(token, DangerousOp.FACTORY_RESET).flashStatus { factoryReset() }
 
-    override fun enterBootloader() = fire("enterBootloader") { enterBootloader() }
+    override fun enterBootloader(token: ConfirmationToken) = gate(token, DangerousOp.ENTER_BOOTLOADER).fire("enterBootloader") {
+        enterBootloader()
+    }
 
     override fun clearClips() = fire("clearClips") { clearClips() }
 
@@ -458,7 +479,7 @@ open class StubDspiBridge(
         _status.value = _status.value.copy(connected = false)
     }
 
-    override fun setInputSource(source: Int) = fire("setInputSource") { setInputSource(source) }
+    override fun setInputSource(token: ConfirmationToken, source: Int) = hw(token).fire("setInputSource") { setInputSource(source) }
 
     override fun setLevellerEnabled(en: Boolean) = fire("setLevellerEnabled") { setLevellerEnabled(en) }
 
@@ -524,39 +545,45 @@ open class StubDspiBridge(
 
     override fun disableAllLimiters() = Unit // TODO(BRIDGE)
 
-    override suspend fun setOutputType(slot: Int, kind: Int) = pinStatus { setOutputType(slot, kind) }
+    override suspend fun setOutputType(token: ConfirmationToken, slot: Int, kind: Int) = hw(token).pinStatus { setOutputType(slot, kind) }
 
-    override suspend fun setI2sBckPin(role: Int, pin: Int) = pinStatus { setI2sBckPin(role, pin) }
+    override suspend fun setI2sBckPin(token: ConfirmationToken, role: Int, pin: Int) = hw(token).pinStatus { setI2sBckPin(role, pin) }
 
-    override suspend fun setI2sClockPinMode(mode: Int) = pinStatus { setI2sClockPinMode(mode) }
+    override suspend fun setI2sClockPinMode(token: ConfirmationToken, mode: Int) = hw(token).pinStatus { setI2sClockPinMode(mode) }
 
-    override suspend fun setMckEnabled(enabled: Boolean) = pinStatus { setMckEnabled(enabled) }
+    override suspend fun setMckEnabled(token: ConfirmationToken, enabled: Boolean) = hw(token).pinStatus { setMckEnabled(enabled) }
 
-    override suspend fun setMckPin(pin: Int) = pinStatus { setMckPin(pin) }
+    override suspend fun setMckPin(token: ConfirmationToken, pin: Int) = hw(token).pinStatus { setMckPin(pin) }
 
-    override suspend fun setMckMultiplier(mult: Int) = pinStatus { setMckMultiplier(mult) }
+    override suspend fun setMckMultiplier(token: ConfirmationToken, mult: Int) = hw(token).pinStatus { setMckMultiplier(mult) }
 
-    override suspend fun setAdatOutEnabled(enabled: Boolean) = pinStatus { setAdatOutEnabled(enabled) }
+    override suspend fun setAdatOutEnabled(token: ConfirmationToken, enabled: Boolean) = hw(token).pinStatus { setAdatOutEnabled(enabled) }
 
-    override suspend fun setAdatOutPin(pin: Int) = pinStatus { setAdatOutPin(pin) }
+    override suspend fun setAdatOutPin(token: ConfirmationToken, pin: Int) = hw(token).pinStatus { setAdatOutPin(pin) }
 
-    override suspend fun setSpdifRxPin(index: Int, pin: Int) = pinStatus { setSpdifRxPin(index, pin) }
+    override suspend fun setSpdifRxPin(token: ConfirmationToken, index: Int, pin: Int) = hw(token).pinStatus { setSpdifRxPin(index, pin) }
 
-    override suspend fun setSpdifInputEnabled(index: Int, enabled: Boolean) = pinStatus { setSpdifInputEnabled(index, enabled) }
+    override suspend fun setSpdifInputEnabled(token: ConfirmationToken, index: Int, enabled: Boolean) = hw(token).pinStatus {
+        setSpdifInputEnabled(index, enabled)
+    }
 
-    override suspend fun setI2sRxPin(pair: Int, pin: Int) = pinStatus { setI2sRxPin(pair, pin) }
+    override suspend fun setI2sRxPin(token: ConfirmationToken, pair: Int, pin: Int) = hw(token).pinStatus { setI2sRxPin(pair, pin) }
 
-    override suspend fun setI2sInputChannels(channels: Int) = pinStatus { setI2sInputChannels(channels) }
+    override suspend fun setI2sInputChannels(token: ConfirmationToken, channels: Int) = hw(token).pinStatus {
+        setI2sInputChannels(channels)
+    }
 
-    override suspend fun setAdatInputEnabled(enabled: Boolean) = pinStatus { setAdatInputEnabled(enabled) }
+    override suspend fun setAdatInputEnabled(token: ConfirmationToken, enabled: Boolean) = hw(token).pinStatus {
+        setAdatInputEnabled(enabled)
+    }
 
-    override suspend fun setAdatInputPin(pin: Int) = pinStatus { setAdatInputPin(pin) }
+    override suspend fun setAdatInputPin(token: ConfirmationToken, pin: Int) = hw(token).pinStatus { setAdatInputPin(pin) }
 
-    override suspend fun setAdatInputClockMode(mode: Int) = pinStatus { setAdatInputClockMode(mode) }
+    override suspend fun setAdatInputClockMode(token: ConfirmationToken, mode: Int) = hw(token).pinStatus { setAdatInputClockMode(mode) }
 
-    override fun setInputRate(index: Int) = fire("setInputRate") { setInputRate(index) }
+    override fun setInputRate(token: ConfirmationToken, index: Int) = hw(token).fire("setInputRate") { setInputRate(index) }
 
-    override fun setI2sClockMode(mode: Int) = fire("setI2sClockMode") { setI2sClockMode(mode) }
+    override fun setI2sClockMode(token: ConfirmationToken, mode: Int) = hw(token).fire("setI2sClockMode") { setI2sClockMode(mode) }
 
     override fun setLgSoundSync(enabled: Boolean) = fire("setLgSoundSync") { setLgSoundSync(enabled) }
 
@@ -636,9 +663,9 @@ open class StubDspiBridge(
     override val rta: RtaController = StubRtaController()
     override val siggen: SiggenController = StubSiggenController()
     override val stats: StatsController = StubStatsController()
-    override val cs: CsController = StubCsController()
+    override val cs: CsController = StubCsController { t -> gate(t, DangerousOp.CS_SAVE) }
     override val monitor: MonitorModel = StubMonitorModel()
-    override val configFiles: ConfigFiles = StubConfigFiles()
+    override val configFiles: ConfigFiles = StubConfigFiles { t -> gate(t, DangerousOp.CONFIG_IMPORT) }
 
     override fun setUiVisible(visible: Boolean) = Unit
 }
@@ -707,7 +734,7 @@ private class StubStatsController : StatsController {
     override fun resetWatermarks() = Unit
 }
 
-private class StubCsController : CsController {
+private class StubCsController(private val gate: (ConfirmationToken) -> Unit) : CsController {
     override val model = MutableStateFlow("")
     override val supported = MutableStateFlow(false)
     override val loaded = MutableStateFlow(false)
@@ -719,7 +746,10 @@ private class StubCsController : CsController {
 
     override fun refresh() = Unit
 
-    override suspend fun save() = 255
+    override suspend fun save(token: ConfirmationToken): Int {
+        gate(token)
+        return 255
+    }
 
     override suspend fun revert() = 255
 
@@ -736,17 +766,47 @@ private class StubMonitorModel : MonitorModel {
     override fun allText() = ""
 }
 
-private class StubConfigFiles : ConfigFiles {
+private class StubConfigFiles(private val gate: (ConfirmationToken) -> Unit) : ConfigFiles {
     override suspend fun exportConfiguration(name: String) = ""
 
     override fun inspectConfiguration(text: String) = """{"ok":false,"error":"not implemented"}"""
 
-    override suspend fun importConfiguration(text: String, volumes: Boolean, hardware: Boolean) =
-        """{"ok":false,"error":"not implemented"}"""
+    override suspend fun importConfiguration(token: ConfirmationToken, text: String, volumes: Boolean, hardware: Boolean): String {
+        gate(token)
+        return """{"ok":false,"error":"not implemented"}"""
+    }
 
     override suspend fun exportFilters() = ""
 
     override suspend fun inspectFilters(text: String) = """{"ok":false,"error":"not implemented"}"""
 
     override suspend fun importFilters(text: String, wires: List<Int>) = """{"ok":false,"error":"not implemented"}"""
+}
+
+/** Minimal token registry with the contract semantics (single use; HARDWARE_APPLY reusable; TTL). */
+internal class StubDangerousOps(private val clock: () -> Long = System::currentTimeMillis, override val ttlMs: Long = 10_000L) :
+    DangerousOps {
+    private val armed = HashMap<ConfirmationToken, Long>()
+    private var nextId = 1L
+
+    @Synchronized
+    override fun confirm(op: DangerousOp) = ConfirmationToken(op, nextId++).also { armed[it] = clock() }
+
+    @Synchronized
+    override fun revoke(token: ConfirmationToken) {
+        armed.remove(token)
+    }
+
+    @Synchronized
+    override fun isValid(token: ConfirmationToken): Boolean = armed[token]?.let { clock() - it <= ttlMs } ?: false
+
+    @Synchronized
+    fun use(token: ConfirmationToken, op: DangerousOp) {
+        if (token.op != op) throw DangerousOpNotConfirmed(op, "token is for ${token.op}")
+        if (!isValid(token)) {
+            armed.remove(token)
+            throw DangerousOpNotConfirmed(op, "token spent, revoked, expired or foreign")
+        }
+        if (op.reusable) armed[token] = clock() else armed.remove(token)
+    }
 }

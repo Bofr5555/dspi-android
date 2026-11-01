@@ -36,6 +36,16 @@ import se.bofr.dspi.core.PresetStatus
  * [Throttle].
  *
  * Threading: all members are main-thread safe; flows emit on the main thread.
+ *
+ * Gating (coordinator decisions D1/D2, see [DangerousOp]): members marked
+ * GATED take a [ConfirmationToken] from [dangerousOps] as their first
+ * parameter. A token that is not valid for the call (other op, spent,
+ * revoked, expired, other bridge) makes the call throw
+ * [DangerousOpNotConfirmed] before anything reaches the device — gated calls
+ * never silently do nothing. Members marked "Ungated (D1)" are one click in
+ * the official clients; "Flash write, ungated (D3)" members write flash
+ * without a confirmation in the official clients either, and the bridge arms
+ * its retry blackout after them (commands.md §1.3).
  */
 interface DspiBridge {
     // ═══ Observable state (Qt NOTIFY signals) ═══════════════════════════
@@ -112,6 +122,11 @@ interface DspiBridge {
 
     val cpu0: Int
     val cpu1: Int
+
+    /**
+     * Sticky clip flags re-keyed by APP id (Qt `clipFlags()`): bit `id` set when
+     * app channel `id` clipped. [BridgeStatus.clipFlags] is the raw per-WIRE value.
+     */
     val clipFlags: Long
     val activeInputChannels: Int
 
@@ -189,7 +204,7 @@ interface DspiBridge {
     /** Hex colour from the channel palette (ChannelPalette). */
     fun channelColor(ch: Int): String
 
-    /** "IN 1", "OUT 3", … */
+    /** "IN1", "OUT3", … as Qt (`QString("IN%1")`); "" for an absent channel. */
     fun channelDescriptor(ch: Int): String
 
     // ═══ PEQ / crossover band reads (app id) ═══════════════════════════
@@ -265,10 +280,11 @@ interface DspiBridge {
 
     fun setMasterVolume(db: Float, sendOnly: Boolean = false)
 
+    /** Flash write, ungated (D3). */
     fun setMasterVolumeMode(mode: Int)
 
-    /** FLASH WRITE — UI must confirm first (DangerousOps). */
-    suspend fun saveMasterVolume(): PresetStatus
+    /** GATED [DangerousOp.SAVE_MASTER_VOLUME] — flash write (0xD6). */
+    suspend fun saveMasterVolume(token: ConfirmationToken): PresetStatus
 
     fun setUserVolume(db: Float, sendOnly: Boolean = false)
 
@@ -350,44 +366,58 @@ interface DspiBridge {
 
     // ═══ Pins / output config / names ══════════════════════════════════
 
-    suspend fun setOutputPin(output: Int, pin: Int): PinConfigStatus
+    /** GATED [DangerousOp.HARDWARE_APPLY] (Settings save bar). */
+    suspend fun setOutputPin(token: ConfirmationToken, output: Int, pin: Int): PinConfigStatus
 
+    /** Flash write, ungated (D3; 0x98). */
     fun setOutputConfigMode(mode: Int)
 
-    /** FLASH WRITE — confirm first. */
-    suspend fun saveOutputConfig(): PresetStatus
+    /** GATED [DangerousOp.SAVE_OUTPUT_CONFIG] — flash write (0x52). */
+    suspend fun saveOutputConfig(token: ConfirmationToken): PresetStatus
 
     fun setChannelName(ch: Int, name: String)
 
     fun resetChannelNames()
 
-    // ═══ Presets / flash (FLASH WRITES — confirm first) ════════════════
+    // ═══ Presets / flash ═══════════════════════════════════════════════
 
-    suspend fun savePreset(slot: Int): PresetStatus
+    /** GATED [DangerousOp.SAVE_PRESET] — flash write (0x90). */
+    suspend fun savePreset(token: ConfirmationToken, slot: Int): PresetStatus
 
+    /**
+     * Ungated (D1): one click in the official clients. The UI runs the
+     * Unsaved Changes flow first when [presetDirty].
+     */
     suspend fun loadPreset(slot: Int): PresetStatus
 
-    suspend fun deletePreset(slot: Int): PresetStatus
+    /** GATED [DangerousOp.DELETE_PRESET] — flash write (0x92). */
+    suspend fun deletePreset(token: ConfirmationToken, slot: Int): PresetStatus
 
-    suspend fun copyPreset(fromSlot: Int, toSlot: Int): PresetStatus
+    /** GATED [DangerousOp.COPY_PRESET] — flash writes (0x90). */
+    suspend fun copyPreset(token: ConfirmationToken, fromSlot: Int, toSlot: Int): PresetStatus
 
+    /** Flash write (directory), ungated (D3; 0x94). */
     fun setPresetName(slot: Int, name: String)
 
+    /** Flash write (directory), ungated (D3; 0x96). */
     fun setPresetStartup(mode: Int, slot: Int)
 
     /** What differs from the active preset, one sentence each (Unsaved Changes sheet). */
     suspend fun presetChanges(): List<String>
 
-    suspend fun saveParams(): FlashStatus
+    /** GATED [DangerousOp.SAVE_PARAMS] — flash write (0x51). */
+    suspend fun saveParams(token: ConfirmationToken): FlashStatus
 
-    /** Revert to saved. */
+    /** Revert to saved. Ungated (D1). */
     suspend fun loadParams(): FlashStatus
 
-    suspend fun factoryReset(): FlashStatus
+    /** GATED [DangerousOp.FACTORY_RESET] — flash write (0x53). */
+    suspend fun factoryReset(token: ConfirmationToken): FlashStatus
 
-    /** The device reboots into BOOTSEL and disappears. */
-    fun enterBootloader()
+    /** GATED [DangerousOp.ENTER_BOOTLOADER] — the device reboots into BOOTSEL and disappears (0xF0). */
+    fun enterBootloader(token: ConfirmationToken)
 
+    /** Ungated (D1). */
     fun clearClips()
 
     // ═══ Devices ═══════════════════════════════════════════════════════
@@ -414,7 +444,8 @@ interface DspiBridge {
 
     // ═══ Input source / tools ══════════════════════════════════════════
 
-    fun setInputSource(source: Int)
+    /** GATED [DangerousOp.HARDWARE_APPLY] (Settings save bar; rebuilds the input pipeline). */
+    fun setInputSource(token: ConfirmationToken, source: Int)
 
     fun setLevellerEnabled(en: Boolean)
 
@@ -464,7 +495,10 @@ interface DspiBridge {
 
     fun limiterLinkGroup(out: Int): Int
 
-    /** dB, > 0 while limiting (polled with status while a limiter view is open). */
+    /**
+     * dB, > 0 while limiting (polled with status while a limiter is enabled);
+     * same value as [BridgeStatus.limiterReduction], observe [status] for changes.
+     */
     fun limiterReduction(out: Int): Float
 
     fun setLimiterEnabled(out: Int, en: Boolean)
@@ -484,52 +518,58 @@ interface DspiBridge {
     fun disableAllLimiters()
 
     // ═══ Hardware IO setters (Settings) ════════════════════════════════
+    // D2: the pipeline-rebuilding setters are GATED [DangerousOp.HARDWARE_APPLY]:
+    // the Settings save bar mints one token and applies the whole draft with it,
+    // as macOS does (SettingsSaveCoordinator). Live UI never calls them.
 
-    suspend fun setOutputType(slot: Int, kind: Int): PinConfigStatus
+    suspend fun setOutputType(token: ConfirmationToken, slot: Int, kind: Int): PinConfigStatus
 
-    suspend fun setI2sBckPin(role: Int, pin: Int): PinConfigStatus
+    suspend fun setI2sBckPin(token: ConfirmationToken, role: Int, pin: Int): PinConfigStatus
 
-    suspend fun setI2sClockPinMode(mode: Int): PinConfigStatus
+    suspend fun setI2sClockPinMode(token: ConfirmationToken, mode: Int): PinConfigStatus
 
-    suspend fun setMckEnabled(enabled: Boolean): PinConfigStatus
+    suspend fun setMckEnabled(token: ConfirmationToken, enabled: Boolean): PinConfigStatus
 
-    suspend fun setMckPin(pin: Int): PinConfigStatus
+    suspend fun setMckPin(token: ConfirmationToken, pin: Int): PinConfigStatus
 
-    suspend fun setMckMultiplier(mult: Int): PinConfigStatus
+    suspend fun setMckMultiplier(token: ConfirmationToken, mult: Int): PinConfigStatus
 
-    suspend fun setAdatOutEnabled(enabled: Boolean): PinConfigStatus
+    suspend fun setAdatOutEnabled(token: ConfirmationToken, enabled: Boolean): PinConfigStatus
 
-    suspend fun setAdatOutPin(pin: Int): PinConfigStatus
+    suspend fun setAdatOutPin(token: ConfirmationToken, pin: Int): PinConfigStatus
 
-    suspend fun setSpdifRxPin(index: Int, pin: Int): PinConfigStatus
+    suspend fun setSpdifRxPin(token: ConfirmationToken, index: Int, pin: Int): PinConfigStatus
 
-    suspend fun setSpdifInputEnabled(index: Int, enabled: Boolean): PinConfigStatus
+    suspend fun setSpdifInputEnabled(token: ConfirmationToken, index: Int, enabled: Boolean): PinConfigStatus
 
-    suspend fun setI2sRxPin(pair: Int, pin: Int): PinConfigStatus
+    suspend fun setI2sRxPin(token: ConfirmationToken, pair: Int, pin: Int): PinConfigStatus
 
-    suspend fun setI2sInputChannels(channels: Int): PinConfigStatus
+    suspend fun setI2sInputChannels(token: ConfirmationToken, channels: Int): PinConfigStatus
 
-    suspend fun setAdatInputEnabled(enabled: Boolean): PinConfigStatus
+    suspend fun setAdatInputEnabled(token: ConfirmationToken, enabled: Boolean): PinConfigStatus
 
-    suspend fun setAdatInputPin(pin: Int): PinConfigStatus
+    suspend fun setAdatInputPin(token: ConfirmationToken, pin: Int): PinConfigStatus
 
-    suspend fun setAdatInputClockMode(mode: Int): PinConfigStatus
+    suspend fun setAdatInputClockMode(token: ConfirmationToken, mode: Int): PinConfigStatus
 
-    fun setInputRate(index: Int)
+    /** GATED [DangerousOp.HARDWARE_APPLY]. */
+    fun setInputRate(token: ConfirmationToken, index: Int)
 
-    fun setI2sClockMode(mode: Int)
+    /** GATED [DangerousOp.HARDWARE_APPLY]. */
+    fun setI2sClockMode(token: ConfirmationToken, mode: Int)
 
     fun setLgSoundSync(enabled: Boolean)
 
-    /** Outcome arrives as [BridgeEvent.DacMuteApplied]. */
+    /** Flash write (config), ungated (D3). Outcome arrives as [BridgeEvent.DacMuteApplied]. */
     fun setDacMute(enabled: Boolean, activeLow: Boolean, pin: Int, holdMs: Int, releaseMs: Int)
 
-    /** 0 started, 3 feature disabled, 255 no reply. */
+    /** Ungated (D1). 0 started, 3 feature disabled, 255 no reply. */
     suspend fun testDacMute(): Int
 
-    /** Outcome arrives as [BridgeEvent.CtrlIfaceApplied]. */
+    /** Flash write (config persist), ungated (D3). Outcome arrives as [BridgeEvent.CtrlIfaceApplied]. */
     fun setUart(enabled: Boolean, txPin: Int, rxPin: Int, notify: Boolean, baud: Int)
 
+    /** Flash write (config persist), ungated (D3). Outcome arrives as [BridgeEvent.CtrlIfaceApplied]. */
     fun setI2c(enabled: Boolean, sdaPin: Int, sclPin: Int, address: Int)
 
     fun refreshCtrlIfaces()
@@ -601,6 +641,9 @@ interface DspiBridge {
     val cs: CsController
     val monitor: MonitorModel
     val configFiles: ConfigFiles
+
+    /** Token issuer for the GATED members (D5). Same instance for the bridge's lifetime. */
+    val dangerousOps: DangerousOps
 
     /**
      * Status polling on/off (Qt: timers run while the window is visible).
