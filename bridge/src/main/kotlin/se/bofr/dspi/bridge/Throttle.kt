@@ -8,7 +8,9 @@ import kotlinx.coroutines.launch
 /**
  * Port of qt/qml/components/Throttle.qml: the first value goes out at once,
  * then at most the latest value every [intervalMs]; [cancel] drops a pending
- * value (call it before the final commit on release).
+ * value (call it before the final commit on release). [finish] is cancel +
+ * the final value (Windows `ValueDelivery.Finish`); the final commit itself
+ * goes through the normal (non-sendOnly) setter.
  */
 class Throttle<T>(private val scope: CoroutineScope, private val intervalMs: Long = 30, private val send: (T) -> Unit) {
     private var pending: T? = null
@@ -32,6 +34,12 @@ class Throttle<T>(private val scope: CoroutineScope, private val intervalMs: Lon
                     send(pending as T)
                 }
             }
+    }
+
+    /** The drag ended: drop anything pending and deliver [value] now. */
+    fun finish(value: T) {
+        cancel()
+        send(value)
     }
 
     fun cancel() {

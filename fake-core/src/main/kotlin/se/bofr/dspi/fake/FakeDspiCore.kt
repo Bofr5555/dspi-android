@@ -468,7 +468,7 @@ open class FakeDspiCore(
                 s.subharm[DspiConstants.SUBHARM_PARAM_LOW],
                 max(s.subharm[DspiConstants.SUBHARM_PARAM_HIGH], s.subharm[DspiConstants.SUBHARM_PARAM_TOP])
             )
-        -loud.coerceAtLeast(0f)
+        0f - loud.coerceAtLeast(0f)
     }
 
     override fun fetchSubharmMeter(): List<Float> = op("fetchSubharmMeter") {
