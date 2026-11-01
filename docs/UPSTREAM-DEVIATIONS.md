@@ -428,3 +428,73 @@ Gating per E1b, output-config tracking per F2: behaviour is macOS's.
 9. **Device identity** for aborting a Save/hardware sequence is the selected
    serial (macOS: the transport generation); the bridge's own revert uses
    its generation.
+
+## TOOLS
+
+Reference: macOS `v1.1.6-beta5` (b5fdeac) LoudnessView, CrossfeedView,
+VolumeLevellerView, PsychoacousticBassView, SubharmonicSynthView,
+TubeModellerView + TubeIllustration, UpmixerView, OutputLimiterView,
+ToolParameters.swift; core driving as Linux `qt/qml/*Window.qml`. Wording,
+ranges, defaults, presets and starting points are the macOS ones.
+
+1. **Windows -> screens.** Each tool window is an internal sub-route of
+   `ToolsScreen` (`tools/loudness`, `tools/crossfeed`, `tools/psybass`,
+   `tools/subharm`, `tools/tube`, `tools/upmix`, `tools/leveller`); the Tools
+   list mirrors the macOS Tools menu order and links Matrix Mixer and the
+   analysis tools to their packages' routes. The Output Limiter popover is the
+   full screen `tools/limiter/{out}`. Keyboard shortcuts do not exist.
+2. **Layout.** The two `toolColumn()`s sit side by side from 600 dp (tablet,
+   landscape) and stack left-then-right on a phone; single-column windows
+   (Leveller, Upmixer, limiter popover) stay single-column. Everything
+   scrolls. Fonts and chips are larger for touch (chips 36 dp high).
+3. **Touch for hover/right-click/scroll.** `.help(...)` tooltips are shown on
+   long-press (Material `TooltipBox`); channel-chip names likewise. Cmd+scroll
+   stepping of value fields has no touch equivalent; tap the value to type
+   (unit optional, clamped to the row's range, committed on Done or when the
+   field loses focus).
+4. **Live drags** send `sendOnly = true` through the bridge `Throttle` (first
+   value at once, then the latest every 30 ms, pending value dropped before
+   the commit), exactly as `ParameterRow`/`ParamRow.qml`; graphs follow the
+   drag via a local `GraphLive`. Same semantics as macOS.
+5. **Firmware gates** use `DspState.formatVersion` with the macOS thresholds
+   (loudness mask V19, crossfeed pair mask V20, psybass V23, subharm V29/V30,
+   tube V31, limiter V32, upmixer V26 + RP2350). The limiter screen shows an
+   upgrade note below V32 (macOS hides the cell instead). HOME's
+   `OutputLimiterCell` should be hidden below V32 as on macOS, so the note is
+   only a fallback, never the normal path.
+6. **Icons.** SF Symbols are not available: headers have no symbol except
+   the Tube Modeller (`TubeIcon`, ported) and the Output Limiter
+   (`LimiterIcon`, ported). The "unsupported" note uses a Unicode warning sign.
+7. **TubeIllustration.** Drawn with three Canvas layers instead of CALayers;
+   SwiftUI `.blur` on the contact shadow, heater streak and filament glow is
+   approximated with unblurred translucent strokes (no DrawScope blur below
+   API 31). The audio bloom follows `BridgeStatus.peaks` (app ids 2..10 =
+   outputs), as macOS follows the status peaks.
+8. **Tube Basic/Advanced** is remembered in `SharedPreferences`
+   (`dspi_tools`/`tubeModellerAdvanced`) instead of `@AppStorage`, and the
+   segmented switch sits under the header rather than in it.
+9. **Subharmonic solo** is switched off when the view leaves composition
+   (macOS: when the window closes); headroom is re-read whenever the subharm
+   parameters change and on open; the sub meter polls at 10 Hz while the
+   view is up, extended (V30) and the effect is on.
+10. **Upmixer telemetry** is polled every 60 ms while the view is up (macOS
+    ~16 Hz shared timer; Linux 100 ms).
+11. **System back** inside an open tool closes the tool (`BackHandler`,
+    activity-compose approved in decision E3), then leaves the Tools route.
+12. **Limiter link groups and output-config dirty tracking are the bridge's**
+    (contract TOOLS C/D, decision F2). The published state mirrors the
+    firmware's ganging, so the view shows peers' values directly
+    (`LimiterGang` is kept in ToolParameters.kt only as the tested oracle).
+    Every committed limiter change (enable, threshold, release, link group,
+    Copy to all outputs, Link all stereo pairs, Unlink all, Switch every
+    limiter off) runs through `edit { bridge.beginOutputEdit(); … }` as
+    macOS `OutputLimiterSettings.edit`; live drag values (`sendOnly`) do not,
+    as macOS `sendLimiterParamToDevice`. No deviation remains here.
+13. **Polling is lifecycle-aware.** Upmixer telemetry and the subharm meter
+    poll only while the view is composed and the app is at least STARTED
+    (macOS: while the window is open; the bridge's status poll likewise stops
+    at `setUiVisible(false)`). The subharm headroom is re-read only after a
+    committed change (keyed on `stateRevision`), never per drag tick.
+14. **Tools list** lists the four diagnostics with their macOS menu titles
+    (Signal Generator, Spectrum Analyser, "Stats for nerbs", Interrupt
+    Monitor); each opens the ANALYSIS route, which picks the sub-view.
