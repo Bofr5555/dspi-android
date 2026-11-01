@@ -108,4 +108,27 @@ class CrossfeedPairMapTest {
         assertEquals(listOf("setCrossfeedPairMap(2,19,0,0)", "setCrossfeedPairMap(0,0,0,0)"), sent)
         assertEquals(CrossfeedPairs.DEFAULT, b.crossfeedPairMap)
     }
+
+    @Test
+    fun theProbeRetriesATransientErrorButNotAStall() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        runCurrent()
+        core.failNext("fetchCrossfeedPairMap", 1) { DspiException.Disconnected() }
+        attach(b, core)
+        assertTrue(b.hardwareCaps.crossfeedPairMapSupported)
+        val core2 = FakeDspiCore()
+        val b2 = newBridge(core2)
+        runCurrent()
+        val before = core2.callCount("fetchCrossfeedPairMap")
+        core2.failNext("fetchCrossfeedPairMap", 1) // Transfer = a STALL
+        attach(b2, core2)
+        assertFalse(b2.hardwareCaps.crossfeedPairMapSupported)
+        assertEquals(before + 1, core2.callCount("fetchCrossfeedPairMap"))
+    }
+
+    @Test
+    fun theK340MaskCoversBothPairs() {
+        assertEquals(0x03, CrossfeedPairs.ONE_DAC_PER_EAR_PAIR_MASK)
+    }
 }

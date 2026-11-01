@@ -224,7 +224,11 @@ data class HardwareCaps(
      * firmware STALLs it. Gates the crossfeed pair editor.
      */
     val crossfeedPairMapSupported: Boolean = false,
-    /** Stereo pairs crossfeed can use (4 on RP2350, 2 on RP2040); 0 while not usable. */
+    /**
+     * Stereo pairs crossfeed can use while a compatible device is connected
+     * (4 on RP2350, 2 on RP2040, never 0 then); 0 only in the default caps the
+     * bridge reports without a usable device.
+     */
     val crossfeedPairCount: Int = 0
 )
 

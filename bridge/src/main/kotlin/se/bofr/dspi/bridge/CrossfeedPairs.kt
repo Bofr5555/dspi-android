@@ -23,6 +23,13 @@ object CrossfeedPairs {
      */
     val ONE_DAC_PER_EAR: List<Int> = listOf(encode(2, 0), encode(3, 1), 0, 0)
 
+    /**
+     * The `crossfeedOutputPairMask` that goes with [ONE_DAC_PER_EAR]: both
+     * pairs (woofers and tweeters). The device default 0x01 would crossfeed
+     * the woofer band only; a UI applying the map should set this mask too.
+     */
+    const val ONE_DAC_PER_EAR_PAIR_MASK: Int = 0x03
+
     /** Stereo pairs for a device with [numOutputChannels] outputs (the last is the mono PDM sub). */
     fun pairCount(numOutputChannels: Int): Int = ((numOutputChannels - 1).coerceAtLeast(0) / 2).coerceIn(1, MAP_BYTES)
 

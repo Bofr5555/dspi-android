@@ -3,7 +3,7 @@ Crossfeed output pair map (K340 firmware fork) for dspi-core.
 Why: the owner's K340 amplifier wires one DAC per ear (out0 = R woofer,
 out1 = R tweeter, out2 = L woofer, out3 = L tweeter), so crossfeed's fixed
 pairs (2p, 2p+1) are the same ear twice. The K340 firmware fork
-(~/prog/DSPi-xfeed, branch k340-xfeed, commit 0c7c388) makes the outputs of each crossfeed
+(~/prog/DSPi-xfeed, branch k340-xfeed, commits 0c7c388 + 0a6fad1) makes the outputs of each crossfeed
 pair configurable; this patch teaches the core about it. Upstream firmware
 v1.1.6-beta5 has none of it: its bulk image carries zero in the claimed bytes
 (= default pairing) and it STALLs the two new requests.

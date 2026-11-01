@@ -123,6 +123,21 @@ class DspiBridgeImpl(
     private val _writesAllowed = MutableStateFlow(false)
     override val writesAllowed: StateFlow<Boolean> = _writesAllowed.asStateFlow()
 
+    /** FFI thread: whether the firmware answers REQ_CROSSFEED_PAIR_MAP (K340 fork). */
+    private fun probeCrossfeedPairMap(): Boolean {
+        repeat(2) {
+            try {
+                core.fetchCrossfeedPairMap()
+                return true
+            } catch (e: DspiException.Transfer) {
+                return false // STALL: upstream firmware
+            } catch (e: Exception) {
+                // timeout / busy: try once more
+            }
+        }
+        return false
+    }
+
     /** K340 fork: the connected firmware answered the pair-map probe (main thread). */
     private var crossfeedPairMapSupported = false
 
@@ -1685,9 +1700,9 @@ class DspiBridgeImpl(
                 val compatOk = core.isConnected() && st.compat == COMPAT_OK
                 if (fetched && compatOk) core.captureBaseline()
                 if (compatOk) runCatching { core.rtaStart() } // probes for the spectrum analyser
-                // K340 fork probe (core patch 0002): upstream firmware STALLs 0x02.
-                // One attempt, no retry: a STALL is the answer, not a glitch.
-                val pairMap = fetched && compatOk && runCatching { core.fetchCrossfeedPairMap() }.isSuccess
+                // K340 fork probe (core patch 0002): upstream firmware STALLs 0x02
+                // (Transfer: the answer, no retry); any other error retries once.
+                val pairMap = fetched && compatOk && probeCrossfeedPairMap()
                 Opened(
                     snapshot(all = true),
                     if (fetched) "" else "Connected, but the device's settings could not be read. Reconnect it to retry.",

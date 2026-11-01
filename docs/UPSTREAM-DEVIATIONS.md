@@ -921,6 +921,18 @@ the same ear twice. The K340 firmware fork (`~/prog/DSPi-xfeed`, branch
    firmware STALLs it, and the setter then fails with
    `DspiException.Unsupported` without sending anything. G1 applies as to every
    setter.
-4. **UI:** not built yet (after pkg/stalestate merges); see the coordinator's
+4. **Other clients:** a bulk apply from an UNPATCHED core (Linux/macOS
+   console preset import/apply) writes zero at offset 44 and so resets the
+   map to the default pairing (the firmware treats zero as default). This app
+   recovers the live value by itself (the firmware's BULK_INVALIDATED after a
+   bulk apply triggers a refresh that decodes offset 44). The Windows console
+   has no bulk-SET writer. Presets saved on the device keep the map in the
+   former tube_reserved_f bytes (slot version unchanged), so upstream firmware
+   loads them and ignores it.
+5. **Setup:** with the K340 map use output-pair mask 0x03
+   (`CrossfeedPairs.ONE_DAC_PER_EAR_PAIR_MASK`); the default 0x01 crossfeeds
+   the woofer band only. Changing the map while audio plays may click once
+   (the affected pairs restart from clean filter state).
+6. **UI:** not built yet (after pkg/stalestate merges); see the coordinator's
    report for the recommended Crossfeed tool section.
 
