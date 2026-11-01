@@ -4,12 +4,15 @@
 package se.bofr.dspi.ui.settings
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -22,7 +25,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-private val Context.appSettingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "app_settings")
+// A corrupt file is replaced by an empty one (defaults) instead of failing every read (review C1).
+private val Context.appSettingsDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "app_settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 /**
  * The interim preference files the packages kept before the one store
@@ -45,12 +52,19 @@ interface LegacyPreferenceFiles {
  *
  * On the first start after the consolidation, values from [legacy] fill the
  * keys the DataStore does not have yet (SETTINGS' DataStore wins), a marker
- * key records the import, and the old files are deleted.
+ * key records the import, and the old files are deleted — only when they
+ * were read (review C2).
+ *
+ * Never crashes the app (review C1): a read or write that fails (unreadable
+ * or unwritable file) is reported to [log]; a failed first read leaves the
+ * defaults in place and the store usable, a failed write keeps the value in
+ * memory for this run.
  */
 class DataStoreAppSettingsStore(
     private val store: DataStore<Preferences>,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-    private val legacy: LegacyPreferenceFiles? = null
+    private val legacy: LegacyPreferenceFiles? = null,
+    private val log: (String, Throwable) -> Unit = { _, _ -> }
 ) : AppSettingsStore {
     private val state = MutableStateFlow(AppSettings())
     override val settings: StateFlow<AppSettings> = state.asStateFlow()
@@ -62,13 +76,22 @@ class DataStoreAppSettingsStore(
 
     init {
         scope.launch {
-            var prefs = store.data.first()
-            if (legacy != null && prefs[AppSettingsFields.LEGACY_IMPORTED] != true) {
-                val files = runCatching { legacy.read() }.getOrDefault(emptyList())
-                prefs = store.edit { AppSettingsFields.importLegacy(it, files) }
-                runCatching { legacy.delete() }
+            var prefs = runCatching { store.data.first() }.getOrElse {
+                log("reading the app settings failed; using the defaults", it)
+                null
             }
-            val stored = AppSettingsFields.read(prefs)
+            if (prefs != null && legacy != null && prefs[AppSettingsFields.LEGACY_IMPORTED] != true) {
+                // Delete the interim files only once they were read and the import was written (C2).
+                val files = runCatching { legacy.read() }.onFailure { log("reading the interim preference files failed", it) }.getOrNull()
+                if (files != null) {
+                    runCatching { store.edit { AppSettingsFields.importLegacy(it, files) } }
+                        .onSuccess {
+                            prefs = it
+                            runCatching { legacy.delete() }.onFailure { e -> log("deleting the interim preference files failed", e) }
+                        }.onFailure { log("importing the interim preference files failed", it) }
+                }
+            }
+            val stored = AppSettingsFields.read(prefs ?: emptyPreferences())
             val merged = synchronized(lock) {
                 loaded = true
                 early.fold(stored) { s, f -> f(s) }.also {
@@ -76,7 +99,7 @@ class DataStoreAppSettingsStore(
                     state.value = it
                 }
             }
-            if (merged != stored) store.edit { AppSettingsFields.write(it, stored, merged) }
+            if (merged != stored) write(stored, merged)
         }
     }
 
@@ -92,7 +115,12 @@ class DataStoreAppSettingsStore(
             }
             old to new
         }
-        scope.launch { store.edit { AppSettingsFields.write(it, old, new) } }
+        scope.launch { write(old, new) }
+    }
+
+    private suspend fun write(old: AppSettings, new: AppSettings) {
+        runCatching { store.edit { AppSettingsFields.write(it, old, new) } }
+            .onFailure { log("writing the app settings failed; the change is kept for this run only", it) }
     }
 
     companion object {
@@ -102,7 +130,11 @@ class DataStoreAppSettingsStore(
         fun of(context: Context): AppSettingsStore = instance ?: synchronized(this) {
             val app = context.applicationContext
             instance
-                ?: DataStoreAppSettingsStore(app.appSettingsDataStore, legacy = SharedPreferencesLegacyFiles(app)).also { instance = it }
+                ?: DataStoreAppSettingsStore(
+                    app.appSettingsDataStore,
+                    legacy = SharedPreferencesLegacyFiles(app),
+                    log = { msg, e -> Log.w("AppSettings", msg, e) }
+                ).also { instance = it }
         }
     }
 }
