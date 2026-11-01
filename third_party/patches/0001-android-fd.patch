@@ -22,7 +22,11 @@ Hunks:
    readable and not a DSPi, claims ONLY the vendor interface
    (`VENDOR_INTERFACE` = 2; never the audio interfaces 0/1; no kernel
    driver detach), starts the notify listener, records vid + serial (the
-   serial is kept for auto-reconnect, as `select_device` does).
+   serial is kept for auto-reconnect, as `select_device` does). The vid
+   recorded is the descriptor's, as `select_device` records it (it selects
+   the legacy-firmware fetch path); the `vid` argument is only a fallback
+   for an unreadable descriptor. The serial is trusted from the caller
+   (Android: `UsbDevice.getSerialNumber()`).
 3. core/src/lib.rs `DspiCore::{device_manager, device_manager_mut,
    reset_device_state}`: public access for embedders. `reset_device_state`
    is what `dspi_select_device` did inline after a successful select.
@@ -42,7 +46,7 @@ Upstream form: identical; can be proposed to WeebLabs/DSPi-Console-Linux as is.
  
  use crate::notify::{NotifyHub, NotifyListener};
  use crate::rta::{RtaHub, RtaWorker};
-@@ -184,6 +184,28 @@
+@@ -184,6 +184,31 @@
          Err(UsbError::NotConnected)
      }
  
@@ -50,14 +54,17 @@ Upstream form: identical; can be proposed to WeebLabs/DSPi-Console-Linux as is.
 +    /// enumeration (Android: `UsbDeviceConnection.getFileDescriptor()` ->
 +    /// `rusb::GlobalContext::open_device_with_fd`). Claims the vendor
 +    /// interface only (never the audio interfaces, no kernel driver detach)
-+    /// and connects exactly as `select_device` does.
++    /// and connects exactly as `select_device` does. The vendor ID comes
++    /// from the device descriptor, as in `select_device` (it picks the
++    /// legacy-firmware path); `vid` is only the fallback when the descriptor
++    /// cannot be read. `serial` is trusted (Android: `UsbDevice.getSerialNumber()`).
 +    pub fn select_device_handle(&mut self, handle: DeviceHandle<GlobalContext>, serial: &str, vid: u16) -> Result<(), UsbError> {
 +        self.disconnect();
-+        if let Ok(desc) = handle.device().device_descriptor() {
-+            if !is_dspi(desc.vendor_id(), desc.product_id()) {
-+                return Err(UsbError::InvalidArgument);
-+            }
-+        }
++        let vid = match handle.device().device_descriptor() {
++            Ok(desc) if is_dspi(desc.vendor_id(), desc.product_id()) => desc.vendor_id(),
++            Ok(_) => return Err(UsbError::InvalidArgument),
++            Err(_) => vid,
++        };
 +        let _ = handle.claim_interface(crate::protocol::VENDOR_INTERFACE);
 +        let connection = UsbConnection::new(handle);
 +        self.notify_listener = Some(NotifyListener::start(connection.shared_handle(), Arc::clone(&self.notify_hub)));
