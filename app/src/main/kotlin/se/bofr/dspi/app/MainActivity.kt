@@ -17,7 +17,7 @@ import se.bofr.dspi.ui.DspiTheme
  * The only Activity. Owns nothing: the stack lives in [DspiApplication].
  * - `USB_DEVICE_ATTACHED` launches (implicit permission, device_filter) are
  *   handed to the session in [onCreate] and [onNewIntent] (singleTask);
- * - API 33+: asks for POST_NOTIFICATIONS on a fresh launch so the
+ * - API 33+: asks for POST_NOTIFICATIONS (see [shouldAskNotificationPermission]) so the
  *   connectedDevice foreground service's notification (volume/mute/preset)
  *   is visible (review U7). Denial is fine: the service still runs.
  */
@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // a recreated Activity (rotation) still carries the launch intent: hand it over once
         if (savedInstanceState == null) {
-            app.session.onAttachedIntent(this, intent)
+            handAttachedIntent(intent)
             requestNotificationPermission()
         }
         setContent {
@@ -55,12 +55,39 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        app.session.onAttachedIntent(this, intent)
+        handAttachedIntent(intent)
+    }
+
+    /** Via the app's gate: after the links are loaded (review A3); application context, the Activity may be gone by then. */
+    private fun handAttachedIntent(intent: Intent) {
+        val ctx = applicationContext
+        app.usbGate.run { app.session.onAttachedIntent(ctx, intent) }
     }
 
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        if (!granted) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        val prefs = getSharedPreferences(UI_PREFS, MODE_PRIVATE)
+        val ask = shouldAskNotificationPermission(
+            granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+            askedBefore = prefs.getBoolean(KEY_NOTIF_ASKED, false),
+            rationale = shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)
+        )
+        if (!ask) return
+        prefs.edit().putBoolean(KEY_NOTIF_ASKED, true).apply()
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private companion object {
+        const val UI_PREFS = "dspi_ui"
+        const val KEY_NOTIF_ASKED = "notificationPermissionAsked"
     }
 }
+
+/**
+ * Review A4: ask on the first launch, and again only while Android would
+ * still show its dialog (`shouldShowRequestPermissionRationale` is true
+ * after one denial, false after "don't ask again"). Never after a permanent
+ * denial: `launch` would be a silent no-op on every start.
+ */
+fun shouldAskNotificationPermission(granted: Boolean, askedBefore: Boolean, rationale: Boolean): Boolean =
+    !granted && (!askedBefore || rationale)

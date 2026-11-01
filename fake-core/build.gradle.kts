@@ -12,10 +12,11 @@ dependencies {
 // resources of fake-core (main, hence also its tests and every consumer's
 // tests): `FakeDspiCore.seeded()` reads `/dspstate_v32.json`. Gradle skips a
 // missing srcDir, so this is harmless before fixtures/ exists.
-// Review N2: only the JSON fixtures go on the classpath (and hence into the
-// app's APK); bulk_v32.bin, platform.bin, firmware_req_opcodes.txt and the
-// README stay FFI-only.
+// Review N2 / decision E8: only the `dspstate_*.json` fixtures go on the
+// classpath (and hence into the app's APK, which ships demo mode);
+// capture.json, bulk_v32.bin, platform.bin, firmware_req_opcodes.txt and
+// the README stay FFI-only.
 sourceSets.main {
     resources.srcDir(rootProject.layout.projectDirectory.dir("fixtures"))
-    resources.include("*.json")
+    resources.include("dspstate_*.json")
 }

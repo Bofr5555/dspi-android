@@ -3,17 +3,25 @@ package se.bofr.dspi.app
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.mutablePreferencesOf
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -38,6 +46,7 @@ class DataStoreLinkStoreTest {
     fun linksSurviveAProcessRestartPerSerial() = runBlocking {
         val file = File(tmp.root, "dspi_bridge.preferences_pb")
         val first = Process(file)
+        withTimeout(5_000) { first.links.awaitLoaded() }
         assertEquals(0, first.links.load("A")) // unknown serial: no links (Qt default)
         first.links.save("A", 0b101)
         first.links.save("B", 0b1)
@@ -49,6 +58,7 @@ class DataStoreLinkStoreTest {
         first.kill()
 
         val second = Process(file)
+        withTimeout(5_000) { second.links.awaitLoaded() }
         assertEquals(0b11, second.links.load("A"))
         assertEquals(0b1, second.links.load("B"))
         assertEquals(0, second.links.load("C"))
@@ -59,7 +69,43 @@ class DataStoreLinkStoreTest {
     fun aCorruptFileReadsAsNoLinks() = runBlocking {
         val file = File(tmp.root, "bad.preferences_pb").apply { writeBytes(byteArrayOf(0x7f, 0x01, 0x02)) }
         val p = Process(file)
+        withTimeout(5_000) { p.links.awaitLoaded() } // completes even though the read failed
         assertEquals(0, p.links.load("A"))
         p.kill()
+    }
+
+    /** A DataStore whose first read is held until [release] (the cold-start race of review A3). */
+    private class GatedStore(initial: Preferences) : DataStore<Preferences> {
+        val release = CompletableDeferred<Unit>()
+        private val state = MutableStateFlow(initial)
+        override val data: Flow<Preferences> = flow {
+            release.await()
+            emitAll(state)
+        }
+
+        override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
+            release.await()
+            return transform(state.value).also { state.value = it }
+        }
+    }
+
+    @Test
+    fun loadNeverBlocksBeforeTheReadAndEarlySavesWin() = runBlocking {
+        val disk = mutablePreferencesOf(DataStoreLinkStore.key("A") to 0b1, DataStoreLinkStore.key("B") to 0b10)
+        val store = GatedStore(disk)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val links = DataStoreLinkStore(store, scope)
+        // read not landed: answers at once (no runBlocking on the caller), Qt's absent-key value
+        assertEquals(0, links.load("A"))
+        links.save("B", 0b11) // a save before the read lands wins over the file
+        assertNull(withTimeoutOrNull(100) { links.awaitLoaded() })
+        store.release.complete(Unit)
+        withTimeout(5_000) { links.awaitLoaded() }
+        assertEquals(0b1, links.load("A"))
+        assertEquals(0b11, links.load("B"))
+        withTimeout(5_000) {
+            while (store.data.first()[DataStoreLinkStore.key("B")] != 0b11) delay(20)
+        }
+        scope.coroutineContext.job.cancelAndJoin()
     }
 }

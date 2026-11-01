@@ -20,6 +20,9 @@ import se.bofr.dspi.usb.UsbSession
  *   -> AndroidUsbSession(this, bridge, appScope).start(this)
  * UiVisibilityTracker(appScope) { session.setUiVisible(it) (+ demo bridge) }
  * ```
+ * The session starts (and attach intents are handed over) only after the
+ * links file has been read ([UsbStartGate]), so the bridge's main-thread
+ * `LinkStore.load` never waits for the disk.
  * The USB session is started here, not per Activity (UsbSession.start KDoc),
  * so the device stays open across Activity recreation while the foreground
  * service runs. Demo mode builds a separate fake stack on demand
@@ -34,6 +37,10 @@ class DspiApplication : Application() {
     lateinit var session: UsbSession
         private set
     lateinit var modes: AppModeController
+        private set
+
+    /** Run [block] (anything that may open a DSPi) once the persistent links are loaded (review A3). */
+    lateinit var usbGate: UsbStartGate
         private set
 
     override fun onCreate() {
@@ -51,7 +58,8 @@ class DspiApplication : Application() {
             demoFactory = { startDemoSession(appScope, version, log = { Log.i(TAG, it) }) },
             forwardUiVisible = usb::setUiVisible
         )
-        usb.start(this)
+        usbGate = UsbStartGate(appScope) { linkStore.awaitLoaded() }
+        usbGate.run { usb.start(this) }
         UiVisibilityTracker(appScope) { modes.setUiVisible(it) }.install(this)
     }
 

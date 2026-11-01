@@ -20,7 +20,8 @@ import se.bofr.dspi.fake.FakeDspiCore
  * [DspiBridgeImpl] with a child scope of [parent], its own FFI thread and
  * in-memory links (demo links are not persisted). No USB is involved: the
  * fake reports a device, so `scanDevices()` selects it at once.
- * [DemoSession.close] cancels the scope, stops the thread and closes the fake.
+ * [DemoSession.close] closes the bridge (timers, controllers, core listeners),
+ * cancels the scope, stops the thread and closes the fake.
  */
 fun startDemoSession(
     parent: CoroutineScope,
@@ -40,6 +41,8 @@ fun startDemoSession(
         override val bridge: DspiBridge = demoBridge
 
         override fun close() {
+            // review A2: timers, the four controllers and the core's listeners first
+            runCatching { demoBridge.close() }
             scope.cancel()
             ffi.close()
             runCatching { core.close() }
