@@ -1247,12 +1247,23 @@ open class FakeDspiCore(
          * The V32 fixture if it is on the classpath (`/dspstate_v32.json` or
          * `/fixtures/dspstate_v32.json`), else [demoDspState].
          */
-        fun seeded(animate: Boolean = false): FakeDspiCore {
-            val text =
-                listOf("/dspstate_v32.json", "/fixtures/dspstate_v32.json").firstNotNullOfOrNull { path ->
-                    FakeDspiCore::class.java.getResourceAsStream(path)?.use { it.readBytes().toString(Charsets.UTF_8) }
-                }
+        fun seeded(animate: Boolean = false): FakeDspiCore = seeded(animate, FIXTURE_PATHS)
+
+        /** [seeded] over explicit classpath [paths] (tests). */
+        fun seeded(animate: Boolean, paths: List<String>): FakeDspiCore {
+            val text = fixtureText(paths)
             return if (text != null) fromFixture(text, animate) else FakeDspiCore(demoDspState(), animate)
+        }
+
+        /**
+         * Where FFI's V32 capture sits on the classpath: fake-core's resources
+         * include the repo-root `fixtures/` (decision D10), so it is `/dspstate_v32.json`.
+         */
+        val FIXTURE_PATHS = listOf("/dspstate_v32.json", "/fixtures/dspstate_v32.json")
+
+        /** The first of [paths] on the classpath, as text; null if none is there. */
+        fun fixtureText(paths: List<String> = FIXTURE_PATHS): String? = paths.firstNotNullOfOrNull { path ->
+            FakeDspiCore::class.java.getResourceAsStream(path)?.use { it.readBytes().toString(Charsets.UTF_8) }
         }
 
         /** Demo mode: the seeded device with an animated analyser. */

@@ -57,3 +57,37 @@ class DspStateJsonTest {
         assertEquals(5, core.getState().numOutputChannels)
     }
 }
+
+class FixtureSeedTest {
+    /** The classpath lookup of seeded(), on a sample in the fixture's shape (FFI's real file is checked below when present). */
+    @Test
+    fun seededReadsAFixtureFromTheClasspath() {
+        val core = FakeDspiCore.seeded(animate = false, paths = listOf("/nope.json", "/se/bofr/dspi/fake/sample_dspstate.json"))
+        val s = core.getState()
+        assertEquals(5, s.numOutputChannels)
+        assertEquals(87f, s.loudnessRefSpl)
+        assertEquals(250f, s.filters[0][0].freq)
+        assertEquals(DspiConstants.COMPAT_OK, s.compat)
+    }
+
+    @Test
+    fun seededFallsBackToTheDemoDevice() {
+        val s = FakeDspiCore.seeded(animate = false, paths = listOf("/nope.json")).getState()
+        assertEquals(9, s.numOutputChannels)
+    }
+
+    /**
+     * FFI's capture (repo-root fixtures/, on the classpath via D10). Skipped
+     * until pkg/ffi is merged; then it must load as the compatible V32 RP2350.
+     */
+    @Test
+    fun theRealFixtureLoadsWhenPresent() {
+        val text = FakeDspiCore.fixtureText()
+        org.junit.Assume.assumeTrue("fixtures/dspstate_v32.json not on main yet", text != null)
+        val s = DspStateJson.parse(text!!)
+        assertEquals(32, s.formatVersion)
+        assertEquals(DspiConstants.COMPAT_OK, s.compat)
+        assertEquals(DspiConstants.BULK_PARAMS_SIZE, s.bulkRaw.size)
+        assertEquals(s.numInputChannels + s.numOutputChannels, s.numChannels)
+    }
+}

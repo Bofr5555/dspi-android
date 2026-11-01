@@ -1,0 +1,19 @@
+{
+  "platformId": 0,
+  "numChannels": 7,
+  "numInputChannels": 2,
+  "numOutputChannels": 5,
+  "formatVersion": 32,
+  "fwMajor": 1,
+  "fwMinor": 1,
+  "fwPatch": 6,
+  "fwBeta": 5,
+  "compat": 1,
+  "masterVolumeDb": -20.0,
+  "loudnessRefSpl": 87.0,
+  "loudnessOutputMask": 65535,
+  "filters": [[{"filterType": 1, "bypass": false, "freq": 250.0, "q": 1.5, "gain": -2.0, "qp": 0.707}]],
+  "channelNames": ["USB L", "USB R", "", "", "", "", ""],
+  "bulkValid": true,
+  "bulkRaw": [32, 0, 0, 0]
+}
