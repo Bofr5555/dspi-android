@@ -56,6 +56,30 @@ publish no separate SHA-256 list to compare against. After adding or bumping a
 dependency, run the same command, review the diff (only new components should
 appear) and commit it together with the change.
 
+## Bundled firmware (FIRMWARE, 2026-11-01)
+
+`feature-firmware/src/main/assets/firmware/` carries the official DSPi
+firmware release that DSPi Console v1.1.6-beta5 bundles. Downloaded only from
+the official GitHub release of WeebLabs/DSPi with
+`gh release download v1.1.6-beta5 -R WeebLabs/DSPi -p 'DSPi-*.uf2'` and
+checked against the asset digests GitHub publishes
+(`gh api repos/WeebLabs/DSPi/releases/tags/v1.1.6-beta5` → `assets[].digest`).
+They are byte-identical to `DSPi Console/Firmware/*.uf2` of the macOS app at
+v1.1.6-beta5. `Uf2ImageTest.bundledAssetsAreTheVerifiedOfficialRelease`
+fails the build if either file changes.
+
+| Asset | URL | SHA-256 (= GitHub `digest`) |
+|---|---|---|
+| `DSPi-RP2040-v1.1.6-beta5.uf2` (552,448 B) | https://github.com/WeebLabs/DSPi/releases/download/v1.1.6-beta5/DSPi-RP2040-v1.1.6-beta5.uf2 | `485d7164879bcae3b3dcd98b8de1db458c4933f025fb02630b98cb7f59210362` |
+| `DSPi-RP2350-v1.1.6-beta5.uf2` (623,104 B) | https://github.com/WeebLabs/DSPi/releases/download/v1.1.6-beta5/DSPi-RP2350-v1.1.6-beta5.uf2 | `0835f0af8ddfe6e70aa0dfb9a5a71760e1a122927b7a96c8a6f8e3bc7ef2d240` |
+
+To bump: download the new release the same way, compare `sha256sum` with the
+release's `assets[].digest`, replace both files, update this table, the
+hashes in `Uf2ImageTest` and `FirmwareVersion.CONSOLE_VERSION`.
+
+`:feature-firmware` uses `androidx.activity:activity-compose` for its SAF
+pickers; its verification metadata is the E3 row above (no further entries).
+
 ## Not downloaded
 
 - No adb, emulator or system images. The container has no USB access (`tools/dev.sh`
