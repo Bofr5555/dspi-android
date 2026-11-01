@@ -40,11 +40,37 @@ impl From<UsbError> for DspiError {
 pub type Result<T> = std::result::Result<T, DspiError>;
 
 /// Map a core status byte (0 = success) to `Result<()>`.
-#[allow(dead_code)]
 pub(crate) fn status(code: u8) -> Result<()> {
     if code == 0 {
         Ok(())
     } else {
         Err(DspiError::Refused { status: code })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn usb_errors_map_to_typed_errors() {
+        assert_eq!(DspiError::from(UsbError::NotConnected), DspiError::Disconnected);
+        assert_eq!(DspiError::from(UsbError::Rusb(rusb::Error::NoDevice)), DspiError::Disconnected);
+        assert!(matches!(DspiError::from(UsbError::InvalidArgument), DspiError::InvalidArgument { .. }));
+        assert!(matches!(DspiError::from(UsbError::Rusb(rusb::Error::Timeout)), DspiError::Transfer { .. }));
+        assert!(matches!(DspiError::from(UsbError::Rusb(rusb::Error::Pipe)), DspiError::Transfer { .. }));
+        assert!(matches!(
+            DspiError::from(UsbError::ShortRead { expected: 4, actual: 1 }),
+            DspiError::Transfer { msg } if msg.contains("expected 4")
+        ));
+    }
+
+    #[test]
+    fn status_bytes_map_to_refused() {
+        assert_eq!(status(0), Ok(()));
+        assert_eq!(status(dspi_core::protocol::PRESET_ERR_SLOT_EMPTY), Err(DspiError::Refused { status: 2 }));
+        assert_eq!(status(dspi_core::protocol::PIN_CONFIG_PIN_IN_USE), Err(DspiError::Refused { status: 2 }));
+        assert_eq!(status(dspi_core::protocol::FLASH_ERR_CRC), Err(DspiError::Refused { status: 3 }));
+        assert_eq!(status(0xFF), Err(DspiError::Refused { status: 0xFF }));
     }
 }

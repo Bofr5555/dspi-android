@@ -21,6 +21,10 @@ dspi-core = { path = "../.staged/dspi-core/core" }
 # Android targets (bionic) and the host need no system libusb. Feature
 # unification turns it on for the core's rusb as well.
 rusb = { version = "0.9.4", features = ["vendored"] }
+# JSON passthrough calls (same JSON as the core's C ABI) and the V32 state
+# fixture (`examples/dump_state.rs`). Both already in the lock via the core.
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15.1"

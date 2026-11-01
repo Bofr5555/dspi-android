@@ -24,7 +24,7 @@ pub use crate::core::DspiCore;
 pub use crate::error::DspiError;
 pub use crate::records::*;
 
-use dspi_core::{dsp_math, protocol};
+use dspi_core::{dsp_math, presetfile, protocol};
 
 // ═══ Free functions (stateless; no device needed) ═══════════════════
 
@@ -63,14 +63,37 @@ pub fn curve_freq(i: u32) -> f64 {
 /// savedUtc} (`dspi_config_inspect`).
 #[uniffi::export]
 pub fn config_inspect(text: String) -> String {
-    let _ = text;
-    todo!("dspi-ffi: config_inspect not implemented yet (package FFI)")
+    let out = match presetfile::parse(&text) {
+        Ok(v) => {
+            let (name, platform, firmware, saved) = presetfile::provenance(&v);
+            serde_json::json!({ "ok": true, "name": name, "platform": platform, "firmware": firmware, "savedUtc": saved })
+        }
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    };
+    out.to_string()
 }
 
 /// Boards in BOOTSEL on the bus (`dspi_bootloader_counts`). 0/0 on Android.
 #[uniffi::export]
 pub fn bootloader_counts() -> BootloaderCounts {
-    todo!("dspi-ffi: bootloader_counts not implemented yet (package FFI)")
+    // Android: never let libusb enumerate (the list is then empty -> 0/0).
+    #[cfg(target_os = "android")]
+    let _ = crate::core::disable_discovery_once();
+    let mut counts = BootloaderCounts::default();
+    if let Ok(list) = rusb::devices() {
+        for d in list.iter() {
+            if let Ok(desc) = d.device_descriptor() {
+                if desc.vendor_id() == 0x2E8A {
+                    match desc.product_id() {
+                        0x0003 => counts.rp2040 += 1,
+                        0x000F => counts.rp2350 += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    counts
 }
 
 /// Version facts of the linked core.
@@ -115,8 +138,12 @@ mod tests {
     }
 
     #[test]
-    fn new_core_has_default_state() {
+    fn no_device_means_disconnected() {
         let core = DspiCore::new();
+        assert!(!core.is_connected());
+        assert_eq!(core.fetch_all(), Err(DspiError::Disconnected));
+        assert_eq!(core.set_master_volume(-10.0), Err(DspiError::Disconnected));
+        assert_eq!(core.save_preset(0), Err(DspiError::Disconnected));
         assert_eq!(core.get_state().num_output_channels, 5);
     }
 }

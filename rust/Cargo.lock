@@ -323,6 +323,8 @@ dependencies = [
  "dspi-core",
  "log",
  "rusb",
+ "serde",
+ "serde_json",
  "thiserror",
  "uniffi",
 ]
