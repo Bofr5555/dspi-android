@@ -82,9 +82,12 @@ enum class DangerousOp(val opcodes: List<Int>, val writesFlash: Boolean) {
 /**
  * Proof that the user confirmed [op]. Only tokens returned by
  * [DangerousOps.confirm] of the same bridge are valid; equality is identity.
- * Single use, except [DangerousOp.reusable] ops.
+ * Single use, except [DangerousOp.reusable] ops. An invalid token always
+ * throws [DangerousOpNotConfirmed]; a valid one is spent only when the gated
+ * call is made while a device is connected (a disconnected call returns its
+ * usual failure value and the token stays usable).
  */
-class ConfirmationToken(val op: DangerousOp, val id: Long) {
+class ConfirmationToken internal constructor(val op: DangerousOp, val id: Long) {
     override fun toString() = "ConfirmationToken($op #$id)"
 }
 

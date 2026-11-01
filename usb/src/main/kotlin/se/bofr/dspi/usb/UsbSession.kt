@@ -25,15 +25,19 @@ sealed interface UsbSessionState {
     data object NoDevice : UsbSessionState
 
     /**
-     * A DSPi is present, the app may not open it, and no permission dialog is
-     * up (found while no UI was visible, or the grace window after an attach
-     * expired). The UI offers an action that calls [UsbSession.requestPermission].
+     * A DSPi is present, the app may not open it, and no request is queued or
+     * shown: found by a passive rescan (a unit left and this one remains), or
+     * the attach grace window expired while no UI was visible. Becomes
+     * PermissionPending(dialogShown = true) when a UI becomes visible
+     * ([UsbSession.setUiVisible]) or on [UsbSession.requestPermission].
      */
     data class PermissionRequired(val serial: String) : UsbSessionState
 
     /**
-     * Permission was requested for this device. [dialogShown] false: queued,
-     * to be shown when a UI is visible ([UsbSession.setUiVisible]).
+     * Permission was requested for this device. [dialogShown] true: the system
+     * dialog is up (answer pending). false: the request is queued (cold start or
+     * explicit request while no UI is visible) and is shown when a UI becomes
+     * visible. Differs from [PermissionRequired] only in that a request was made.
      */
     data class PermissionPending(val serial: String, val dialogShown: Boolean) : UsbSessionState
 
@@ -90,8 +94,11 @@ interface UsbSession {
 
     /**
      * A UI is on screen (debounced across configuration changes). Visible:
-     * queued permission prompts are shown and the service is (re)started if a
-     * device is open. Forwards to [DspiBridge.setUiVisible] (status poll).
+     * queued and required permission prompts are shown (never after a
+     * remembered denial), a previously failed unit is retried, and the
+     * foreground service start is re-issued if a device is open (this recovers a
+     * start Android refused in the background). Forwards to
+     * [DspiBridge.setUiVisible] (status poll).
      */
     fun setUiVisible(visible: Boolean)
 

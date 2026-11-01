@@ -29,7 +29,11 @@ data class BootloaderPermissionResult(val deviceName: String, val granted: Boole
 interface BootloaderLocator {
     val devices: StateFlow<List<BootloaderDevice>>
 
-    /** Every answer, including a repeated identical one (hence a SharedFlow, not a StateFlow). */
+    /**
+     * Every answer to [requestPermission], including a repeated identical one.
+     * Hot, no replay: start collecting BEFORE calling [requestPermission], or
+     * the answer may be missed (then check [hasPermission]).
+     */
     val permissionResults: SharedFlow<BootloaderPermissionResult>
 
     fun start(context: Context)
@@ -38,7 +42,7 @@ interface BootloaderLocator {
 
     fun hasPermission(device: BootloaderDevice): Boolean
 
-    /** Shows the system dialog; the answer arrives on [permissionResults]. */
+    /** Shows the system dialog; collect [permissionResults] first, the answer arrives there. */
     fun requestPermission(device: BootloaderDevice)
 
     /** The platform device for PICOBOOT, null if it is gone. */
