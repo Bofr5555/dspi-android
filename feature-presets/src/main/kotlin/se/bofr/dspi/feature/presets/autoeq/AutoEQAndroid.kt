@@ -11,10 +11,16 @@ import java.io.File
 internal class SharedPreferencesFavoritesStore(context: Context) : FavoritesStore {
     private val prefs = context.getSharedPreferences("autoeq", Context.MODE_PRIVATE)
 
-    override fun load(): List<String> = prefs.getString(KEY, null)?.split('\n')?.filter { it.isNotEmpty() }.orEmpty()
+    /** One favourite per line, `id\tname`. */
+    override fun load(): List<FavoriteProfile> = prefs.getString(KEY, null)
+        ?.split('\n')
+        ?.filter { it.isNotEmpty() }
+        ?.map { line -> FavoriteProfile(line.substringBefore('\t'), line.substringAfter('\t', line.substringBefore('\t'))) }
+        .orEmpty()
 
-    override fun save(ids: List<String>) {
-        prefs.edit().apply { if (ids.isEmpty()) remove(KEY) else putString(KEY, ids.joinToString("\n")) }.apply()
+    override fun save(favorites: List<FavoriteProfile>) {
+        val text = favorites.joinToString("\n") { "${it.id}\t${it.name}" }
+        prefs.edit().apply { if (favorites.isEmpty()) remove(KEY) else putString(KEY, text) }.apply()
     }
 
     private companion object {

@@ -7,9 +7,13 @@
 // the summary formatting is the UI's, as on macOS and Linux (main.qml withUnsaved).
 package se.bofr.dspi.feature.presets
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /** NSAlert.Style. */
 enum class AlertStyle { INFORMATIONAL, WARNING, CRITICAL }
@@ -132,3 +136,10 @@ object PresetAlerts {
         )
     )
 }
+
+/**
+ * Decision E9: a device sequence (one or more calls, flash writes, the result
+ * alert) runs to its end even when the screen goes away; it is launched on the
+ * controller's ViewModel scope and is not cancelled with it.
+ */
+internal fun CoroutineScope.launchDeviceSequence(block: suspend CoroutineScope.() -> Unit): Job = launch(NonCancellable, block = block)

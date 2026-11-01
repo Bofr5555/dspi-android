@@ -6,11 +6,13 @@
 // `unsaved_changes_spec.md`. Linux `qt/qml/components/PresetMenu.qml` and
 // `main.qml` withUnsaved/switchPreset for how a GUI drives this core.
 //
-// Gating (docs/UPSTREAM-DEVIATIONS.md "Gating policy"): load is ungated and
-// guarded by the Unsaved Changes flow only. Save / Copy / Clear are GATED: the
-// token is minted in the OK handler of the alert that confirms them. Where
-// macOS saves without a confirmation (Save, Copy to…), a confirmation alert
-// was added (PRESETS deviations 1–2).
+// Gating (decision E1): load is ungated and guarded by the Unsaved Changes
+// flow only. Save / Copy / Clear are GATED; the token is minted by the user
+// action macOS uses: the Save / Copy-to tap (no extra alert, as macOS), the
+// Unsaved Changes handler, or the Clear alerts' confirm handler.
+// Decision E9: device sequences run via launchDeviceSequence on the
+// controller's (ViewModel) scope, so a configuration change can't stop them
+// between flash writes.
 package se.bofr.dspi.feature.presets
 
 import kotlinx.coroutines.CoroutineScope
@@ -77,7 +79,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
         withUnsavedChanges(onCancel = { _presetSwitchInFlight.value = false }) { action ->
             // Save: the token is minted here, in the Unsaved Changes alert's Save handler.
             val token = if (action == UnsavedChangesAction.SAVE) bridge.dangerousOps.confirm(DangerousOp.SAVE_PRESET) else null
-            scope.launch {
+            scope.launchDeviceSequence {
                 try {
                     if (token != null) {
                         ensureName(previousSlot)
@@ -87,7 +89,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
                                 "Save Failed",
                                 "Failed to save preset (${presetFailureText(saveStatus)}). Preset switch aborted."
                             )
-                            return@launch
+                            return@launchDeviceSequence
                         }
                     }
                     val status = bridge.loadPreset(slot)
@@ -102,34 +104,18 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
     // ═══ Context menu (PresetContextMenuItems) ═══════════════════════════
 
     /**
-     * "Save": macOS saves straight away; here the gated save is confirmed with
-     * the Commit Parameters wording (deviation 1). Reports only a failure.
+     * "Save": as macOS, the menu tap itself saves (decision E1: the explicit tap
+     * mints SAVE_PRESET); only a failure is reported.
      */
     fun saveActivePreset() {
         if (!bridge.connected) return
         val slot = bridge.activePresetSlot
-        host.show(
-            ConsoleAlert(
-                "Save Preset",
-                "Save current parameters to preset slot ${slot + 1}?",
-                AlertStyle.WARNING,
-                listOf(
-                    AlertButton("Save", AlertButtonRole.DEFAULT) {
-                        val token = bridge.dangerousOps.confirm(DangerousOp.SAVE_PRESET)
-                        scope.launch {
-                            ensureName(slot)
-                            val status = bridge.savePreset(token, slot)
-                            if (status !=
-                                PresetStatus.OK
-                            ) {
-                                host.showWarning("Save Failed", "Failed to save preset (${presetFailureText(status)}).")
-                            }
-                        }
-                    },
-                    AlertButton("Cancel", AlertButtonRole.CANCEL)
-                )
-            )
-        )
+        val token = bridge.dangerousOps.confirm(DangerousOp.SAVE_PRESET)
+        scope.launchDeviceSequence {
+            ensureName(slot)
+            val status = bridge.savePreset(token, slot)
+            if (status != PresetStatus.OK) host.showWarning("Save Failed", "Failed to save preset (${presetFailureText(status)}).")
+        }
     }
 
     /** "Rename…": the Rename Preset sheet (Name field, Cancel / Rename). */
@@ -164,47 +150,15 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
 
     /**
      * "Copy to…": copies the live settings into [destinationSlot], keeping the
-     * source active (copyPreset re-saves the source). macOS asks only about
-     * unsaved changes; the gated copy is confirmed first (deviation 2, Linux
-     * PresetMenu.qml's "Replace" wording for an occupied slot).
+     * source active (copyPreset re-saves the source). As macOS: when dirty, the
+     * Unsaved Changes alert first (Save saves the source, Discard reloads it);
+     * then the copy. Decision E1: COPY_PRESET (and SAVE_PRESET on Save) is
+     * minted by the destination tap, or by the Unsaved Changes handler.
      */
     fun copyActivePreset(destinationSlot: Int) {
         val sourceSlot = bridge.activePresetSlot
         if (destinationSlot == sourceSlot || !bridge.connected) return
-        val destLabel = presetLabel(destinationSlot)
-        val occupied = bridge.isPresetOccupied(destinationSlot)
-        val confirm =
-            if (occupied) {
-                ConsoleAlert(
-                    "Replace \"$destLabel\"?",
-                    "Its settings will be replaced with the current ones. Its name stays the same.",
-                    AlertStyle.WARNING,
-                    listOf(
-                        AlertButton("Replace", AlertButtonRole.DESTRUCTIVE) { copyConfirmed(sourceSlot, destinationSlot) },
-                        AlertButton("Cancel", AlertButtonRole.CANCEL)
-                    )
-                )
-            } else {
-                ConsoleAlert(
-                    "Copy Preset",
-                    "Copy the current settings into \"$destLabel\"? The current preset stays active.",
-                    AlertStyle.WARNING,
-                    listOf(
-                        AlertButton("Copy", AlertButtonRole.DEFAULT) { copyConfirmed(sourceSlot, destinationSlot) },
-                        AlertButton("Cancel", AlertButtonRole.CANCEL)
-                    )
-                )
-            }
-        host.show(confirm)
-    }
-
-    private fun copyConfirmed(sourceSlot: Int, destinationSlot: Int) {
-        if (!hasUnsavedChanges) {
-            runCopy(sourceSlot, destinationSlot, null, bridge.dangerousOps.confirm(DangerousOp.COPY_PRESET))
-            return
-        }
         withUnsavedChanges { action ->
-            // Both tokens minted in the Unsaved Changes alert's handler, right after the copy was confirmed.
             val saveToken = if (action == UnsavedChangesAction.SAVE) bridge.dangerousOps.confirm(DangerousOp.SAVE_PRESET) else null
             runCopy(sourceSlot, destinationSlot, action, bridge.dangerousOps.confirm(DangerousOp.COPY_PRESET), saveToken)
         }
@@ -217,7 +171,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
         copyToken: ConfirmationToken,
         saveToken: ConfirmationToken? = null
     ) {
-        scope.launch {
+        scope.launchDeviceSequence {
             // Pre-op: align the live state with the source slot.
             when (preOp) {
                 UnsavedChangesAction.SAVE -> {
@@ -244,7 +198,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
                 listOf(
                     AlertButton("Clear", AlertButtonRole.DESTRUCTIVE) {
                         val token = bridge.dangerousOps.confirm(DangerousOp.DELETE_PRESET)
-                        scope.launch {
+                        scope.launchDeviceSequence {
                             val status = bridge.deletePreset(token, slot)
                             if (status == PresetStatus.OK) {
                                 if (bridge.activePresetSlot == slot) bridge.loadPreset(slot)
@@ -271,7 +225,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
                         // One confirmation covers every slot: one single-use token per delete, minted here.
                         val toDelete = (0 until PRESET_SLOT_COUNT).filter { bridge.isPresetOccupied(it) }
                         val tokens = toDelete.associateWith { bridge.dangerousOps.confirm(DangerousOp.DELETE_PRESET) }
-                        scope.launch {
+                        scope.launchDeviceSequence {
                             for (slot in toDelete) bridge.deletePreset(tokens.getValue(slot), slot)
                             bridge.loadPreset(bridge.activePresetSlot)
                         }

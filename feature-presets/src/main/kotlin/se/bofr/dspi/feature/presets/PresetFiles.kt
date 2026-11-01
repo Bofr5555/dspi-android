@@ -3,6 +3,7 @@
 // Framework reads/writes and a share sheet (FileProvider). Not JVM-tested.
 package se.bofr.dspi.feature.presets
 
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -37,11 +38,21 @@ internal object PresetFiles {
         }.getOrNull() ?: uri.lastPathSegment
     }
 
-    /** Writes [text] to a cache file named [fileName] and opens the share sheet for it. */
+    /** The FileProvider's `cache-path shared/` directory. */
+    fun sharedDir(context: Context) = File(context.cacheDir, "shared")
+
+    /** Deletes earlier shared files (review P7): run at startup and before each share. */
+    fun clearShared(dir: File) {
+        dir.listFiles()?.forEach { it.deleteRecursively() }
+    }
+
+    /** Writes [text] to a fresh cache file named [fileName] and opens the share sheet for it. */
     suspend fun share(context: Context, fileName: String, mime: String, text: String) {
         val file =
             withContext(Dispatchers.IO) {
-                val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+                val dir = sharedDir(context)
+                clearShared(dir)
+                dir.mkdirs()
                 File(dir, fileName).apply { writeText(text) }
             }
         val uri = FileProvider.getUriForFile(context, authority(context), file)
@@ -49,6 +60,7 @@ internal object PresetFiles {
             Intent(Intent.ACTION_SEND).apply {
                 type = mime
                 putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newRawUri(fileName, uri)
                 putExtra(Intent.EXTRA_SUBJECT, fileName)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }

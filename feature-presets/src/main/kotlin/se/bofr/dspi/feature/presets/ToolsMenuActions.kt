@@ -6,7 +6,6 @@
 package se.bofr.dspi.feature.presets
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.FlashStatus
@@ -28,7 +27,7 @@ class ToolsMenuActions(private val bridge: DspiBridge, private val scope: Corout
                 listOf(
                     AlertButton("Save", AlertButtonRole.DEFAULT) {
                         val token = bridge.dangerousOps.confirm(DangerousOp.SAVE_PRESET)
-                        scope.launch {
+                        scope.launchDeviceSequence {
                             when (val result = bridge.savePreset(token, slot)) {
                                 PresetStatus.OK -> host.showSuccess("Preset saved successfully")
                                 else -> host.showError("Failed to save preset (${presetFailureText(result)})")
@@ -54,7 +53,7 @@ class ToolsMenuActions(private val bridge: DspiBridge, private val scope: Corout
                             host.showError("Not connected to device")
                             return@AlertButton
                         }
-                        scope.launch {
+                        scope.launchDeviceSequence {
                             when (bridge.loadParams()) {
                                 FlashStatus.OK -> host.showSuccess("Parameters reverted successfully")
                                 FlashStatus.ERR_NO_DATA -> host.showInfo(
@@ -86,7 +85,7 @@ class ToolsMenuActions(private val bridge: DspiBridge, private val scope: Corout
                             return@AlertButton
                         }
                         val token = bridge.dangerousOps.confirm(DangerousOp.FACTORY_RESET)
-                        scope.launch {
+                        scope.launchDeviceSequence {
                             when (bridge.factoryReset(token)) {
                                 FlashStatus.OK -> host.showSuccess("Factory reset complete")
                                 else -> host.showError("Failed to reset parameters")
@@ -100,65 +99,38 @@ class ToolsMenuActions(private val bridge: DspiBridge, private val scope: Corout
     }
 
     /**
-     * File > "Save Master Volume" (GATED SAVE_MASTER_VOLUME). macOS saves
-     * without asking; the confirmation is deviation 3 (wording from README
-     * "Saving Master Volume and Output Configuration").
+     * File > "Save Master Volume": as macOS, the menu tap saves (decision E1: the
+     * tap mints SAVE_MASTER_VOLUME); the result alert follows.
      */
     fun saveMasterVolume() {
         if (!bridge.connected) {
             host.showError("No device connected.")
             return
         }
-        val savedDB = bridge.masterVolumeDB
-        val display = PresetDocumentFiles.masterVolumeDisplay(savedDB)
-        host.show(
-            ConsoleAlert(
-                "Save Master Volume",
-                "Store the current master volume ($display) on the device? It will be applied on next boot.",
-                AlertStyle.WARNING,
-                listOf(
-                    AlertButton("Save", AlertButtonRole.DEFAULT) {
-                        val token = bridge.dangerousOps.confirm(DangerousOp.SAVE_MASTER_VOLUME)
-                        scope.launch {
-                            if (bridge.saveMasterVolume(token) == PresetStatus.OK) {
-                                host.showSuccess("Master volume saved ($display). It will be applied on next boot.")
-                            } else {
-                                host.showError("Failed to save master volume — the device did not acknowledge the request.")
-                            }
-                        }
-                    },
-                    AlertButton("Cancel", AlertButtonRole.CANCEL)
-                )
-            )
-        )
+        val display = PresetDocumentFiles.masterVolumeDisplay(bridge.masterVolumeDB)
+        val token = bridge.dangerousOps.confirm(DangerousOp.SAVE_MASTER_VOLUME)
+        scope.launchDeviceSequence {
+            if (bridge.saveMasterVolume(token) == PresetStatus.OK) {
+                host.showSuccess("Master volume saved ($display). It will be applied on next boot.")
+            } else {
+                host.showError("Failed to save master volume — the device did not acknowledge the request.")
+            }
+        }
     }
 
-    /** File > "Save Output Configuration" (GATED SAVE_OUTPUT_CONFIG); confirmation = deviation 3. */
+    /** File > "Save Output Configuration": the tap saves (E1, SAVE_OUTPUT_CONFIG); the result alert follows. */
     fun saveOutputConfig() {
         if (!bridge.connected) {
             host.showError("No device connected.")
             return
         }
-        host.show(
-            ConsoleAlert(
-                "Save Output Configuration",
-                "Store the current hardware configuration (pins, output types, I2S clocks, S/PDIF input pins and output limiters) " +
-                    "on the device? It will be applied on next boot.",
-                AlertStyle.WARNING,
-                listOf(
-                    AlertButton("Save", AlertButtonRole.DEFAULT) {
-                        val token = bridge.dangerousOps.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)
-                        scope.launch {
-                            if (bridge.saveOutputConfig(token) == PresetStatus.OK) {
-                                host.showSuccess("Output configuration saved. It will be applied on next boot.")
-                            } else {
-                                host.showError("Failed to save output configuration. The device did not acknowledge the request.")
-                            }
-                        }
-                    },
-                    AlertButton("Cancel", AlertButtonRole.CANCEL)
-                )
-            )
-        )
+        val token = bridge.dangerousOps.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)
+        scope.launchDeviceSequence {
+            if (bridge.saveOutputConfig(token) == PresetStatus.OK) {
+                host.showSuccess("Output configuration saved. It will be applied on next boot.")
+            } else {
+                host.showError("Failed to save output configuration. The device did not acknowledge the request.")
+            }
+        }
     }
 }

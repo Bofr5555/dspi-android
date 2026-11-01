@@ -1,7 +1,7 @@
 // Port of DSPi-Console (macOS) `DSPi Console/DSPi_ConsoleApp.swift` @ v1.1.6-beta5
 // `AutoEQMenuActions` (Update Database…: Import File…, Reset to Built-in) and
 // the AutoEQ menu's Favorite Profiles / Clear Favorites. "Rebuild from GitHub"
-// is not offered (PRESETS deviation 5).
+// is not offered (PRESETS deviation 2).
 package se.bofr.dspi.feature.presets.autoeq
 
 import kotlinx.coroutines.CoroutineDispatcher
@@ -32,8 +32,33 @@ class AutoEQMenuActions(
         return true
     }
 
+    /** Parses the database on [io] if it isn't yet (the browser opening, a favourite, Update Database). */
+    fun loadDatabase() {
+        scope.launch { withContext(io) { manager.ensureLoaded() } }
+    }
+
+    /** Favorite Profiles > entry: loads the database if needed, then applies. */
+    fun applyFavorite(favorite: FavoriteProfile) {
+        scope.launch {
+            withContext(io) { manager.ensureLoaded() }
+            val entry = manager.entry(favorite.id)
+            if (entry == null) {
+                host.showError("${favorite.name} is not in the AutoEQ database.")
+                return@launch
+            }
+            applyProfile(entry)
+        }
+    }
+
     /** "Update Database...": shows the current database and the update methods. */
     fun updateDatabase(onImportFile: () -> Unit) {
+        scope.launch {
+            withContext(io) { manager.ensureLoaded() }
+            showUpdateDatabase(onImportFile)
+        }
+    }
+
+    private fun showUpdateDatabase(onImportFile: () -> Unit) {
         val buttons =
             buildList {
                 add(AlertButton("Import File...", AlertButtonRole.DEFAULT) { onImportFile() })

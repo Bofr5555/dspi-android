@@ -99,7 +99,7 @@ class FileMenuActions(private val bridge: DspiBridge, private val scope: Corouti
             return
         }
         val token = bridge.dangerousOps.confirm(DangerousOp.CONFIG_IMPORT)
-        scope.launch {
+        scope.launchDeviceSequence {
             host.beginProgress("Importing configuration…")
             val result =
                 try {
@@ -109,7 +109,7 @@ class FileMenuActions(private val bridge: DspiBridge, private val scope: Corouti
                 }
             if (result?.bool("ok") != true) {
                 host.showError(result?.str("error")?.ifEmpty { null } ?: "The configuration was not applied.")
-                return@launch
+                return@launchDeviceSequence
             }
             val message = result.list("lines").orEmpty().filterIsInstance<String>().joinToString("\n\n")
             // Anything the device refused or couldn't do isn't a success: no "Success" heading over it.
@@ -191,11 +191,11 @@ class FileMenuActions(private val bridge: DspiBridge, private val scope: Corouti
 
     private fun applyFilters(text: String, wires: List<Int>) {
         if (wires.isEmpty()) return
-        scope.launch {
+        scope.launchDeviceSequence {
             val r = PresetsJson.parseObject(bridge.configFiles.importFilters(text, wires))
             if (r?.bool("ok") == false || r == null) {
                 host.showError(r?.str("error")?.ifEmpty { null } ?: "Failed to import filters")
-                return@launch
+                return@launchDeviceSequence
             }
             val lines = r.list("lines").orEmpty().filterIsInstance<String>()
             host.showSuccess(lines.joinToString("\n\n").ifEmpty { "Filters imported successfully" })

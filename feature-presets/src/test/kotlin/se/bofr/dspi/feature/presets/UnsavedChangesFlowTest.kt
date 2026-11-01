@@ -183,16 +183,15 @@ class UnsavedChangesFlowTest {
     }
 
     @Test
-    fun copyAsksToReplaceAnOccupiedSlotThenAboutUnsavedChanges() = runTest {
+    fun copyWithUnsavedChangesAsksOnlyAboutThem() = runTest {
         val core = presetFake()
         val b = attached(core)
         val host = AlertHost()
         val a = PresetMenuActions(b, this, host)
         makeDirty(b)
         a.copyActivePreset(1)
-        assertEquals("Replace \"2: Preset 2\"?", host.alert.value!!.messageText)
-        host.press("Replace")
         runCurrent()
+        // macOS: no "Replace?" alert, only Unsaved Changes (review P2, decision E1)
         assertEquals("Unsaved Changes", host.alert.value!!.messageText)
         host.press("Discard")
         runCurrent()
@@ -209,9 +208,6 @@ class UnsavedChangesFlowTest {
         val a = PresetMenuActions(b, this, host)
         makeDirty(b)
         a.copyActivePreset(5)
-        assertEquals("Copy Preset", host.alert.value!!.messageText)
-        assertEquals("Copy the current settings into \"6: Empty\"? The current preset stays active.", host.alert.value!!.informativeText)
-        host.press("Copy")
         runCurrent()
         host.press("Save")
         runCurrent()
@@ -220,30 +216,57 @@ class UnsavedChangesFlowTest {
     }
 
     @Test
-    fun copyWhenCleanDoesNotAskAboutChanges() = runTest {
+    fun copyWhenCleanCopiesOnTheTap() = runTest {
         val core = presetFake()
         val b = attached(core)
         val host = AlertHost()
         val a = PresetMenuActions(b, this, host)
         a.copyActivePreset(1)
-        host.press("Replace")
+        assertNull(host.alert.value)
         runCurrent()
         assertNull(host.alert.value)
         assertEquals(listOf("setPresetName(1, Preset 2)", "copyPreset(0, 1)"), core.presetCalls())
     }
 
     @Test
-    fun saveAsksThenSavesTheActiveSlot() = runTest {
+    fun cancellingTheUnsavedChangesAlertCancelsTheCopy() = runTest {
+        val core = presetFake()
+        val b = attached(core)
+        val host = AlertHost()
+        val a = PresetMenuActions(b, this, host)
+        makeDirty(b)
+        a.copyActivePreset(1)
+        runCurrent()
+        host.press("Cancel")
+        runCurrent()
+        assertTrue(core.presetCalls().isEmpty())
+    }
+
+    @Test
+    fun saveSavesOnTheTap() = runTest {
         val core = presetFake()
         val b = attached(core)
         val host = AlertHost()
         val a = PresetMenuActions(b, this, host)
         a.saveActivePreset()
-        assertEquals("Save current parameters to preset slot 1?", host.alert.value!!.informativeText)
-        host.press("Save")
+        // macOS saves without asking (review P1, decision E1)
+        assertNull(host.alert.value)
         runCurrent()
         assertEquals(listOf("savePreset(0)"), core.presetCalls())
         assertNull(host.alert.value)
+    }
+
+    @Test
+    fun aFailedSaveIsReported() = runTest {
+        val core = presetFake()
+        val b = attached(core)
+        val host = AlertHost()
+        val a = PresetMenuActions(b, this, host)
+        core.failNext("savePreset", error = { DspiException.Refused(4) })
+        a.saveActivePreset()
+        runCurrent()
+        assertEquals("Save Failed", host.alert.value!!.messageText)
+        assertEquals("Failed to save preset (error 4).", host.alert.value!!.informativeText)
     }
 
     @Test
@@ -300,7 +323,7 @@ class UnsavedChangesFlowTest {
         val b = attached(core)
         val host = AlertHost()
         val a = PresetMenuActions(b, this, host)
-        for (open in listOf({ a.saveActivePreset() }, { a.copyActivePreset(3) }, { a.clearPreset(0) }, { a.clearAllPresets() })) {
+        for (open in listOf({ a.clearPreset(0) }, { a.clearAllPresets() })) {
             open()
             host.press("Cancel")
             runCurrent()

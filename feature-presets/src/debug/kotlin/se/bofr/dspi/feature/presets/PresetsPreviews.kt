@@ -12,6 +12,7 @@ import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.feature.presets.autoeq.AutoEQBrowser
 import se.bofr.dspi.feature.presets.autoeq.AutoEQManager
+import se.bofr.dspi.feature.presets.autoeq.FavoriteProfile
 import se.bofr.dspi.feature.presets.autoeq.InMemoryFavoritesStore
 import se.bofr.dspi.ui.DspiTheme
 
@@ -30,7 +31,11 @@ private fun rememberPreviewController(dirty: Boolean = false): PresetsController
         val bridge = DspiBridgeImpl(core, scope).also { it.scanDevices() }
         if (dirty) bridge.setBypass(true)
         val manager =
-            AutoEQManager({ PREVIEW_DB }, null, InMemoryFavoritesStore(listOf("crinacle/Moondrop Blessing 2"))).also { it.loadDatabase() }
+            AutoEQManager({
+                PREVIEW_DB
+            }, null, InMemoryFavoritesStore(listOf(FavoriteProfile("crinacle/Moondrop Blessing 2", "Moondrop Blessing 2")))).also {
+                it.loadDatabase()
+            }
         PresetsController(bridge, scope, manager, Dispatchers.Default)
     }
 }

@@ -14,6 +14,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 
 /** Hosts one SAF picker and hands its Uri to [DocumentPicker]. */
 class DocumentPickerActivity : Activity() {
@@ -60,7 +61,12 @@ class DocumentPickerActivity : Activity() {
     }
 }
 
-/** Suspending front end of [DocumentPickerActivity]; one picker at a time. */
+/**
+ * Front end of [DocumentPickerActivity]. The picker is started from the
+ * screen (an Activity context) and its result awaited on the ViewModel scope,
+ * so a rotation while the picker is up does not lose the pick. One picker at a
+ * time (they are modal); a new one supersedes a pick that never came back.
+ */
 internal object DocumentPicker {
     private var pending: CompletableDeferred<Uri?>? = null
 
@@ -71,7 +77,7 @@ internal object DocumentPicker {
         if (error != null) p.completeExceptionally(error) else p.complete(uri)
     }
 
-    private suspend fun launch(context: Context, extras: Intent.() -> Unit): Uri? {
+    private fun start(context: Context, extras: Intent.() -> Unit): Deferred<Uri?> {
         val d = CompletableDeferred<Uri?>()
         synchronized(this) {
             pending?.complete(null)
@@ -80,15 +86,15 @@ internal object DocumentPicker {
         val i = Intent(context, DocumentPickerActivity::class.java).apply(extras)
         if (context !is Activity) i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(i)
-        return d.await()
+        return d
     }
 
-    /** NSOpenPanel: the picked document, null when cancelled. Throws ActivityNotFoundException without a picker. */
-    suspend fun open(context: Context, mimeTypes: Array<String>): Uri? =
-        launch(context) { putExtra(DocumentPickerActivity.EXTRA_MIME_TYPES, mimeTypes) }
+    /** NSOpenPanel: completes with the picked document, null when cancelled; fails with ActivityNotFoundException without a picker. */
+    fun startOpen(context: Context, mimeTypes: Array<String>): Deferred<Uri?> =
+        start(context) { putExtra(DocumentPickerActivity.EXTRA_MIME_TYPES, mimeTypes) }
 
     /** NSSavePanel with `nameFieldStringValue` = [suggestedName]. */
-    suspend fun create(context: Context, suggestedName: String, mime: String): Uri? = launch(context) {
+    fun startCreate(context: Context, suggestedName: String, mime: String): Deferred<Uri?> = start(context) {
         putExtra(DocumentPickerActivity.EXTRA_CREATE, true)
         putExtra(DocumentPickerActivity.EXTRA_NAME, suggestedName)
         putExtra(DocumentPickerActivity.EXTRA_MIME, mime)

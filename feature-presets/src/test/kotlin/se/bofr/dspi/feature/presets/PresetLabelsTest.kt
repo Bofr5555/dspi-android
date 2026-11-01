@@ -142,7 +142,7 @@ class FileNamingTest {
             """{"channels":[{"eq":[{"type":1},{"type":0}],"crossover":[{"type":34}]},{"eq":[{"type":2}],"crossover":[]}],
                "matrix":[{"enabled":true},{"enabled":false},{"in":1}]}"""
         assertEquals(
-            "Configuration exported.\n\n2 channels, 2 active EQ bands, 1 crossover bands, 2 crosspoints.",
+            "Configuration exported.\n\n2 channels, 2 active EQ bands, 1 crossover bands, 3 crosspoints.",
             PresetDocumentFiles.exportSummary(doc)
         )
     }

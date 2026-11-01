@@ -4,7 +4,7 @@
 // resetToBuiltInDatabase) and Linux `qt/src/AutoEqLibrary.cpp` @ 4683a2c
 // (apply through the bridge: setInputPreamp on inputs 0/1, setFilter on app
 // channels 0/1, the remaining bands Off at 1000 Hz / 0 dB / Q 0.707).
-// "Rebuild from GitHub" is not ported (PRESETS deviation 5).
+// "Rebuild from GitHub" is not ported (PRESETS deviation 2).
 package se.bofr.dspi.feature.presets.autoeq
 
 import java.io.File
@@ -108,27 +108,35 @@ data class AutoEQBand(val band: Int, val type: Int, val freq: Float, val gain: F
 /** What applying a profile writes: the preamp of inputs 1–2 and all ten PEQ bands of app channels 0–1. */
 data class AutoEQApplyPlan(val preamp: Float, val inputs: List<Int>, val channels: List<Int>, val bands: List<AutoEQBand>)
 
-/** Favourite ids, in the order they were added (`UserDefaults "AutoEQ.FavoriteProfiles"`). */
-interface FavoritesStore {
-    fun load(): List<String>
+/**
+ * A favourite as the AutoEQ menu lists it: id plus "manufacturer model", so
+ * the menu needs no database parse (Linux AutoEqLibrary keeps `id\tname` too).
+ */
+data class FavoriteProfile(val id: String, val name: String)
 
-    fun save(ids: List<String>)
+/** Favourites, in the order they were added (`UserDefaults "AutoEQ.FavoriteProfiles"`). */
+interface FavoritesStore {
+    fun load(): List<FavoriteProfile>
+
+    fun save(favorites: List<FavoriteProfile>)
 }
 
-class InMemoryFavoritesStore(initial: List<String> = emptyList()) : FavoritesStore {
-    private var ids = initial
+class InMemoryFavoritesStore(initial: List<FavoriteProfile> = emptyList()) : FavoritesStore {
+    private var favorites = initial
 
-    override fun load() = ids
+    override fun load() = favorites
 
-    override fun save(ids: List<String>) {
-        this.ids = ids
+    override fun save(favorites: List<FavoriteProfile>) {
+        this.favorites = favorites
     }
 }
 
 /**
  * `AutoEQManager`. [bundledDatabase] reads the bundled asset; [userDatabaseFile]
  * is the updated copy (Application Support on macOS, the app's files dir here).
- * Loading is blocking: call [loadDatabase] off the main thread.
+ * Loading is blocking and lazy (the 5.4 MB database is parsed only when the
+ * browser, a favourite or Update Database needs it): call [ensureLoaded] off
+ * the main thread. Favourites are available without loading.
  */
 class AutoEQManager(
     private val bundledDatabase: () -> String,
@@ -138,8 +146,8 @@ class AutoEQManager(
     private val _entries = MutableStateFlow<List<HeadphoneEntry>>(emptyList())
     val entries: StateFlow<List<HeadphoneEntry>> = _entries.asStateFlow()
 
-    private val _favoriteProfiles = MutableStateFlow<List<HeadphoneEntry>>(emptyList())
-    val favoriteProfiles: StateFlow<List<HeadphoneEntry>> = _favoriteProfiles.asStateFlow()
+    private val _favoriteProfiles = MutableStateFlow(favoritesStore.load())
+    val favoriteProfiles: StateFlow<List<FavoriteProfile>> = _favoriteProfiles.asStateFlow()
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
@@ -177,15 +185,19 @@ class AutoEQManager(
 
     fun search(query: String): List<HeadphoneEntry> = search(_entries.value, query)
 
+    /** The loaded entry with [id], null when absent (or not loaded yet). */
+    fun entry(id: String): HeadphoneEntry? = _entries.value.firstOrNull { it.id == id }
+
     // ═══ Apply Profile ════════════════════════════════════════════════════
 
     /** Applies [entry] to inputs 1–2. Returns false when no device is connected (Linux `apply`). */
     fun applyProfile(entry: HeadphoneEntry, bridge: DspiBridge): Boolean {
         if (!bridge.connected) return false
         val plan = applyPlan(entry)
-        // Per-input, not the legacy all-input preamp: only the two inputs the profile EQs.
-        for (input in plan.inputs) bridge.setInputPreamp(input, plan.preamp)
-        for (ch in plan.channels) {
+        // macOS order: per channel, its preamp then its bands. Per-input, not the
+        // legacy all-input preamp: only the two inputs the profile EQs.
+        for ((input, ch) in plan.inputs.zip(plan.channels)) {
+            bridge.setInputPreamp(input, plan.preamp)
             for (b in plan.bands) bridge.setFilter(ch, b.band, b.type, b.freq, b.gain, b.q)
         }
         return true
@@ -197,8 +209,13 @@ class AutoEQManager(
 
     fun toggleFavorite(entry: HeadphoneEntry) {
         _favoriteProfiles.value =
-            if (isFavorite(entry)) _favoriteProfiles.value.filterNot { it.id == entry.id } else _favoriteProfiles.value + entry
-        saveFavorites()
+            if (isFavorite(entry)) {
+                _favoriteProfiles.value.filterNot { it.id == entry.id }
+            } else {
+                // The AutoEQ menu's title: "\(manufacturer) \(model)"
+                _favoriteProfiles.value + FavoriteProfile(entry.id, "${entry.manufacturer} ${entry.model}")
+            }
+        favoritesStore.save(_favoriteProfiles.value)
     }
 
     fun clearFavorites() {
@@ -206,11 +223,11 @@ class AutoEQManager(
         favoritesStore.save(emptyList())
     }
 
-    private fun saveFavorites() = favoritesStore.save(_favoriteProfiles.value.map { it.id })
-
+    /** `loadFavorites`: once a database is loaded, favourites it doesn't contain are dropped (macOS compactMap). */
     private fun loadFavorites() {
-        val byId = _entries.value.associateBy { it.id }
-        _favoriteProfiles.value = favoritesStore.load().mapNotNull { byId[it] }
+        if (_entries.value.isEmpty()) return
+        val ids = _entries.value.mapTo(HashSet()) { it.id }
+        _favoriteProfiles.value = favoritesStore.load().filter { it.id in ids }
     }
 
     // ═══ Database Update ══════════════════════════════════════════════════

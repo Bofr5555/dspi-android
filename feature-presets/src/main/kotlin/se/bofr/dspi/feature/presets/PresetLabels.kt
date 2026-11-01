@@ -129,20 +129,21 @@ object PresetDocumentFiles {
 
     /**
      * `exportConfiguration`'s success text, counted from the exported document
-     * (channels[].eq / crossover with type != 0, matrix crosspoints) as macOS
-     * counts its `PresetDocument` (Linux ConfigFiles.cpp does the same on the
-     * core's JSON).
+     * (channels[].eq / crossover with type != 0, every matrix entry) exactly as
+     * macOS counts its `PresetDocument` (Linux ConfigFiles.cpp counts only the
+     * enabled crosspoints).
      */
     fun exportSummary(documentText: String): String {
         val doc = PresetsJson.parseObject(documentText)
         val channels = doc?.list("channels").orEmpty().filterIsInstance<Map<String, Any?>>()
         fun active(c: Map<String, Any?>, key: String) = c.list(key).orEmpty().count { b ->
-            ((b as? Map<String, Any?>)?.int("type") ?: 0) !=
-                0
+            val type = (b as? Map<String, Any?>)?.int("type") ?: 0
+            type != 0
         }
         val bands = channels.sumOf { active(it, "eq") }
         val xover = channels.sumOf { active(it, "crossover") }
-        val points = doc?.list("matrix").orEmpty().count { x -> (x as? Map<String, Any?>)?.bool("enabled") != false }
+        // macOS: `doc.matrix.count` (every crosspoint entry of the document)
+        val points = doc?.list("matrix").orEmpty().size
         return "Configuration exported.\n\n${channels.size} channels, $bands active EQ bands, $xover crossover bands, $points crosspoints."
     }
 

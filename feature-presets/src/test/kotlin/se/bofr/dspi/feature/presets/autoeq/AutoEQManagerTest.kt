@@ -118,21 +118,43 @@ class AutoEQManagerTest {
     }
 
     @Test
-    fun favoritesPersistInOrder() {
+    fun favoritesPersistInOrderWithTheirMenuTitles() {
         val store = InMemoryFavoritesStore()
         val m = manager(store)
         val (hd650, blessing) = m.entries.value
         m.toggleFavorite(blessing)
         m.toggleFavorite(hd650)
-        assertEquals(listOf("crinacle/Moondrop Blessing 2", "oratory1990/Sennheiser HD 650"), store.load())
+        assertEquals(
+            listOf(
+                FavoriteProfile("crinacle/Moondrop Blessing 2", "Moondrop Blessing 2"),
+                FavoriteProfile("oratory1990/Sennheiser HD 650", "Sennheiser HD 650")
+            ),
+            store.load()
+        )
         assertTrue(m.isFavorite(hd650))
         m.toggleFavorite(blessing)
-        assertEquals(listOf(hd650), m.favoriteProfiles.value)
-        // A new manager reads them back; unknown ids are dropped
-        store.save(listOf("gone/Old", hd650.id))
-        assertEquals(listOf(hd650), manager(store).favoriteProfiles.value)
+        assertEquals(listOf(hd650.id), m.favoriteProfiles.value.map { it.id })
+        // A new manager reads them back; once the database is loaded unknown ids are dropped
+        store.save(listOf(FavoriteProfile("gone/Old", "Old"), FavoriteProfile(hd650.id, "Sennheiser HD 650")))
+        assertEquals(listOf(hd650.id), manager(store).favoriteProfiles.value.map { it.id })
         m.clearFavorites()
         assertTrue(store.load().isEmpty())
+    }
+
+    @Test
+    fun favoritesNeedNoDatabaseParse() {
+        var parses = 0
+        val store = InMemoryFavoritesStore(listOf(FavoriteProfile("crinacle/Moondrop Blessing 2", "Moondrop Blessing 2")))
+        val m = AutoEQManager({
+            parses++
+            DB
+        }, null, store)
+        assertEquals(listOf("Moondrop Blessing 2"), m.favoriteProfiles.value.map { it.name })
+        assertEquals(0, parses)
+        assertFalse(m.isLoaded.value)
+        m.ensureLoaded()
+        m.ensureLoaded()
+        assertEquals(1, parses)
     }
 
     @Test
@@ -163,6 +185,37 @@ class AutoEQManagerTest {
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AutoEQApplyTest {
+    @Test
+    fun applyFollowsTheMacOSOrder() = runTest {
+        val core = presetFake()
+        val b = attached(core)
+        val m = AutoEQManager({ DB }, null, InMemoryFavoritesStore()).also { it.loadDatabase() }
+        synchronized(core.calls) { core.calls.clear() }
+        assertTrue(m.applyProfile(m.entries.value[0], b))
+        runCurrent()
+        val calls = synchronized(core.calls) { core.calls.filter { it.startsWith("setInputPreamp(") || it.startsWith("setFilter(") } }
+        // Preamp L + bands L, then preamp R + bands R (AutoEQManager.swift applyProfile)
+        assertTrue(calls.first().startsWith("setInputPreamp(0"))
+        val secondPreamp = calls.indexOfFirst { it.startsWith("setInputPreamp(1") }
+        assertEquals(11, secondPreamp)
+        assertTrue(calls.subList(1, 11).all { it.startsWith("setFilter(") })
+        assertEquals(22, calls.size)
+    }
+
+    @Test
+    fun aFavoriteLoadsTheDatabaseThenApplies() = runTest {
+        val core = presetFake()
+        val b = attached(core)
+        val host = AlertHost()
+        val fav = FavoriteProfile("crinacle/Moondrop Blessing 2", "Moondrop Blessing 2")
+        val m = AutoEQManager({ DB }, null, InMemoryFavoritesStore(listOf(fav)))
+        AutoEQMenuActions(m, b, this, host, kotlinx.coroutines.Dispatchers.Unconfined).applyFavorite(fav)
+        runCurrent()
+        assertTrue(m.isLoaded.value)
+        assertNull(host.alert.value)
+        assertEquals(-3.1f, b.inputPreampDB(0), 0.05f)
+    }
+
     @Test
     fun applyWritesInputsOneAndTwo() = runTest {
         val core = presetFake()
@@ -200,6 +253,7 @@ class AutoEQApplyTest {
         val m = AutoEQManager({ DB }, null, InMemoryFavoritesStore()).also { it.loadDatabase() }
         var picked = false
         AutoEQMenuActions(m, b, this, host, kotlinx.coroutines.Dispatchers.Unconfined).updateDatabase { picked = true }
+        runCurrent()
         val a = host.alert.value!!
         assertEquals("Update AutoEQ Database", a.messageText)
         assertTrue(a.informativeText.contains("Entries: 3"))

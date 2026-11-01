@@ -8,8 +8,6 @@
 // the phone layout is one scrolling page, tablets get two panes.
 package se.bofr.dspi.feature.presets
 
-import android.content.ActivityNotFoundException
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -37,7 +35,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,17 +44,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.feature.presets.autoeq.AutoEQBrowser
 import se.bofr.dspi.feature.presets.autoeq.AutoEQManager
 import se.bofr.dspi.feature.presets.autoeq.AutoEQManagers
 import se.bofr.dspi.feature.presets.autoeq.AutoEQMenuActions
-import se.bofr.dspi.feature.presets.autoeq.HeadphoneEntry
+import se.bofr.dspi.feature.presets.autoeq.FavoriteProfile
 import se.bofr.dspi.ui.DspiRoutes
 
 /** The menu-action objects of one Presets screen, sharing one alert slot. */
@@ -86,95 +81,54 @@ class PresetFileRequests(
 @Composable
 fun PresetsScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val manager = remember { AutoEQManagers.shared(context) }
-    val controller = remember(bridge) { PresetsController(bridge, scope, manager, Dispatchers.IO) }
+    // E9: controller, alerts and device sequences live in the ViewModel.
+    val vm: PresetsViewModel =
+        viewModel(factory = PresetsViewModel.factory(bridge, AutoEQManagers.shared(context), context.applicationContext))
+    val controller = vm.controller
     val files = controller.files
     val host = controller.host
 
-    LaunchedEffect(manager) { withContext(Dispatchers.IO) { manager.ensureLoaded() } }
-
-    /** Runs a picker; a missing picker app becomes an alert. */
-    fun pick(block: suspend () -> Unit) {
-        scope.launch {
-            try {
-                block()
-            } catch (e: ActivityNotFoundException) {
-                host.showError("No app is available to pick a file.")
-            }
-        }
-    }
-
-    suspend fun readPicked(mimeTypes: Array<String>, use: (String) -> Unit) {
-        val uri = DocumentPicker.open(context, mimeTypes) ?: return
-        val text =
-            try {
-                PresetFiles.readText(context, uri)
-            } catch (e: Exception) {
-                files.readFailed(e)
-                return
-            }
-        use(text)
-    }
-
-    suspend fun writePicked(name: String, mime: String, produce: suspend (Uri) -> String?, done: (String) -> Unit) {
-        val uri = DocumentPicker.create(context, name, mime) ?: return
-        val text = produce(uri) ?: return
-        try {
-            PresetFiles.writeText(context, uri, text)
-        } catch (e: Exception) {
-            files.writeFailed(e)
-            return
-        }
-        done(text)
-    }
-
+    // The pickers start from this screen's Activity; the ViewModel awaits the pick.
     val requests =
-        remember(controller) {
+        remember(vm, context) {
             PresetFileRequests(
-                importFilters = { pick { readPicked(arrayOf("text/*", "*/*"), files::importFilters) } },
+                importFilters = { vm.importFrom(DocumentPicker.startOpen(context, arrayOf("text/*", "*/*")), files::importFilters) },
                 exportFilters = {
                     if (bridge.connected) {
-                        pick {
-                            writePicked(
+                        val picked =
+                            DocumentPicker.startCreate(
+                                context,
                                 PresetDocumentFiles.DEFAULT_FILTERS_FILE_NAME,
-                                PresetDocumentFiles.FILTERS_MIME,
-                                { files.filtersDocument() }
-                            ) { files.filtersExported() }
-                        }
+                                PresetDocumentFiles.FILTERS_MIME
+                            )
+                        vm.exportTo(picked, { files.filtersDocument() }) { files.filtersExported() }
                     } else {
                         host.showError("No device connected.")
                     }
                 },
                 importConfiguration = {
-                    if (files.canImportConfiguration()) pick { readPicked(arrayOf("*/*"), files::importConfiguration) }
+                    if (files.canImportConfiguration()) {
+                        vm.importFrom(DocumentPicker.startOpen(context, arrayOf("*/*")), files::importConfiguration)
+                    }
                 },
                 exportConfiguration = {
                     if (files.canExportConfiguration()) {
-                        pick {
-                            writePicked(
+                        val picked =
+                            DocumentPicker.startCreate(
+                                context,
                                 PresetDocumentFiles.DEFAULT_CONFIGURATION_FILE_NAME,
-                                PresetDocumentFiles.CONFIGURATION_MIME,
-                                { files.configurationDocument(PresetFiles.displayName(context, it)) },
-                                files::configurationExported
+                                PresetDocumentFiles.CONFIGURATION_MIME
                             )
-                        }
+                        vm.exportTo(picked, { files.configurationDocument(vm.displayName(it)) }, files::configurationExported)
                     }
                 },
-                shareConfiguration = {
-                    if (files.canExportConfiguration()) {
-                        scope.launch {
-                            val name = PresetDocumentFiles.DEFAULT_CONFIGURATION_FILE_NAME
-                            val text = files.configurationDocument(name) ?: return@launch
-                            try {
-                                PresetFiles.share(context, name, PresetDocumentFiles.CONFIGURATION_MIME, text)
-                            } catch (e: Exception) {
-                                files.writeFailed(e)
-                            }
-                        }
-                    }
-                },
-                importAutoEQDatabase = { pick { readPicked(arrayOf("application/json", "*/*"), controller.autoEQMenu::importDatabase) } }
+                shareConfiguration = vm::shareConfiguration,
+                importAutoEQDatabase = {
+                    vm.importFrom(
+                        DocumentPicker.startOpen(context, arrayOf("application/json", "*/*")),
+                        controller.autoEQMenu::importDatabase
+                    )
+                }
             )
         }
 
@@ -265,6 +219,8 @@ fun PresetsView(
 
     // AutoEQ > Browse Profiles... (a window on macOS): a full-screen dialog; back closes it.
     if (showAutoEQBrowser) {
+        // Review P5: the database is parsed only when it is needed.
+        LaunchedEffect(Unit) { controller.autoEQMenu.loadDatabase() }
         Dialog(onDismissRequest = { showAutoEQBrowser = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Surface(Modifier.fillMaxSize()) {
                 AutoEQBrowser(
@@ -423,7 +379,7 @@ private fun FileSection(controller: PresetsController, requests: PresetFileReque
 
 /** AutoEQ menu: Browse Profiles..., Favorite Profiles, Clear Favorites, Update Database.... */
 @Composable
-private fun AutoEQSection(controller: PresetsController, favorites: List<HeadphoneEntry>, onBrowse: () -> Unit, onImportFile: () -> Unit) {
+private fun AutoEQSection(controller: PresetsController, favorites: List<FavoriteProfile>, onBrowse: () -> Unit, onImportFile: () -> Unit) {
     SectionHeader("AutoEQ")
     MenuRow("Browse Profiles...", onClick = onBrowse)
     Text(
@@ -440,8 +396,8 @@ private fun AutoEQSection(controller: PresetsController, favorites: List<Headpho
         )
     } else {
         Column(Modifier.padding(start = 16.dp)) {
-            for (entry in favorites) {
-                MenuRow("${entry.manufacturer} ${entry.model}") { controller.autoEQMenu.applyProfile(entry) }
+            for (favorite in favorites) {
+                MenuRow(favorite.name) { controller.autoEQMenu.applyFavorite(favorite) }
             }
         }
     }

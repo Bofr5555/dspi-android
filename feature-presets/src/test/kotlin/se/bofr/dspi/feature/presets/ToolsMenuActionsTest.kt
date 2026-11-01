@@ -5,6 +5,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiException
@@ -96,22 +97,34 @@ class ToolsMenuActionsTest {
     }
 
     @Test
-    fun saveMasterVolumeAndOutputConfiguration() = runTest {
+    fun saveMasterVolumeAndOutputConfigurationActOnTheTap() = runTest {
         val core = presetFake()
         val b = attached(core)
         val host = AlertHost()
         val t = ToolsMenuActions(b, this, host)
+        // macOS: no confirmation, only the result alert (review P3, decision E1)
         t.saveMasterVolume()
-        assertEquals("Save Master Volume", host.alert.value!!.messageText)
-        host.press("Save")
+        assertNull(host.alert.value)
         runCurrent()
+        assertEquals("Success", host.alert.value!!.messageText)
         assertTrue(host.alert.value!!.informativeText.startsWith("Master volume saved ("))
         assertTrue(host.alert.value!!.informativeText.endsWith("). It will be applied on next boot."))
         host.press("OK")
         t.saveOutputConfig()
-        host.press("Save")
+        assertNull(host.alert.value)
         runCurrent()
         assertEquals("Output configuration saved. It will be applied on next boot.", host.alert.value!!.informativeText)
         assertEquals(listOf("saveMasterVolume", "saveOutputConfig"), core.presetCalls())
+    }
+
+    @Test
+    fun saveMasterVolumeFailure() = runTest {
+        val core = presetFake()
+        val b = attached(core)
+        val host = AlertHost()
+        core.failNext("saveMasterVolume", error = { DspiException.Refused(4) })
+        ToolsMenuActions(b, this, host).saveMasterVolume()
+        runCurrent()
+        assertEquals("Failed to save master volume — the device did not acknowledge the request.", host.alert.value!!.informativeText)
     }
 }
