@@ -14,7 +14,10 @@
 // steady frame allocates nothing.
 package se.bofr.dspi.feature.graph
 
+import android.os.Build
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,18 +27,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.ceil
@@ -223,10 +231,12 @@ class RtaCurveBuilder {
         var n = 0
         var belowX = Float.NaN
         var belowY = Float.NaN
-        for (i in max(firstBand, 0) until min(slots, min(centres.size, nLevels))) {
+        // A slot the frame carries no level for reads the floor (macOS fills
+        // `levels` with `scale.floorDB` before copying the frame in).
+        for (i in max(firstBand, 0) until min(slots, centres.size)) {
             val hz = centres[i].toDouble()
             val px = centreX[i]
-            val py = y(levels[i]).toFloat()
+            val py = y(if (i < nLevels) levels[i] else scale.floorDB).toFloat()
             if (hz < minFreq) {
                 belowX = px
                 belowY = py
@@ -295,6 +305,25 @@ class RtaCurveBuilder {
         return true
     }
 
+    /** macOS `sampleBands`: Hermite between points seg and seg+1, slopes from the neighbours. */
+    private fun hermiteAt(xs: FloatArray, ys: FloatArray, n: Int, seg: Int, x: Float): Float {
+        val h = xs[seg + 1] - xs[seg]
+        if (h <= 0f) return ys[seg]
+        val t = (x - xs[seg]) / h
+        val t2 = t * t
+        val t3 = t2 * t
+        val y =
+            (2 * t3 - 3 * t2 + 1) * ys[seg] + (t3 - 2 * t2 + t) * h * slope(xs, ys, n, seg) +
+                (-2 * t3 + 3 * t2) * ys[seg + 1] + (t3 - t2) * h * slope(xs, ys, n, seg + 1)
+        return min(max(y, 0f), height.toFloat())
+    }
+
+    private fun slope(xs: FloatArray, ys: FloatArray, n: Int, i: Int): Float {
+        val a = max(i - 1, 0)
+        val b = min(i + 1, n - 1)
+        return if (xs[b] > xs[a]) (ys[b] - ys[a]) / (xs[b] - xs[a]) else 0f
+    }
+
     /**
      * One channel's picture from both products: the bands below the top of the
      * bass bank and the bins (`binDb` from binFirst to binLast, dB per column) above
@@ -320,14 +349,13 @@ class RtaCurveBuilder {
         var seg = 0
         for (c in 0 until columns) {
             val xc = c.toFloat()
-            // Linear sample of the band polyline (macOS samples its Catmull-Rom curve).
+            // The band curve sampled per column with the same cubic Hermite
+            // (Catmull-Rom slopes) as macOS `RtaRenderCache.sampleBands`,
+            // clamped into the plot.
             var a = Float.NaN
             if (nBands >= 2 && xc >= bandX[0] && xc <= bandX[nBands - 1]) {
                 while (seg < nBands - 2 && xc > bandX[seg + 1]) seg++
-                val p = bandX[seg]
-                val q = bandX[seg + 1]
-                val t = if (q > p) (xc - p) / (q - p) else 0f
-                a = bandY[seg] + (bandY[seg + 1] - bandY[seg]) * t
+                a = hermiteAt(bandX, bandY, nBands, seg, xc)
             }
             val b = if (binFirst >= 0 && c in binFirst..binLast) y(binDb[c]).toFloat() else Float.NaN
             val v =
@@ -408,36 +436,58 @@ private class ChannelTrace {
     var fillBrush: Brush? = null
     var fillOpacity = Float.NaN
     var fillHeight = Float.NaN
+    var fadeBrush: Brush? = null
+    var fadeStart = Float.NaN
     var start = Float.POSITIVE_INFINITY
     var hasCurve = false
     var hasPeak = false
+
+    /** Which drawing pass last drew this trace (start-group bookkeeping without allocation). */
+    var pass = 0
 }
 
 /** Everything a spectrum overlay draws with, keyed on its geometry. */
 private class SpectrumRenderCache {
     val builder = RtaCurveBuilder()
     val traces = HashMap<Int, ChannelTrace>()
+
+    /** This frame's traces in selection order (reused list). */
+    val drawn = ArrayList<ChannelTrace>(DspiConstants.RTA_MAX_CHANNELS)
+    val colours = ArrayList<Color>(DspiConstants.RTA_MAX_CHANNELS)
     var columnY = FloatArray(0)
     var binDb = DoubleArray(0)
     var binSpan = DoubleArray(0)
     val binSrc = DoubleArray(DspiConstants.RTA_MAX_BINS)
     val binSmooth = DoubleArray(DspiConstants.RTA_MAX_BINS)
     val prefix = DoubleArray(DspiConstants.RTA_MAX_BINS + 1)
-    val glowStroke = Stroke(4f, cap = StrokeCap.Round)
+
+    /** macOS blurred glow: a 2 pt stroke under a 4 pt blur (API 31+). */
+    val blurGlowStroke = Stroke(2f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+
+    /** Below API 31 (no RenderEffect) the glow is a wider faint stroke. */
+    val wideGlowStroke = Stroke(4f, cap = StrokeCap.Round)
     val edgeStroke = Stroke(1f, join = StrokeJoin.Round)
     val peakStroke = Stroke(1f, cap = StrokeCap.Round)
-    var fadeBrush: Brush? = null
-    var fadeStart = Float.NaN
+    val layerPaint = Paint()
+    var layerRect = Rect.Zero
+    var pass = 0
 
     fun trace(key: Int) = traces.getOrPut(key) { ChannelTrace() }
 
-    fun reshape(columns: Int) {
+    fun reshape(columns: Int, wDp: Float, hDp: Float) {
         if (columnY.size < columns) columnY = FloatArray(columns)
         if (binDb.size < columns) binDb = DoubleArray(columns)
         if (binSpan.size < columns) binSpan = DoubleArray(columns)
-        for (t in traces.values) t.fillBrush = null
+        layerRect = Rect(0f, 0f, wDp, hDp)
+        for (t in traces.values) {
+            t.fillBrush = null
+            t.fadeBrush = null
+        }
     }
 }
+
+/** RenderEffect blur exists from API 31; below it the glow falls back to plain strokes. */
+internal val blurAvailable: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 private val overlayIds = AtomicInteger(0x6A00)
 
@@ -445,6 +495,10 @@ private val overlayIds = AtomicInteger(0x6A00)
  * The live spectrum for [selection] (channels at its tap), drawn as a
  * translucent fill under the curves in each channel's colour. Registers with
  * the analyser while shown; the analyser stops when nothing shows it.
+ *
+ * Three stacked layers in macOS order: fills, the glow (blurred, API 31+),
+ * then edges and peak contours. The first layer builds the frame's paths in
+ * the shared cache; the others draw from it.
  */
 @Composable
 fun GraphSpectrumOverlay(
@@ -479,78 +533,128 @@ fun GraphSpectrumOverlay(
             while (true) withFrameNanos { frameNanos.longValue = it }
         }
     }
-    Canvas(modifier.graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)) {
-        frameNanos.longValue
-        val snap = snapshot.value ?: return@Canvas
-        if (snap.tap != selection.tap) return@Canvas
-        val d = density
-        val wDp = size.width / d
-        val hDp = size.height / d
-        if (wDp <= 4 || hDp <= 4) return@Canvas
-        if (cache.builder.configure(
-                minFreq,
-                maxFreq,
-                wDp.toDouble(),
-                hDp.toDouble(),
-                RtaScale(settings.rtaFloorDB, settings.rtaCeilingDB)
-            )
-        ) {
-            cache.reshape(cache.builder.columns)
+    val opacity = settings.rtaGraphOpacity.toFloat()
+    Box(modifier) {
+        // Layer 1: build the frame, draw the fills.
+        Canvas(Modifier.fillMaxSize()) {
+            frameNanos.longValue
+            cache.drawn.clear()
+            val snap = snapshot.value ?: return@Canvas
+            if (snap.tap != selection.tap) return@Canvas
+            val d = density
+            val wDp = size.width / d
+            val hDp = size.height / d
+            if (wDp <= 4 || hDp <= 4) return@Canvas
+            if (cache.builder.configure(
+                    minFreq,
+                    maxFreq,
+                    wDp.toDouble(),
+                    hDp.toDouble(),
+                    RtaScale(settings.rtaFloorDB, settings.rtaCeilingDB)
+                )
+            ) {
+                cache.reshape(cache.builder.columns, wDp, hDp)
+            }
+            val order = if (snap.fftOrder > 0) snap.fftOrder else 10
+            val tau = if (smoothing > 0) rtaFallTau(rtaChannelRefreshInterval(snap, order), smoothing) else 0.0
+            val now = System.nanoTime() / 1e9
+            // The fine curve needs the whole selection to be one channel.
+            val wantsBins = channels.size == 1
+            cache.colours.clear()
+            for (idx in channels.indices) {
+                val t = cache.trace(channels[idx])
+                buildTrace(cache, t, c, snap, channels[idx], wantsBins, tau, now, settings.rtaShowPeakHold, hDp)
+                if (!t.hasCurve && !t.hasPeak) continue
+                val colour = colours.getOrElse(idx) { Color.White }
+                if (t.fillBrush == null || t.colour != colour || t.fillOpacity != opacity || t.fillHeight != hDp) {
+                    t.colour = colour
+                    t.fillOpacity = opacity
+                    t.fillHeight = hDp
+                    t.fillBrush =
+                        Brush.verticalGradient(listOf(colour.copy(alpha = 0.34f * opacity), colour.copy(alpha = 0.02f * opacity)), 0f, hDp)
+                }
+                cache.drawn += t
+            }
+            scale(d, d, pivot = Offset.Zero) {
+                drawByStartGroup(cache, hDp) { t -> if (t.hasCurve) drawPath(t.fill, t.fillBrush!!) }
+            }
         }
-        val order = if (snap.fftOrder > 0) snap.fftOrder else 10
-        val tau = if (smoothing > 0) rtaFallTau(rtaChannelRefreshInterval(snap, order), smoothing) else 0.0
-        val now = System.nanoTime() / 1e9
-        scale(d, d, pivot = Offset.Zero) {
-            drawSpectrum(cache, c, snap, channels, colours, tau, now, settings, hDp)
+        // Layer 2: the glow, blurred as one layer for every channel (macOS `soft.addFilter(.blur(radius: 4))`).
+        if (settings.showGraphGlow && blurAvailable) {
+            Canvas(
+                Modifier.fillMaxSize().graphicsLayer {
+                    renderEffect = BlurEffect(4.dp.toPx(), 4.dp.toPx(), TileMode.Decal)
+                }
+            ) {
+                frameNanos.longValue
+                snapshot.value
+                scale(density, density, pivot = Offset.Zero) {
+                    drawByStartGroup(cache, size.height / density) { t ->
+                        if (t.hasCurve) drawPath(t.curve, t.colour, alpha = 0.35f * opacity, style = cache.blurGlowStroke)
+                    }
+                }
+            }
+        }
+        // Layer 3: edges and peak contours (and the glow fallback below API 31).
+        Canvas(Modifier.fillMaxSize()) {
+            frameNanos.longValue
+            snapshot.value
+            val glowFallback = settings.showGraphGlow && !blurAvailable
+            scale(density, density, pivot = Offset.Zero) {
+                drawByStartGroup(cache, size.height / density) { t ->
+                    if (t.hasCurve) {
+                        if (glowFallback) drawPath(t.curve, t.colour, alpha = 0.15f * opacity, style = cache.wideGlowStroke)
+                        drawPath(t.curve, t.colour, alpha = 0.55f * opacity, style = cache.edgeStroke)
+                    }
+                    // Peak hold rides on top as a thin contour.
+                    if (t.hasPeak) drawPath(t.peakPath, t.colour, alpha = 0.35f * opacity, style = cache.peakStroke)
+                }
+            }
         }
     }
 }
 
-private fun DrawScope.drawSpectrum(
-    cache: SpectrumRenderCache,
-    caps: RtaCapsInfo,
-    snap: RtaSnapshot,
-    channels: List<Int>,
-    colours: List<Color>,
-    tau: Double,
-    now: Double,
-    settings: GraphSettings,
-    hDp: Float
-) {
-    // The fine curve needs the whole selection to be one channel.
-    val wantsBins = channels.size == 1
-    val opacity = settings.rtaGraphOpacity.toFloat()
-    var start = Float.POSITIVE_INFINITY
-    for (idx in channels.indices) {
-        val ch = channels[idx]
-        val t = cache.trace(ch)
-        buildTrace(cache, t, caps, snap, ch, wantsBins, tau, now, settings.rtaShowPeakHold, hDp)
-        val colour = colours.getOrElse(idx) { Color.White }
-        if (t.hasCurve) {
-            if (t.fillBrush == null || t.colour != colour || t.fillOpacity != opacity || t.fillHeight != hDp) {
-                t.colour = colour
-                t.fillOpacity = opacity
-                t.fillHeight = hDp
-                t.fillBrush =
-                    Brush.verticalGradient(listOf(colour.copy(alpha = 0.34f * opacity), colour.copy(alpha = 0.02f * opacity)), 0f, hDp)
+/**
+ * Draws the frame's traces grouped by where their data starts (macOS `draw`:
+ * `Dictionary(grouping:) { Int($0.start.rounded()) }`, keys ascending), each
+ * group in its own layer that fades in across the 30 points right of its
+ * start, instead of standing up as a wall in the middle of the graph. Data
+ * that starts off the left edge has no wall to hide and is drawn directly.
+ */
+private inline fun DrawScope.drawByStartGroup(cache: SpectrumRenderCache, hDp: Float, draw: DrawScope.(ChannelTrace) -> Unit) {
+    val traces = cache.drawn
+    if (traces.isEmpty()) return
+    val pass = ++cache.pass
+    while (true) {
+        // The lowest start key not drawn yet in this pass.
+        var key = Int.MAX_VALUE
+        for (t in traces) if (t.pass != pass) key = min(key, t.start.roundToInt())
+        if (key == Int.MAX_VALUE) break
+        var x0 = Float.POSITIVE_INFINITY
+        var lead: ChannelTrace? = null
+        for (t in traces) {
+            if (t.pass != pass && t.start.roundToInt() == key && t.start < x0) {
+                x0 = t.start
+                lead = t
             }
-            drawPath(t.fill, t.fillBrush!!)
-            if (settings.showGraphGlow) drawPath(t.curve, colour, alpha = 0.15f * opacity, style = cache.glowStroke)
-            drawPath(t.curve, colour, alpha = 0.55f * opacity, style = cache.edgeStroke)
         }
-        // Peak hold rides on top as a thin contour.
-        if (t.hasPeak) drawPath(t.peakPath, colour, alpha = 0.35f * opacity, style = cache.peakStroke)
-        if (t.hasCurve || t.hasPeak) start = min(start, t.start)
-    }
-    // Everything fades in across the 30 points right of where the data starts,
-    // instead of standing up as a wall in the middle of the graph.
-    if (start.isFinite() && start > 1f) {
-        if (cache.fadeBrush == null || cache.fadeStart != start) {
-            cache.fadeStart = start
-            cache.fadeBrush = Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), startX = start, endX = start + 30f)
+        val fade = x0 > 1f
+        if (fade) drawIntoCanvas { it.saveLayer(cache.layerRect, cache.layerPaint) }
+        for (t in traces) {
+            if (t.pass == pass || t.start.roundToInt() != key) continue
+            t.pass = pass
+            draw(t)
         }
-        drawRect(Color.Transparent, Offset.Zero, Size(start, hDp), blendMode = BlendMode.Clear)
-        drawRect(cache.fadeBrush!!, Offset(start, 0f), Size(30f, hDp), blendMode = BlendMode.DstIn)
+        if (fade) {
+            val l = lead!!
+            if (l.fadeBrush == null || l.fadeStart != x0) {
+                l.fadeStart = x0
+                l.fadeBrush = Brush.horizontalGradient(listOf(Color.Transparent, Color.Black), startX = x0, endX = x0 + 30f)
+            }
+            drawRect(Color.Transparent, Offset.Zero, Size(x0, hDp), blendMode = BlendMode.Clear)
+            drawRect(l.fadeBrush!!, Offset(x0, 0f), Size(30f, hDp), blendMode = BlendMode.DstIn)
+            drawIntoCanvas { it.restore() }
+        }
     }
 }
 

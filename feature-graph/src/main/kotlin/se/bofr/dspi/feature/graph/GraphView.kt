@@ -39,13 +39,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -54,6 +57,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.math.BigDecimal
+import java.math.MathContext
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -158,15 +163,22 @@ fun dbGridStep(span: Double): Double = if (span <= 12) {
     10.0
 }
 
-/** "+6", "-12", "+0", "+2.5" as macOS `String(format: "+%g")`. */
+/** "+6", "-12", "+0", "+2.5" as macOS `String(format: "+%g")` (six significant digits, no trailing zeros). */
 fun dbLabel(db: Double): String {
-    val r = db.roundToInt()
-    val v = if (abs(db - r) < 1e-9) r.toString() else String.format(Locale.ROOT, "%s", db)
+    val v = if (db == 0.0) "0" else BigDecimal(db).round(MathContext(6)).stripTrailingZeros().toPlainString()
     return if (db >= 0) "+$v" else v
 }
 
+/** macOS `Color.accentColor` (system blue): an output beyond the palette (macOS `eqCurveColor`). */
+internal val AccentColour = Color(0xFF007AFF)
+
 /** A channel's curve colour (macOS `eqCurveColor`), from the bridge's palette. */
 internal fun channelColour(bridge: DspiBridge, ch: Int): Color {
+    if (!bridge.isInputChannel(ch)) {
+        // macOS: `MatrixOutput.all.indices.contains(outIdx) ? … : .accentColor` — no wrap-around.
+        val out = bridge.rta.tapIndex(ch)
+        if (out !in 0 until DspiConstants.MAX_OUTPUTS) return AccentColour
+    }
     val hex = bridge.channelColor(ch).removePrefix("#")
     return hex.toLongOrNull(16)?.let { Color(0xFF000000 or it) } ?: ChannelPalette.color(ch)
 }
@@ -250,6 +262,13 @@ internal class BodeLineCache {
     }
 }
 
+/** The phase trace's colour (macOS `Color(white: 0.93)`). */
+private val PHASE_COLOUR = Color(0xFFEDEDED)
+
+/** Glow alphas without a blur (below API 31), shared with the edited curve (PeqGraphRenderer). */
+internal const val GLOW_FALLBACK_WIDE = 0.12f
+internal const val GLOW_FALLBACK_NARROW = 0.25f
+
 /**
  * One animated line (macOS `BodeLineShape` with `.animation(.spring)`): the
  * curve glides to a new shape over the Graphing animation speed.
@@ -290,6 +309,39 @@ private fun BodeLine(
                 listOf(Stroke(lw * 5), Stroke(lw * 2.5f), Stroke(lw * 1.25f, pathEffect = dash))
             }
         }
+    val glow = settings.showGraphGlow && active && !phase
+    // macOS: the glow strokes are blurred (single 0.3 / lw·4 / blur 6 and
+    // 0.6 / lw·2 / blur 3; overlapping 0.07 / lw·5 / blur 8 and 0.07 / lw·2.5 /
+    // blur 5). With RenderEffect (API 31+) each is its own blurred layer;
+    // below it they are plain fainter strokes.
+    if (glow && blurAvailable) {
+        val single = colors.size == 1
+        for (layer in 0..1) {
+            val radius = if (single) (if (layer == 0) 6f else 3f) else (if (layer == 0) 8f else 5f)
+            val alpha = if (single) (if (layer == 0) 0.3f else 0.6f) else 0.07f
+            Canvas(
+                Modifier.fillMaxSize().graphicsLayer {
+                    renderEffect = BlurEffect(radius.dp.toPx(), radius.dp.toPx(), TileMode.Decal)
+                }
+            ) {
+                val d = density
+                val w = size.width / d
+                val path = cache.build(freqs, progress.value.toDouble(), dbTop, dbBottom, minFreq, maxFreq, w, size.height / d)
+                scale(d, d, pivot = Offset.Zero) {
+                    if (single) {
+                        drawPath(
+                            path,
+                            colors[0],
+                            alpha = alpha,
+                            style = strokes[layer]
+                        )
+                    } else {
+                        drawPath(path, cache.gradient(colors, w), alpha = alpha, style = strokes[layer])
+                    }
+                }
+            }
+        }
+    }
     Canvas(Modifier.fillMaxSize()) {
         val d = density
         val w = size.width / d
@@ -297,19 +349,20 @@ private fun BodeLine(
         val path = cache.build(freqs, progress.value.toDouble(), dbTop, dbBottom, minFreq, maxFreq, w, h)
         scale(d, d, pivot = Offset.Zero) {
             if (phase) {
-                drawPath(path, Color(0xFFEDEDED), style = strokes[0])
+                drawPath(path, PHASE_COLOUR, style = strokes[0])
                 return@scale
             }
+            val fallback = glow && !blurAvailable
             if (colors.size == 1) {
                 val c = colors[0]
-                if (settings.showGraphGlow && active) {
-                    drawPath(path, c, alpha = 0.12f, style = strokes[0])
-                    drawPath(path, c, alpha = 0.25f, style = strokes[1])
+                if (fallback) {
+                    drawPath(path, c, alpha = GLOW_FALLBACK_WIDE, style = strokes[0])
+                    drawPath(path, c, alpha = GLOW_FALLBACK_NARROW, style = strokes[1])
                 }
                 drawPath(path, c, style = strokes[2])
             } else {
                 val b = cache.gradient(colors, w)
-                if (settings.showGraphGlow && active) {
+                if (fallback) {
                     drawPath(path, b, alpha = 0.07f, style = strokes[0])
                     drawPath(path, b, alpha = 0.07f, style = strokes[1])
                 }
@@ -377,7 +430,12 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
     val curvesAlpha by animateFloatAsState(if (connected) 1f else 0f, tween(300), label = "device")
     var optionsOpen by remember { mutableStateOf(false) }
     val onDashboard = activeEq == null
+    // Parsed once per state change, not per group per recomposition.
+    val colours = remember(stateRev) { List(ChannelMap.APP_CHANNEL_COUNT) { channelColour(bridge, it) } }
+    val caps by bridge.rta.caps.collectAsStateWithLifecycle()
     val spectrum = rememberSpectrumSelection(bridge, store, activeEq)
+    // The page's channels, from their explicit inputs (settings, analyser caps, device state).
+    val spectrumSelection = remember(spectrum, spectrum.pageKey, settings, caps, stateRev) { spectrum.value }
 
     Box(
         modifier
@@ -388,8 +446,8 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
             .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
     ) {
         GraphGrid(settings, minFreq, maxFreq, dbTop, dbBottom)
-        if (connected && settings.rtaShowsGraph(onDashboard) && !spectrum.value.isEmpty) {
-            GraphSpectrumOverlay(bridge, spectrum.value, minFreq, maxFreq, settings, Modifier.fillMaxSize())
+        if (connected && settings.rtaShowsGraph(onDashboard) && !spectrumSelection.isEmpty) {
+            GraphSpectrumOverlay(bridge, spectrumSelection, minFreq, maxFreq, settings, Modifier.fillMaxSize())
         }
         Box(Modifier.fillMaxSize().alpha(curvesAlpha)) {
             for (group in groups) {
@@ -398,7 +456,7 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
                         group.mags,
                         freqs,
                         settings,
-                        group.entries.map { channelColour(bridge, it.eqCh) },
+                        group.entries.map { colours[it.eqCh] },
                         group.entries.any { it.isActive },
                         minFreq,
                         maxFreq,
@@ -409,11 +467,7 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
             }
             phases?.let {
                 BodeLine(
-                    it, freqs, settings,
-                    listOf(
-                        Color.LightGray
-                    ),
-                    true, minFreq, maxFreq, settings.phaseTop, -settings.phaseTop, phase = true
+                    it, freqs, settings, emptyList(), true, minFreq, maxFreq, settings.phaseTop, -settings.phaseTop, phase = true
                 )
             }
         }
@@ -495,6 +549,20 @@ internal fun editorConfigFor(bridge: DspiBridge, ch: Int?, settings: GraphSettin
 internal fun availableFilterTypes(): Set<Int> =
     FilterTypes.PEQ_TYPES.filter { it != DspiConstants.FILTER_FLAT && !FilterTypes.isLinkwitzTransform(it) }.toSet()
 
+/** macOS `majorFreqs` (GraphView.swift l.269). */
+private val MAJOR_FREQS = doubleArrayOf(100.0, 1000.0, 10000.0)
+
+/** macOS `minorFreqs` less the majors (l.270-273). */
+private val MINOR_FREQS =
+    doubleArrayOf(
+        20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0,
+        2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0, 9000.0, 20000.0
+    )
+
+/** macOS `labelFreqs` (l.410-413). */
+private val LABEL_FREQS = doubleArrayOf(20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0, 20000.0)
+private val LABEL_TEXTS = arrayOf("20", "50", "100", "200", "500", "1k", "2k", "5k", "10k", "20k")
+
 @Composable
 private fun GraphGrid(settings: GraphSettings, minF: Double, maxF: Double, dTop: Double, dBot: Double) {
     Canvas(Modifier.fillMaxSize()) {
@@ -511,21 +579,8 @@ private fun GraphGrid(settings: GraphSettings, minF: Double, maxF: Double, dTop:
         fun yPos(db: Double) = (h - (db - dBot) / (dTop - dBot) * h).toFloat()
         scale(d, d, pivot = Offset.Zero) {
             if (settings.showFrequencyGrid) {
-                val major = listOf(100.0, 1000.0, 10000.0)
-                val minor =
-                    listOf(
-                        20, 30, 40, 50, 60, 70, 80, 90, 200, 300, 400, 500, 600, 700, 800, 900,
-                        2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 20000
-                    )
-                        .map { it.toDouble() }
-                for (f in major) if (f in minF..maxF) drawLine(gridColor(0.15), Offset(xPos(f), 0f), Offset(xPos(f), h), 1f)
-                for (f in minor) {
-                    if (f in minF..maxF &&
-                        f !in major
-                    ) {
-                        drawLine(gridColor(0.06), Offset(xPos(f), 0f), Offset(xPos(f), h), 1f)
-                    }
-                }
+                for (f in MAJOR_FREQS) if (f in minF..maxF) drawLine(gridColor(0.15), Offset(xPos(f), 0f), Offset(xPos(f), h), 1f)
+                for (f in MINOR_FREQS) if (f in minF..maxF) drawLine(gridColor(0.06), Offset(xPos(f), 0f), Offset(xPos(f), h), 1f)
             }
             if (settings.showDBGrid) {
                 val step = dbGridStep(dTop - dBot)
@@ -543,7 +598,8 @@ private fun GraphGrid(settings: GraphSettings, minF: Double, maxF: Double, dTop:
 
 @Composable
 private fun GraphLabels(settings: GraphSettings, minF: Double, maxF: Double, dTop: Double, dBot: Double) {
-    val measurer = rememberTextMeasurer()
+    // Up to ~25 labels at once (10 frequencies, up to 11 dB steps, 5 phase ticks).
+    val measurer = rememberTextMeasurer(cacheSize = 32)
     val style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.4f))
     val phaseStyle = style.copy(color = Color(0xFFEDEDED).copy(alpha = 0.55f))
     Canvas(Modifier.fillMaxSize()) {
@@ -555,12 +611,9 @@ private fun GraphLabels(settings: GraphSettings, minF: Double, maxF: Double, dTo
         fun yPos(db: Double, top: Double, bottom: Double) = (h - (db - bottom) / (top - bottom) * h).toFloat()
         val pad = 4.dp.toPx()
         if (settings.showFrequencyLabels) {
-            val labels =
-                listOf(
-                    20.0 to "20", 50.0 to "50", 100.0 to "100", 200.0 to "200", 500.0 to "500",
-                    1000.0 to "1k", 2000.0 to "2k", 5000.0 to "5k", 10000.0 to "10k", 20000.0 to "20k"
-                )
-            for ((f, text) in labels) {
+            for (i in LABEL_FREQS.indices) {
+                val f = LABEL_FREQS[i]
+                val text = LABEL_TEXTS[i]
                 if (f < minF || f > maxF) continue
                 val r = measurer.measure(text, style)
                 val x = (xPos(f) - r.size.width / 2f).coerceIn(0f, max(w - r.size.width, 0f))

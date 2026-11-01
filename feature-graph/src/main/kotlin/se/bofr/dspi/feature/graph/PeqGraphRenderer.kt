@@ -5,7 +5,8 @@
 // selected bands, the edited channel's combined curve with its glow, the dots
 // and the marquee. Compose Canvas instead of a GPU pass: the lobe's per-pixel
 // fade (pow(t, 1.5) toward 0 dB) is approximated by a vertical gradient per
-// band (docs/UPSTREAM-DEVIATIONS.md GRAPH).
+// band (docs/UPSTREAM-DEVIATIONS.md GRAPH). Paths, brushes and strokes are
+// cached per band and rebuilt only when that band's row or the axes change.
 package se.bofr.dspi.feature.graph
 
 import androidx.compose.ui.geometry.Offset
@@ -46,10 +47,35 @@ class PeqGraphRenderer {
     var rowPasses = 0
         private set
 
-    /** The combined curve (dB, offset included) per column of the last table. */
+    /** One band's lobe and outline paths, rebuilt only when its row or the axes change. */
+    private class BandShape {
+        var row: DoubleArray? = null
+        var zero = Float.NaN
+        var top = Double.NaN
+        var bottom = Double.NaN
+        var height = Double.NaN
+        val lobe = Path()
+        val runs = Array(OUTLINE_RUNS) { Path() }
+        var far = 0f
+        var span = 0f
+        var brush: Brush? = null
+        var brushColor: PeqRgb? = null
+    }
+
+    private val shapes = Array(PeqGraphEditor.Tuning.BAND_ROWS) { BandShape() }
+    private var combinedBuf = DoubleArray(0)
+    private val combinedPath = Path()
+    private val outlineStroke = Stroke(1.25f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    private val marqueeStroke = Stroke(1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 3f)))
+    private var curveStrokes = emptyArray<Stroke>()
+    private var curveStrokeWidth = Float.NaN
+
+    /** The combined curve (dB, offset included) per column of the last table (a reused buffer). */
     fun combined(pic: PeqPicture): DoubleArray {
         ensureTable(pic)
-        val out = DoubleArray(columns) { pic.offsetDb.toDouble() }
+        if (combinedBuf.size != columns) combinedBuf = DoubleArray(columns)
+        val out = combinedBuf
+        out.fill(pic.offsetDb.toDouble())
         if (pic.flat) return out
         for (i in 0 until columns) out[i] += staticRow[i]
         for (b in pic.bands.indices) {
@@ -61,7 +87,39 @@ class PeqGraphRenderer {
         return out
     }
 
-    fun draw(scope: DrawScope, pic: PeqPicture, background: Color) {
+    /** The edited channel's curve as a path (reused), for the view's blurred glow layers. */
+    fun combinedPath(pic: PeqPicture): Path {
+        val row = combined(pic)
+        val g = pic.geometry
+        combinedPath.rewind()
+        if (columns == 0) return combinedPath
+        combinedPath.moveTo(xs[0].toFloat(), curveY(row[0], g))
+        for (i in 1 until columns) combinedPath.lineTo(xs[i].toFloat(), curveY(row[i], g))
+        return combinedPath
+    }
+
+    private fun strokesFor(lw: Float): Array<Stroke> {
+        if (lw != curveStrokeWidth) {
+            curveStrokeWidth = lw
+            curveStrokes =
+                arrayOf(
+                    Stroke(lw * 4f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                    Stroke(lw * 2f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                    Stroke(lw, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+        }
+        return curveStrokes
+    }
+
+    /** The glow strokes (wide, narrow) for [lineWidth], shared with the view's blurred layers. */
+    fun glowStroke(lineWidth: Float, narrow: Boolean): Stroke = strokesFor(lineWidth)[if (narrow) 1 else 0]
+
+    /**
+     * Draws the picture. [glow] draws the curve's unblurred glow fallback (the
+     * same alphas as the other curves without a blur); with RenderEffect the
+     * view draws the blurred glow from [combinedPath] instead.
+     */
+    fun draw(scope: DrawScope, pic: PeqPicture, background: Color, glow: Boolean = pic.glow) {
         val g = pic.geometry
         if (g.width <= 4 || g.height <= 4) return
         ensureTable(pic)
@@ -71,127 +129,128 @@ class PeqGraphRenderer {
         val zero = bg.y(0.0).toFloat()
         with(scope) {
             clipRect(0f, 0f, g.width.toFloat(), g.height.toFloat()) {
+                for (style in pic.bandStyles) shapeFor(style.row, bg, zero)
                 drawLobes(this, pic, bg, zero)
-                drawOutlines(this, pic, bg, zero)
-                val combined = curvePath(combined(pic), g)
-                if (pic.glow) {
-                    // Glow: the combined curve stroked wide and soft (Win2D blurs it).
-                    drawPath(
-                        combined,
-                        pic.curveColor.toColor(0.18f),
-                        style = Stroke(pic.lineWidth * 4f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                    )
-                    drawPath(
-                        combined,
-                        pic.curveColor.toColor(0.35f),
-                        style = Stroke(pic.lineWidth * 2.5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                    )
+                drawOutlines(this, pic)
+                val combined = combinedPath(pic)
+                val strokes = strokesFor(pic.lineWidth)
+                val colour = pic.curveColor.toColor(1f)
+                if (glow) {
+                    drawPath(combined, colour, alpha = GLOW_FALLBACK_WIDE, style = strokes[0])
+                    drawPath(combined, colour, alpha = GLOW_FALLBACK_NARROW, style = strokes[1])
                 }
-                drawPath(
-                    combined,
-                    pic.curveColor.toColor(1f),
-                    style = Stroke(pic.lineWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                )
+                drawPath(combined, colour, style = strokes[2])
             }
             for (n in pic.nodes) {
                 val c = Offset(n.x.toFloat(), n.y.toFloat())
-                drawCircle(n.color.toColor(n.opacity), n.radius.toFloat(), c)
+                drawCircle(n.color.toColor(1f), n.radius.toFloat(), c, alpha = n.opacity.coerceIn(0f, 1f))
                 if (n.select > 0.001f) {
                     // A selected dot grows a centre in the graph's background colour.
                     val pip = 2.2f * n.select
                     val a = min(n.select * 2, 1f) * n.opacity
-                    drawCircle(background.copy(alpha = a), pip, c)
+                    drawCircle(background, pip, c, alpha = a.coerceIn(0f, 1f))
                 }
             }
             pic.marquee?.let { m ->
                 val tl = Offset(m.x.toFloat(), m.y.toFloat())
                 val size = Size(m.width.toFloat(), m.height.toFloat())
-                drawRect(Color.White.copy(alpha = 15f / 255), tl, size)
-                drawRect(
-                    Color.White.copy(alpha = 115f / 255),
-                    tl,
-                    size,
-                    style = Stroke(1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 3f)))
-                )
+                drawRect(Color.White, tl, size, alpha = 15f / 255)
+                drawRect(Color.White, tl, size, alpha = 115f / 255, style = marqueeStroke)
             }
         }
+    }
+
+    /** Rebuilds band [b]'s lobe and outline runs if its row or the axes moved. */
+    private fun shapeFor(b: Int, g: PeqGraphGeometry, zero: Float): BandShape? {
+        val row = rows.getOrNull(b) ?: return null
+        val s = shapes[b]
+        if (s.row === row && s.zero == zero && s.top == g.dbTop && s.bottom == g.dbBottom && s.height == g.height) return s
+        s.row = row
+        s.zero = zero
+        s.top = g.dbTop
+        s.bottom = g.dbBottom
+        s.height = g.height
+        s.brush = null
+        // The lobe's far edge: how far the band's curve gets from 0 dB.
+        var far = zero
+        var span = 0f
+        s.lobe.rewind()
+        s.lobe.moveTo(xs[0].toFloat(), zero)
+        for (i in 0 until columns) {
+            val y = curveY(row[i], g)
+            if (abs(y - zero) > span) {
+                span = abs(y - zero)
+                far = y
+            }
+            s.lobe.lineTo(xs[i].toFloat(), y)
+        }
+        s.lobe.lineTo(xs[columns - 1].toFloat(), zero)
+        s.lobe.close()
+        s.far = far
+        s.span = span
+        // A band's outline dissolves as it nears 0 dB, where the band does
+        // nothing, so no band ever draws a baseline across the graph: the
+        // stroke is split into runs whose alpha follows the distance to 0 dB.
+        for (r in 1..OUTLINE_RUNS) {
+            val lo = (r - 1).toFloat() / OUTLINE_RUNS * 10f
+            val hi = r.toFloat() / OUTLINE_RUNS * 10f
+            val path = s.runs[r - 1]
+            path.rewind()
+            var open = false
+            for (i in 0 until columns) {
+                val y = curveY(row[i], g)
+                val d = abs(y - zero)
+                val inRun = if (r == OUTLINE_RUNS) d >= lo else d >= lo && d < hi
+                if (inRun) {
+                    if (!open) path.moveTo(xs[i].toFloat(), y) else path.lineTo(xs[i].toFloat(), y)
+                    open = true
+                } else {
+                    open = false
+                }
+            }
+        }
+        return s
     }
 
     private fun drawLobes(scope: DrawScope, pic: PeqPicture, g: PeqGraphGeometry, zero: Float) {
         for (style in pic.bandStyles) {
             if (style.fillOpacity <= 0.001f) continue
-            val row = rows.getOrNull(style.row) ?: continue
+            val s = shapes.getOrNull(style.row)?.takeIf { it.row != null && it.row === rows.getOrNull(style.row) } ?: continue
             val top = max(g.y(style.reachHigh) - 2, 0.0).toFloat()
             val bottom = min(g.y(style.reachLow) + 2, g.height).toFloat()
             if (bottom - top <= 0.5f) continue
-            // The lobe's far edge: how far the band's curve gets from 0 dB.
-            var far = zero
-            var span = 0f
-            for (i in 0 until columns) {
-                val y = curveY(row[i], g)
-                if (abs(y - zero) > span) {
-                    span = abs(y - zero)
-                    far = y
-                }
-            }
             // A band that barely departs from flat fades out too (smoothstep(2, 10, span)).
-            val presence = smoothstep(2f, 10f, span)
+            val presence = smoothstep(2f, 10f, s.span)
             if (presence <= 0f) continue
-            val path = Path()
-            path.moveTo(xs[0].toFloat(), zero)
-            for (i in 0 until columns) path.lineTo(xs[i].toFloat(), curveY(row[i], g))
-            path.lineTo(xs[columns - 1].toFloat(), zero)
-            path.close()
-            val alpha = style.fillOpacity * presence
-            val brush =
-                Brush.verticalGradient(
-                    0f to style.color.toColor(0f),
-                    0.35f to style.color.toColor(alpha * 0.2f),
-                    1f to style.color.toColor(alpha),
-                    startY = zero,
-                    endY = far
-                )
-            scope.clipRect(0f, top, g.width.toFloat(), bottom) { drawPath(path, brush) }
+            if (s.brush == null || s.brushColor != style.color) {
+                s.brushColor = style.color
+                s.brush =
+                    Brush.verticalGradient(
+                        0f to style.color.toColor(0f),
+                        0.35f to style.color.toColor(0.2f),
+                        1f to style.color.toColor(1f),
+                        startY = zero,
+                        endY = s.far
+                    )
+            }
+            val alpha = (style.fillOpacity * presence).coerceIn(0f, 1f)
+            scope.clipRect(0f, top, g.width.toFloat(), bottom) { drawPath(s.lobe, s.brush!!, alpha = alpha) }
         }
     }
 
-    private fun drawOutlines(scope: DrawScope, pic: PeqPicture, g: PeqGraphGeometry, zero: Float) {
+    private fun drawOutlines(scope: DrawScope, pic: PeqPicture) {
         for (style in pic.bandStyles) {
             if (style.lineOpacity <= 0.001f) continue
-            val row = rows.getOrNull(style.row) ?: continue
-            // A band's outline dissolves as it nears 0 dB, where the band does
-            // nothing, so no band ever draws a baseline across the graph: the
-            // stroke is split into runs whose alpha follows the distance to 0 dB.
-            val runs = 8
-            for (r in 1..runs) {
-                val lo = (r - 1).toFloat() / runs * 10f
-                val hi = r.toFloat() / runs * 10f
-                val alpha = style.lineOpacity * if (r == runs) 1f else smoothstep(2f, 10f, (lo + hi) / 2)
+            val s = shapes.getOrNull(style.row)?.takeIf { it.row != null && it.row === rows.getOrNull(style.row) } ?: continue
+            val colour = style.color.toColor(1f)
+            for (r in 1..OUTLINE_RUNS) {
+                val lo = (r - 1).toFloat() / OUTLINE_RUNS * 10f
+                val hi = r.toFloat() / OUTLINE_RUNS * 10f
+                val alpha = style.lineOpacity * if (r == OUTLINE_RUNS) 1f else smoothstep(2f, 10f, (lo + hi) / 2)
                 if (alpha <= 0.001f) continue
-                val path = Path()
-                var open = false
-                for (i in 0 until columns) {
-                    val y = curveY(row[i], g)
-                    val d = abs(y - zero)
-                    val inRun = if (r == runs) d >= lo else d >= lo && d < hi
-                    if (inRun) {
-                        if (!open) path.moveTo(xs[i].toFloat(), y) else path.lineTo(xs[i].toFloat(), y)
-                        open = true
-                    } else {
-                        open = false
-                    }
-                }
-                scope.drawPath(path, style.color.toColor(alpha), style = Stroke(1.25f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                scope.drawPath(s.runs[r - 1], colour, alpha = alpha.coerceIn(0f, 1f), style = outlineStroke)
             }
         }
-    }
-
-    private fun curvePath(row: DoubleArray, g: PeqGraphGeometry): Path {
-        val path = Path()
-        if (columns == 0) return path
-        path.moveTo(xs[0].toFloat(), curveY(row[0], g))
-        for (i in 1 until columns) path.lineTo(xs[i].toFloat(), curveY(row[i], g))
-        return path
     }
 
     private fun ensureTable(pic: PeqPicture) {
@@ -239,6 +298,8 @@ class PeqGraphRenderer {
             val d = if (db.isFinite()) db else -400.0
             return g.y(d).coerceIn(-2 * g.height, 3 * g.height).toFloat()
         }
+
+        private const val OUTLINE_RUNS = 8
 
         private fun smoothstep(e0: Float, e1: Float, x: Float): Float {
             val t = ((x - e0) / (e1 - e0)).coerceIn(0f, 1f)

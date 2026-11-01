@@ -43,8 +43,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -283,9 +286,38 @@ fun PeqGraphEditorView(
         val h = maxHeight.value.toDouble()
         LaunchedEffect(w, h) { editor.resize(w, h) }
 
+        // The edited curve's glow, blurred as the other curves' (macOS 0.3 / lw·4 /
+        // blur 6 and 0.6 / lw·2 / blur 3), on API 31+; below it the renderer
+        // draws the unblurred fallback.
+        if (blurAvailable) {
+            for (layer in 0..1) {
+                val radius = if (layer == 0) 6f else 3f
+                val alpha = if (layer == 0) 0.3f else 0.6f
+                Canvas(
+                    Modifier.fillMaxSize().graphicsLayer {
+                        renderEffect = BlurEffect(radius.dp.toPx(), radius.dp.toPx(), TileMode.Decal)
+                    }
+                ) {
+                    drawTick.intValue
+                    if (!editor.editing) return@Canvas
+                    val pic = editor.picture
+                    if (!pic.glow || pic.geometry.width <= 4) return@Canvas
+                    scale(density, density, pivot = Offset.Zero) {
+                        drawPath(
+                            renderer.combinedPath(pic),
+                            pic.curveColor.toColor(1f),
+                            alpha = alpha,
+                            style = renderer.glowStroke(pic.lineWidth, narrow = layer == 1)
+                        )
+                    }
+                }
+            }
+        }
         Canvas(
             Modifier
                 .fillMaxSize()
+                // Its own layer: an editor redraw never re-records the grid and curves under it.
+                .graphicsLayer()
                 .focusRequester(focus)
                 .focusable()
                 .onKeyEvent { e ->
@@ -422,7 +454,8 @@ fun PeqGraphEditorView(
         ) {
             drawTick.intValue
             if (!editor.editing) return@Canvas
-            scale(density, density, pivot = Offset.Zero) { renderer.draw(this, editor.picture, background) }
+            val pic = editor.picture
+            scale(density, density, pivot = Offset.Zero) { renderer.draw(this, pic, background, glow = pic.glow && !blurAvailable) }
         }
 
         PeqReadouts(labels, w, h)

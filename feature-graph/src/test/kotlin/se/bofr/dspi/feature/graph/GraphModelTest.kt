@@ -50,6 +50,8 @@ class GraphModelTest {
         assertEquals("+6", dbLabel(6.0))
         assertEquals("-12", dbLabel(-12.0))
         assertEquals("+2.5", dbLabel(2.5))
+        assertEquals("%g: six significant digits", "-0.333333", dbLabel(-1.0 / 3))
+        assertEquals("+100", dbLabel(100.0))
     }
 
     @Test
@@ -134,6 +136,42 @@ class GraphModelTest {
         assertEquals(50.0, ys[1].toDouble(), 1e-4)
         assertEquals(0.0, b.y(6.0), 1e-9)
         assertEquals(100.0, b.y(-120.0), 1e-9)
+    }
+
+    @Test
+    fun missingBandLevelsReadTheFloor() {
+        val b = RtaCurveBuilder()
+        b.configure(20.0, 20000.0, 300.0, 100.0, RtaScale(-90.0, 6.0))
+        val xs = FloatArray(8)
+        val ys = FloatArray(8)
+        // Five slots, levels for only three: the last two sit on the floor (macOS).
+        val n = b.bandPoints(listOf(25, 50, 100, 200, 400), DoubleArray(3) { -42.0 }, 3, 5, 0, xs, ys)
+        assertEquals(5, n)
+        assertEquals(100.0, ys[4].toDouble(), 1e-4)
+        assertEquals(50.0, ys[2].toDouble(), 1e-4)
+    }
+
+    @Test
+    fun theBandCurveIsSampledWithMacOSHermite() {
+        val b = RtaCurveBuilder()
+        b.configure(20.0, 20000.0, 300.0, 100.0, RtaScale(-90.0, 6.0))
+        val noBins = DoubleArray(b.columns)
+        assertFalse(b.binColumns(noBins, 0, 48000, noBins))
+        val out = FloatArray(b.columns)
+        // A straight line stays straight.
+        b.blend(floatArrayOf(0f, 100f, 200f), floatArrayOf(20f, 40f, 60f), 3, noBins, emptyList(), 0, out)
+        assertEquals(30f, out[50], 1e-4f)
+        assertEquals(50f, out[150], 1e-4f)
+        assertTrue("past the last band: no data", out[250].isNaN())
+        // A peak: the Hermite curve passes through the points and rounds over
+        // between them (macOS sampleBands, slopes from the neighbours).
+        b.blend(floatArrayOf(0f, 100f, 200f), floatArrayOf(80f, 20f, 80f), 3, noBins, emptyList(), 0, out)
+        assertEquals(20f, out[100], 1e-4f)
+        val t = 0.5f
+        val slope0 = (20f - 80f) / 100f
+        val expected =
+            (2 * t * t * t - 3 * t * t + 1) * 80f + (t * t * t - 2 * t * t + t) * 100f * slope0 + (-2 * t * t * t + 3 * t * t) * 20f
+        assertEquals(expected, out[50], 1e-3f)
     }
 
     @Test

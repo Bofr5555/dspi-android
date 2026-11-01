@@ -65,6 +65,9 @@ class SpectrumSelectionState internal constructor(
     private val page: MutableState<RtaChannelSelection>,
     private val pageOther: MutableState<RtaChannelSelection?>
 ) {
+    /** Changes whenever the channel page's own selection does (a key for callers caching [value]). */
+    val pageKey: Any? get() = page.value to pageOther.value
+
     /** macOS `DSPViewModel.rtaSelection`. */
     val value: RtaChannelSelection
         get() {
@@ -126,22 +129,22 @@ class SpectrumSelectionState internal constructor(
 
 @Composable
 internal fun rememberSpectrumSelection(bridge: DspiBridge, store: GraphSettingsStore, activeEq: Int?): SpectrumSelectionState {
-    // Recompose when the analyser's caps or the settings change.
-    bridge.rta.caps.collectAsStateWithLifecycle().value
-    store.settings.collectAsStateWithLifecycle().value
-    val page = remember(activeEq) {
-        mutableStateOf(
-            if (activeEq !=
-                null
-            ) {
-                SpectrumSelectionState.pageStart(bridge, activeEq, store.settings.value.rtaChannelPagesShowSpectrum)
-            } else {
-                RtaChannelSelection.NONE
-            }
-        )
-    }
+    // A channel page starts on its own channel each time one opens.
+    val page =
+        remember(activeEq) {
+            val start =
+                if (activeEq != null) {
+                    SpectrumSelectionState.pageStart(bridge, activeEq, store.settings.value.rtaChannelPagesShowSpectrum)
+                } else {
+                    RtaChannelSelection.NONE
+                }
+            mutableStateOf(start)
+        }
     val pageOther = remember(activeEq) { mutableStateOf<RtaChannelSelection?>(null) }
-    return SpectrumSelectionState(store, activeEq, { bridge.rta.availableChannels(it) }, page, pageOther)
+    // One object per page; callers read `value` with their own inputs (settings, caps) as keys.
+    return remember(bridge, store, activeEq, page, pageOther) {
+        SpectrumSelectionState(store, activeEq, { bridge.rta.availableChannels(it) }, page, pageOther)
+    }
 }
 
 /** The gear's panel: SPECTRUM channels, FFT Graph, and Graph Setup. */
@@ -299,10 +302,17 @@ private fun ChoiceRow(title: String, options: List<Double>, value: Double, label
 }
 
 @Composable
-private fun SliderRow(title: String, value: Double, range: ClosedFloatingPointRange<Float>, steps: Int = 0, set: (Double) -> Unit) {
+private fun SliderRow(
+    title: String,
+    value: Double,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int = 0,
+    enabled: Boolean = true,
+    set: (Double) -> Unit
+) {
     Column(Modifier.padding(horizontal = 12.dp)) {
-        Text(title, fontSize = 12.sp)
-        Slider(value = value.toFloat(), onValueChange = { set(it.toDouble()) }, valueRange = range, steps = steps)
+        Text(title, fontSize = 12.sp, color = if (enabled) Color.Unspecified else Color.Gray)
+        Slider(value = value.toFloat(), onValueChange = { set(it.toDouble()) }, valueRange = range, steps = steps, enabled = enabled)
     }
 }
 
@@ -317,7 +327,13 @@ private fun GraphSetupPage(settings: GraphSettings, store: GraphSettingsStore, o
         Text("Graph Setup", fontWeight = FontWeight.Bold)
     }
     HorizontalDivider()
-    SectionTitle("SCALE")
+    // macOS GraphSetupPage: the SCALE header carries its Reset.
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f)) { SectionTitle("SCALE") }
+        TextButton(onClick = {
+            store.update { it.resetScale() }
+        }, modifier = Modifier.padding(end = 4.dp)) { Text("Reset", fontSize = 11.sp) }
+    }
     ChoiceRow("Frequency from", GraphSettings.MIN_FREQS, settings.graphMinFreq, ::hz) { v -> store.update { it.copy(graphMinFreq = v) } }
     ChoiceRow("Frequency to", GraphSettings.MAX_FREQS, settings.graphMaxFreq, ::hz) { v -> store.update { it.copy(graphMaxFreq = v) } }
     SliderRow("Range: ${settings.graphDBRange.roundToInt()} dB", settings.graphDBRange, 10f..100f) { v ->
@@ -332,7 +348,6 @@ private fun GraphSetupPage(settings: GraphSettings, store: GraphSettingsStore, o
         settings.graphDBCenter,
         -40f..20f
     ) { v -> store.update { it.copy(graphDBCenter = v.roundToInt().toDouble()) } }
-    TextButton(onClick = { store.update { it.resetScale() } }, modifier = Modifier.padding(start = 4.dp)) { Text("Reset") }
     HorizontalDivider()
     SectionTitle("GRID & LABELS")
     ToggleRow("Frequency Grid", settings.showFrequencyGrid) { on -> store.update { it.copy(showFrequencyGrid = on) } }
@@ -341,9 +356,13 @@ private fun GraphSetupPage(settings: GraphSettings, store: GraphSettingsStore, o
     ToggleRow("dB Labels", settings.showDBLabels) { on -> store.update { it.copy(showDBLabels = on) } }
     ToggleRow("Frequency Readout", settings.showFrequencyReadout) { on -> store.update { it.copy(showFrequencyReadout = on) } }
     ToggleRow("Gain Readout", settings.showLevelReadout) { on -> store.update { it.copy(showLevelReadout = on) } }
-    SliderRow("Grid Opacity: ${(settings.graphGridOpacity * 100).roundToInt()}%", settings.graphGridOpacity, 0f..2f) { v ->
-        store.update { it.copy(graphGridOpacity = (v * 20).roundToInt() / 20.0) }
-    }
+    // Continuous, as macOS; meaningless with both grids off.
+    SliderRow(
+        "Grid Opacity: ${(settings.graphGridOpacity * 100).roundToInt()}%",
+        settings.graphGridOpacity,
+        0f..2f,
+        enabled = settings.showFrequencyGrid || settings.showDBGrid
+    ) { v -> store.update { it.copy(graphGridOpacity = v) } }
     HorizontalDivider()
     SectionTitle("CURVES")
     SliderRow("Line Width: ${String.format(Locale.ROOT, "%.1f", settings.graphLineWidth)} pt", settings.graphLineWidth, 1f..4f) { v ->

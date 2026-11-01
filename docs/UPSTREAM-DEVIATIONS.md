@@ -663,9 +663,15 @@ Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
    (macOS: on hover). Android reports no scroll phase, so a mouse wheel never
    "begins" a gesture (macOS mouse wheels have none either; trackpads do).
 3. **Rendering.** Compose Canvas instead of Metal/Win2D: band lobes are a
-   vertical gradient per band instead of the per-pixel `pow(t, 1.5)` fade;
-   the curve glow is two wide translucent strokes instead of a blur. Curve
+   vertical gradient per band instead of the per-pixel `pow(t, 1.5)` fade.
+   Curve glows use the macOS strokes, alphas and blur radii (single curve
+   0.3 / lw·4 / 6 pt and 0.6 / lw·2 / 3 pt; overlapping 0.07 / lw·5 / 8 pt
+   and 0.07 / lw·2.5 / 5 pt; the edited curve as a single curve; spectrum
+   edge 0.35 / 2 pt / 4 pt) through RenderEffect blur on API 31+; below 31
+   (no RenderEffect) they fall back to unblurred fainter strokes. Curve
    animation is a tween of the Graphing animation speed (macOS: spring).
+   Axis labels at the plot edges are kept fully inside the plot (macOS lets
+   the outermost ones half-clip) so they stay legible on a phone.
    Grid lines are 1 dp (macOS 1 pt). Curves are not clamped to the plot (a
    clamp bent visible steep segments of an unwrapped phase trace).
 4. **Spectrum overlay.** Bands + bins blend, bin smoothing, peak contour,
@@ -673,9 +679,12 @@ Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
    (`RtaBarSmoother`: rise τ·0.4 / fall τ, peak rise instant, identity snap;
    τ = `rtaFallTau(channelRefreshInterval, 0.35)` when `rtaSmoothingOn`) are
    ported; the core's `refreshIntervalS` is used when it reports one. The
-   band picture is sampled linearly per column for the blend (macOS samples
-   its Catmull-Rom curve). The "Following another console" row does not
-   exist (no Link hub).
+   band picture is sampled per column with the macOS Hermite
+   (`sampleBands`), band slots without a level read the floor, and each
+   start-group fades in its own layer, as macOS. The "Following another
+   console" row, `hiddenChannels` and the `active` pause are not needed (no
+   Link hub, no analyser window sharing the view). The "Following another
+   console" row does not exist (no Link hub).
 5. **Not offered in the gear panel:** RTA Bars (the bar strip belongs with
    ANALYSIS's bar renderer) and Pop Out Graph (the full-screen route is
    `GraphScreen`, reached through app navigation).
