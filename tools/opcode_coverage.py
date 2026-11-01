@@ -15,9 +15,21 @@ Three layers must agree on the vendor requests (REQ_* opcodes):
             non-test items: fns, consts and statics; worker threads are
             reached through the calls that start them).
 
+Limitation of the call graph: it works on names, not types. Items with the
+same name in different impls (`parse`, `default`, `new`, `start`, ...) are
+merged into one node, and any identifier in a body that names an item is an
+edge. It therefore over-approximates reachability: it reliably catches an
+opcode whose only path from dspi-ffi was removed, but "reachable" does not
+prove a specific path exists (e.g. RTA 0x08-0x0F show up as reachable from
+several roots). `-v` lists the merged names and each opcode's dspi-ffi callers.
+
+Policy (coordinator decision D6): the TAG pin (tag_sha, the firmware the
+reference UI ships) is the failing check; the release-branch head
+(branch_head_sha) is reported as non-failing WARNINGs.
+
 Fails (exit 1) on:
-  - a firmware opcode missing from the core, or a value mismatch, unless
-    listed in FIRMWARE_NOT_IN_CORE;
+  - a firmware opcode at the tag pin missing from the core, or a value
+    mismatch, unless listed in FIRMWARE_NOT_IN_CORE;
   - an opcode the core uses that dspi-ffi cannot reach, unless listed in
     UNREACHABLE_FROM_FFI;
   - a firmware snapshot without the pinned shas, or a stale allowlist entry
@@ -250,10 +262,12 @@ def main() -> int:
     # 1. firmware vs core
     snap = firmware_snapshot()
     still_missing: set[str] = set()
+    warnings: list[str] = []
     for key, sha in pinned_shas(reference_firmware()):
+        report = errors if key == "tag_sha" else warnings
         fw = snap.get(sha)
         if fw is None:
-            errors.append(f"{SNAPSHOT.relative_to(ROOT)} has no section for {key} {sha}: "
+            report.append(f"{SNAPSHOT.relative_to(ROOT)} has no section for {key} {sha}: "
                           "run --refresh-firmware on the host")
             continue
         missing = sorted(set(fw) - set(core), key=lambda n: fw[n])
@@ -261,10 +275,10 @@ def main() -> int:
             if n in FIRMWARE_NOT_IN_CORE:
                 still_missing.add(n)
             else:
-                errors.append(f"firmware {key} defines {n}=0x{fw[n]:02X}; the core does not")
+                report.append(f"firmware {key} defines {n}=0x{fw[n]:02X}; the core does not")
         for n in sorted(set(fw) & set(core)):
             if fw[n] != core[n]:
-                errors.append(f"{n}: firmware {key} 0x{fw[n]:02X} != core 0x{core[n]:02X}")
+                report.append(f"{n}: firmware {key} 0x{fw[n]:02X} != core 0x{core[n]:02X}")
         extra = sorted(set(core) - set(fw))
         print(f"opcode_coverage: firmware {key} {sha[:7]}: {len(fw)} REQ_*, core {len(core)}; "
               f"missing in core: {', '.join(f'{n}=0x{fw[n]:02X}' for n in missing) or 'none'}"
@@ -298,11 +312,15 @@ def main() -> int:
         print(f"opcode_coverage: {len(unused)} opcodes defined but unused by the core (info; mostly per-item GETs "
               "the bulk image replaces; -v lists them)")
     if a.verbose:
+        merged = sorted((n, len(b)) for n, b in items.items() if len(b) > 1 and n in seen)
+        print("  merged names (several items, one node): " + ", ".join(f"{n}×{k}" for n, k in merged))
         print("  unused: " + ", ".join(f"{n}=0x{core[n]:02X}" for n in unused))
         for n in sorted(callers, key=lambda n: core.get(n, 0)):
             if n in core:
                 print(f"  0x{core[n]:02X} {n:40} <- {', '.join(sorted(callers[n]))}")
 
+    for w in warnings:
+        print(f"opcode_coverage: WARNING (release-branch head, not failing): {w}", file=sys.stderr)
     for e in errors:
         print(f"opcode_coverage: ERROR: {e}", file=sys.stderr)
     if errors:
