@@ -8,13 +8,43 @@ enum class PresetStatus(val code: Int) {
     CRC(DspiConstants.PRESET_ERR_CRC),
     FLASH_WRITE(DspiConstants.PRESET_ERR_FLASH_WRITE),
 
+    /**
+     * BRIDGE-3 / HOME H12: macOS `PRESET_STATUS_LOCKED` (0xFE, `Constants.swift`).
+     * App-side only, never on the wire: the firmware (`config.h` PRESET_* =
+     * 0x00..0x04) and the core define no such status. macOS returns it when
+     * another DSPi Link session holds the hub's device lock, so the
+     * save/copy was not sent. Android talks to the unit over USB only (no
+     * DSPi Link hub, no device lock), so the bridge never produces it today;
+     * it exists so the wording and the mapping match macOS
+     * ([failureText], [DeviceLock.LOCKED_MESSAGE]).
+     */
+    LOCKED(PRESET_STATUS_LOCKED),
+
     /** The device did not answer (transfer error / disconnected). */
     NO_REPLY(-1)
     ;
 
+    /**
+     * macOS `presetFailureText(_:)`: [LOCKED] gets the shared lock wording
+     * ("Another console is applying changes"), anything else "error N" with
+     * the status byte (macOS shows 255 for no reply, the byte its transport
+     * returns then).
+     */
+    val failureText: String
+        get() = if (this == LOCKED) DeviceLock.LOCKED_MESSAGE else "error ${if (this == NO_REPLY) 255 else code}"
+
     companion object {
         fun of(code: Int): PresetStatus = entries.firstOrNull { it.code == code } ?: NO_REPLY
     }
+}
+
+/** macOS `PRESET_STATUS_LOCKED`: app-side preset status, never on the wire. */
+const val PRESET_STATUS_LOCKED: Int = 0xFE
+
+/** macOS `DeviceLock` (`Link/DeviceTransport.swift`): the shared device-lock wording. */
+object DeviceLock {
+    /** macOS `DeviceLock.lockedMessage`. */
+    const val LOCKED_MESSAGE: String = "Another console is applying changes"
 }
 
 enum class PinConfigStatus(val code: Int) {

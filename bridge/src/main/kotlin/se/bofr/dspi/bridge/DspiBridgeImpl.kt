@@ -328,8 +328,18 @@ class DspiBridgeImpl(
         refreshOutputConfigDirty()
     }
 
-    /** Bumped on every device selection / loss (macOS `transport.generation`). */
-    @Volatile private var generation = 0L
+    /**
+     * Bumped on every device open (selection / attach) and close (detach /
+     * disconnect / loss), on main — macOS `transport.generation`. Read from
+     * the FFI thread too (StateFlow.value is thread-safe).
+     */
+    private val _deviceGeneration = MutableStateFlow(0L)
+    override val deviceGeneration: StateFlow<Long> = _deviceGeneration.asStateFlow()
+    private val generation: Long get() = _deviceGeneration.value
+
+    private fun bumpGeneration() {
+        _deviceGeneration.value += 1
+    }
 
     /**
      * macOS `SettingsSaveCoordinator.revert` (output part): re-apply the
@@ -831,42 +841,54 @@ class DspiBridgeImpl(
     /** GPIOs a user can wire on a Pico (23-25 are internal), as on macOS. */
     override val validPins: List<Int> = (0..28).filter { it < 23 || it > 25 }
 
+    /**
+     * Qt `DSPiBridge::pinOwners` (labels, roles and order unchanged), each
+     * entry tagged with its structured [PinOwnerKind] + index (macOS
+     * `PinConsumer`, BRIDGE-3 / S15).
+     */
     override fun pinOwners(): List<PinOwner> {
         val s = current
         val owners = mutableListOf<PinOwner>()
-        fun add(pin: Int, owner: String, role: String) {
-            if (pin in 0..47) owners += PinOwner(pin, owner, role)
+        fun add(pin: Int, owner: String, role: String, kind: PinOwnerKind, index: Int = -1) {
+            if (pin in 0..47) owners += PinOwner(pin, owner, role, kind, index)
         }
         val n = s.numPinOutputs
-        for (i in 0 until n) add(s.outputPins[i], if (i == n - 1) "Subwoofer" else "Output ${2 * i + 1}/${2 * i + 2}", "output")
-        if (s.adatOutEnabled) add(s.adatOutPin, "ADAT Output", "output")
-        // The bit clock pair is always held for I2S, as on macOS
-        add(s.i2sBckPin, "I2S BCK", "clock")
-        add(s.i2sBckPin + 1, "I2S LRCLK", "clock")
-        if (s.i2sClockPinMode == 1) {
-            add(s.i2sBckPinSlave, "I2S Slave BCK", "clock")
-            add(s.i2sBckPinSlave + 1, "I2S Slave LRCLK", "clock")
-        }
-        if (s.mckEnabled) add(s.mckPin, "I2S MCK", "clock")
-        for (k in 0 until 4) {
-            if (s.spdifInputsEnabled and (1 shl k) != 0) {
-                add(s.spdifRxPins[k], if (s.spdifInputsEnabled and 1.inv() != 0) "S/PDIF RX ${k + 1}" else "S/PDIF RX", "input")
+        for (i in 0 until n) {
+            if (i == n - 1) {
+                add(s.outputPins[i], "Subwoofer", "output", PinOwnerKind.SUBWOOFER, i)
+            } else {
+                add(s.outputPins[i], "Output ${2 * i + 1}/${2 * i + 2}", "output", PinOwnerKind.OUTPUT_SLOT, i)
             }
         }
-        for (p in 0 until minOf(4, s.i2sInputChannels / 2)) add(s.i2sRxPins[p], "I2S Data ${p + 1}", "input")
-        if (s.adatInputEnabled && s.adatInputPin != 0xFF) add(s.adatInputPin, "ADAT Input", "input")
-        if (s.dacMuteEnabled && s.dacMutePin != 0xFF) add(s.dacMutePin, "DAC Mute", "other")
+        if (s.adatOutEnabled) add(s.adatOutPin, "ADAT Output", "output", PinOwnerKind.ADAT_OUT)
+        // The bit clock pair is always held for I2S, as on macOS
+        add(s.i2sBckPin, "I2S BCK", "clock", PinOwnerKind.I2S_BCK)
+        add(s.i2sBckPin + 1, "I2S LRCLK", "clock", PinOwnerKind.I2S_LRCLK)
+        if (s.i2sClockPinMode == 1) {
+            add(s.i2sBckPinSlave, "I2S Slave BCK", "clock", PinOwnerKind.I2S_SLAVE_BCK)
+            add(s.i2sBckPinSlave + 1, "I2S Slave LRCLK", "clock", PinOwnerKind.I2S_SLAVE_LRCLK)
+        }
+        if (s.mckEnabled) add(s.mckPin, "I2S MCK", "clock", PinOwnerKind.MCK)
+        for (k in 0 until 4) {
+            if (s.spdifInputsEnabled and (1 shl k) != 0) {
+                val label = if (s.spdifInputsEnabled and 1.inv() != 0) "S/PDIF RX ${k + 1}" else "S/PDIF RX"
+                add(s.spdifRxPins[k], label, "input", PinOwnerKind.SPDIF_RX, k)
+            }
+        }
+        for (p in 0 until minOf(4, s.i2sInputChannels / 2)) add(s.i2sRxPins[p], "I2S Data ${p + 1}", "input", PinOwnerKind.I2S_RX, p)
+        if (s.adatInputEnabled && s.adatInputPin != 0xFF) add(s.adatInputPin, "ADAT Input", "input", PinOwnerKind.ADAT_IN)
+        if (s.dacMuteEnabled && s.dacMutePin != 0xFF) add(s.dacMutePin, "DAC Mute", "other", PinOwnerKind.DAC_MUTE)
         if (s.uart.enabled) {
-            add(s.uart.txPin, "UART TX", "control")
-            add(s.uart.rxPin, "UART RX", "control")
+            add(s.uart.txPin, "UART TX", "control", PinOwnerKind.UART, 0)
+            add(s.uart.rxPin, "UART RX", "control", PinOwnerKind.UART, 1)
         }
         if (s.i2c.enabled) {
-            add(s.i2c.sdaPin, "I2C SDA", "control")
-            add(s.i2c.sclPin, "I2C SCL", "control")
+            add(s.i2c.sdaPin, "I2C SDA", "control", PinOwnerKind.I2C, 0)
+            add(s.i2c.sclPin, "I2C SCL", "control", PinOwnerKind.I2C, 1)
         }
         // Control surface bindings hold their pins while they're live (core
         // state, no USB: the core answers from its CS cache)
-        for (u in csPinUses.take(32)) add(u.pin, "Control Surface ${u.slot + 1}", "control")
+        for (u in csPinUses.take(32)) add(u.pin, "Control Surface ${u.slot + 1}", "control", PinOwnerKind.CONTROL_SURFACE, u.slot)
         return owners
     }
 
@@ -1329,6 +1351,11 @@ class DspiBridgeImpl(
     /** A GATED [DangerousOp.HARDWARE_APPLY] call (D2); arms the retry blackout (pipeline rebuild). */
     private suspend fun pinCall(token: ConfirmationToken, block: () -> Unit): PinConfigStatus {
         requireToken(token, DangerousOp.HARDWARE_APPLY)
+        return hardwareCall(block)
+    }
+
+    /** [pinCall] after the token check (the fire-and-forget forms check it before launching). */
+    private suspend fun hardwareCall(block: () -> Unit): PinConfigStatus {
         val (st, snap) =
             statusCall(PinConfigStatus.NO_REPLY.code, { PinConfigStatus.of(it) }) {
                 try {
@@ -1517,7 +1544,7 @@ class DspiBridgeImpl(
 
     /** DSPiBridge::selectDevice after a successful open: read everything, baseline, RTA probe. */
     private suspend fun deviceSelected(serial: String) {
-        generation++
+        bumpGeneration()
         links = linkStore.load(serial)
         // macOS noteSelectedDevice: a different unit discards pending output edits; a re-plug keeps them
         if (serial != outputEditSerial) {
@@ -1566,7 +1593,7 @@ class DspiBridgeImpl(
     }
 
     private fun setDisconnected() {
-        generation++
+        bumpGeneration()
         _status.value = _status.value.copy(connected = false, cpu0 = 0, cpu1 = 0, clipFlags = 0, peaks = BridgeStatus().peaks)
         _devices.value = _devices.value.copy(selectedSerial = "")
         magnitudeCache.fill(null)
@@ -1910,37 +1937,22 @@ class DspiBridgeImpl(
 
     override suspend fun setAdatInputClockMode(token: ConfirmationToken, mode: Int) = pinCall(token) { core.setAdatInputClockMode(mode) }
 
-    /** GATED [DangerousOp.HARDWARE_APPLY]; arms the retry blackout. */
+    /** GATED [DangerousOp.HARDWARE_APPLY]; arms the retry blackout. Fire-and-forget form of [setInputRateWithStatus]. */
     override fun setInputRate(token: ConfirmationToken, index: Int) {
         requireToken(token, DangerousOp.HARDWARE_APPLY)
-        scope.launch(main) {
-            val (st, snap) =
-                statusCall(PinConfigStatus.NO_REPLY.code, { PinConfigStatus.of(it) }) {
-                    try {
-                        core.setInputRate(index)
-                    } finally {
-                        flashWritten()
-                    }
-                }
-            if (st == PinConfigStatus.SUCCESS) hardwareEdited(st, snap)
-        }
+        scope.launch(main) { hardwareCall { core.setInputRate(index) } }
     }
 
-    /** GATED [DangerousOp.HARDWARE_APPLY]; arms the retry blackout. */
+    /** GATED [DangerousOp.HARDWARE_APPLY]; arms the retry blackout. Fire-and-forget form of [setI2sClockModeWithStatus]. */
     override fun setI2sClockMode(token: ConfirmationToken, mode: Int) {
         requireToken(token, DangerousOp.HARDWARE_APPLY)
-        scope.launch(main) {
-            val (st, snap) =
-                statusCall(PinConfigStatus.NO_REPLY.code, { PinConfigStatus.of(it) }) {
-                    try {
-                        core.setI2sClockMode(mode)
-                    } finally {
-                        flashWritten()
-                    }
-                }
-            if (st == PinConfigStatus.SUCCESS) hardwareEdited(st, snap)
-        }
+        scope.launch(main) { hardwareCall { core.setI2sClockMode(mode) } }
     }
+
+    /** SETTINGS S7: as the pin calls — gate, blackout, output-config bookkeeping, the transfer's status. */
+    override suspend fun setInputRateWithStatus(token: ConfirmationToken, index: Int) = pinCall(token) { core.setInputRate(index) }
+
+    override suspend fun setI2sClockModeWithStatus(token: ConfirmationToken, mode: Int) = pinCall(token) { core.setI2sClockMode(mode) }
 
     override fun setLgSoundSync(enabled: Boolean) = fire("setLgSoundSync") { core.setLgSoundSync(enabled) }
 
@@ -2074,6 +2086,9 @@ class DspiBridgeImpl(
             val rp2350 = current.platformId == 1
             val v32 = current.formatVersion >= DspiConstants.WIRE_FORMAT_VERSION
             return HardwareCaps(
+                // macOS bulk apply: V21+ image -> inputSourceSupported / lgSoundSyncSupported
+                inputSourceSupported = v32,
+                lgSoundSyncSupported = v32,
                 multiSpdifSupported = v32,
                 spdifInputCount = if (v32) 4 else 1,
                 i2sInputSupported = v32,

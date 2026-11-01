@@ -37,8 +37,76 @@ data class DeviceListState(
 /** Firmware InputSource id + display name ("USB", "S/PDIF 1", "I2S", "ADAT"). */
 data class InputSourceOption(val id: Int, val name: String)
 
-/** A claimed GPIO. role: "output", "clock", "input", "control" or "other". */
-data class PinOwner(val pin: Int, val owner: String, val role: String)
+/**
+ * A claimed GPIO. [owner] and [role] are the Qt `pinOwners()` label and role
+ * ("output", "clock", "input", "control" or "other"), unchanged.
+ *
+ * BRIDGE-3 / SETTINGS S15: [kind] + [index] say structurally who holds the
+ * pin, so no caller has to parse [owner] ("Control Surface 3" ->
+ * `CONTROL_SURFACE`, index 2). They map 1:1 onto macOS
+ * `DSPViewModel.swift` `PinConsumer` (see [PinOwnerKind]); [index] is the
+ * consumer's argument (output-pin index, S/PDIF input, I2S pair, control
+ * surface binding slot, all 0-based) or the pin's position inside a
+ * two-pin consumer (UART 0 TX / 1 RX, I2C 0 SDA / 1 SCL), -1 where the
+ * consumer has none.
+ */
+data class PinOwner(val pin: Int, val owner: String, val role: String, val kind: PinOwnerKind = PinOwnerKind.OTHER, val index: Int = -1)
+
+/**
+ * What holds a GPIO (macOS `PinConsumer`, split where macOS shows a
+ * different label for the same consumer). [macRole] is the macOS `PinRole`
+ * the Overview groups it under ("output", "clock", "input", "control",
+ * "utility").
+ */
+enum class PinOwnerKind(val macRole: String) {
+    /** `.output(slot)`: an S/PDIF / I2S output slot; index = slot (outputPins index). */
+    OUTPUT_SLOT("output"),
+
+    /** `.output(pdmIndex)`: the PDM subwoofer; index = its outputPins index. */
+    SUBWOOFER("output"),
+
+    /** `.adatOut`: ADAT bulk output data pin (held only while enabled). */
+    ADAT_OUT("output"),
+
+    /** `.i2sBck`: the master bit clock. */
+    I2S_BCK("clock"),
+
+    /** `.i2sBck` (BCK + 1): the master word clock. */
+    I2S_LRCLK("clock"),
+
+    /** `.i2sBckSlave`: slave bit clock (held in SPLIT clock-pin mode only). */
+    I2S_SLAVE_BCK("clock"),
+
+    /** `.i2sBckSlave` (BCK + 1): slave word clock (SPLIT clock-pin mode only). */
+    I2S_SLAVE_LRCLK("clock"),
+
+    /** `.mck`: the I2S master clock. */
+    MCK("clock"),
+
+    /** `.spdifRx(n)`: S/PDIF receiver data pin; index = input 0..3. */
+    SPDIF_RX("input"),
+
+    /** `.i2sRx(pair)`: I2S input data pin; index = stereo pair 0..3. */
+    I2S_RX("input"),
+
+    /** `.adatIn`: ADAT input data pin (held only while enabled). */
+    ADAT_IN("input"),
+
+    /** `.dacMute`: the DAC hardware-mute GPIO. */
+    DAC_MUTE("utility"),
+
+    /** `.uartCtrl`: UART control interface; index 0 TX, 1 RX. */
+    UART("control"),
+
+    /** `.i2cCtrl`: I2C control interface; index 0 SDA, 1 SCL. */
+    I2C("control"),
+
+    /** `.controlSurface(slot)`: a live control-surface binding; index = binding slot (0-based). */
+    CONTROL_SURFACE("control"),
+
+    /** Not produced by [DspiBridge.pinOwners]; the default for hand-built values. */
+    OTHER("utility")
+}
 
 /** A channel's bands for the on-graph editor. */
 data class ChannelBands(
@@ -105,7 +173,10 @@ data class SpdifChannelStatus(
  *   `adatInputSupported` = platform == "RP2350");
  * - multi-channel I2S input (4/6/8 channels) is RP2350-only (Qt InputsPage).
  * [spdifInputCount] is the receiver count; macOS reads it from the 0xEF
- * inventory, which the core does not expose, so it is the wire maximum (4).
+ * inventory, which the core does not expose, so it is the wire maximum (4)
+ * — on both platforms: firmware v1.1.6 `audio_input.h` defines
+ * `SPDIF_RX_NUM_INPUTS 4` unconditionally (RP2040 included), and the V32 image
+ * always carries the non-zero enable-mask+1 byte (review S18).
  */
 data class HardwareCaps(
     val multiSpdifSupported: Boolean = false,
@@ -116,5 +187,21 @@ data class HardwareCaps(
     val i2sClockPinModeSupported: Boolean = false,
     val adatOutSupported: Boolean = false,
     val adatInputSupported: Boolean = false,
-    val limiterSupported: Boolean = false
+    val limiterSupported: Boolean = false,
+    /**
+     * BRIDGE-3: macOS `inputSourceSupported` — the input-source menu (HOME),
+     * the S/PDIF Input settings page and the S/PDIF RX pin claims. macOS sets
+     * it whenever a V21+ bulk image parses (`Commands.swift` bulk apply) and
+     * then re-probes REQ_GET_INPUT_SOURCE 0xE1 (false on a STALL); the core
+     * has no 0xE1 probe, so here it is true exactly while the V32 image is
+     * usable (every RP2040/RP2350 firmware that writes V32 answers 0xE1).
+     */
+    val inputSourceSupported: Boolean = false,
+    /**
+     * BRIDGE-3: macOS `lgSoundSyncSupported` (separate flag on macOS, set by
+     * the same bulk parse — V8+ — or a successful REQ_GET_LG_SOUND_SYNC_ENABLE 0xE7 read): the LG Sound
+     * Sync toggle and the LG rows of the statistics view. True while the V32
+     * image is usable.
+     */
+    val lgSoundSyncSupported: Boolean = false
 )

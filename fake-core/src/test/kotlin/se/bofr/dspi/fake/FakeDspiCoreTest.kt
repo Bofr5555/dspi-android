@@ -203,4 +203,23 @@ class FakeDspiCoreTest {
         assertEquals(DspiConstants.FILTER_FLAT, s.filters[0][0].filterType)
         assertEquals(9, s.numOutputChannels) // the device's identity stays
     }
+
+    /** Firmware REQ_GET_INPUT_RATE word 0 = audio_state.freq (the live rate), as the real core reads it. */
+    @Test
+    fun fetchInputRateIsTheLiveRateOnlyFollowingTheSelectionAsRateAuthority() {
+        val core = FakeDspiCore()
+        core.externalRateHz = 44_100
+        core.setInputRate(2)
+        assertEquals(44_100L, core.fetchInputRate()) // USB: the host's rate
+        core.setInputSource(2)
+        assertEquals(96_000L, core.fetchInputRate()) // I2S master
+        core.setI2sClockMode(1)
+        assertEquals(44_100L, core.fetchInputRate()) // I2S slave: detected
+        core.setInputSource(3)
+        assertEquals(96_000L, core.fetchInputRate()) // ADAT master shares i2s_input_rate
+        core.setAdatInputClockMode(1)
+        assertEquals(44_100L, core.fetchInputRate()) // ADAT slave
+        core.setInputSource(1)
+        assertEquals(44_100L, core.fetchInputRate()) // S/PDIF: the stream's rate
+    }
 }

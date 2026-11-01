@@ -141,6 +141,49 @@ the implementation does beyond it.
     multichannel I2S are RP2350-only) instead of macOS's per-feature probes;
     the S/PDIF receiver count is the wire maximum (4) because the core has no
     0xEF inventory. `siggenSupported` is the caps probe, as macOS.
+    BRIDGE-3: `inputSourceSupported` and `lgSoundSyncSupported` (separate
+    flags, as on macOS) are true while the V32 image is usable — macOS sets
+    both on every V21+ bulk parse. macOS then re-probes 0xE1
+    (GET_INPUT_SOURCE) and clears `inputSourceSupported` on a STALL; the
+    core has no such probe, and every RP2040/RP2350 firmware that writes V32
+    answers it. The S/PDIF receiver count 4 holds on RP2040 too (firmware
+    `SPDIF_RX_NUM_INPUTS 4` unconditionally; review S18).
+15. **Status variants for the input rate and I2S clock mode (BRIDGE-3,
+    SETTINGS S7).** macOS `setInputRate`/`setI2SClockMode` are plain SETs
+    without a result, ordered by its serial queue. Here the fire-and-forget
+    forms stay, and `setInputRateWithStatus`/`setI2sClockModeWithStatus`
+    suspend until the FFI queue ran the transfer, so a following suspend call
+    cannot overtake them. Both go through the pin-call path (HARDWARE_APPLY
+    gate, retry blackout, `hardwareUnsaved`, publish). The wire has no status
+    byte for 0xED/0x88: the result is SUCCESS (transfer done) or NO_REPLY,
+    never a firmware refusal. The fire-and-forget forms now publish the
+    state also after a failed transfer (the core already changed it), like
+    every pin call.
+16. **Pin owner kinds (BRIDGE-3, SETTINGS S15).** `pinOwners()` keeps Qt's
+    labels, roles and order and adds `kind`/`index`, which map 1:1 to macOS
+    `PinConsumer` (split where macOS labels differ: SUBWOOFER vs output slot,
+    LRCLK vs BCK, slave clocks) plus the macOS `PinRole` (`kind.macRole`;
+    Qt "other" = macOS "utility"). Which pins are claimed is still Qt's rule
+    (e.g. MCK only while enabled, UART/I2C while enabled); SETTINGS'
+    `pinAssignment` port stays the macOS authority for pickers.
+17. **Device generation (BRIDGE-3, SETTINGS S16).** `deviceGeneration`
+    is macOS `transport.generation`: bumped on main on every open (select /
+    attach) and every close (detach / disconnect; a reconnect bumps it
+    twice), before the new device's state is published. It never resets.
+18. **`PresetStatus.LOCKED` (BRIDGE-3, HOME H12).** macOS
+    `PRESET_STATUS_LOCKED` = 0xFE is app-side (DSPi Link hub device lock);
+    the firmware (`config.h` PRESET_* 0x00–0x04) and the core have no such
+    code. core-api maps 0xFE to `LOCKED` and carries macOS's wording
+    (`DeviceLock.LOCKED_MESSAGE` "Another console is applying changes",
+    `PresetStatus.failureText` = `presetFailureText(_:)`), but the bridge
+    never returns it: Android has no hub and no device lock.
+19. **`fetchInputRate` is the live pipeline rate (BRIDGE-3, SETTINGS S8).**
+    The core reads 0xEE word 0 = firmware `audio_state.freq` (macOS
+    `fetchSampleRate` reads the same value via status wValue 15), not the
+    selected I2S rate. `FakeDspiCore` now models this: the selected rate
+    only while the firmware is the rate authority (I2S or ADAT input in
+    master clock mode), otherwise `externalRateHz` (USB host / S/PDIF /
+    slave master; 48 kHz by default).
 
 ## USB
 
