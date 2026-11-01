@@ -22,12 +22,7 @@ import se.bofr.dspi.bridge.DspiBridge
  * WAVE 0 placeholder; package GRAPH implements it.
  */
 @Composable
-fun GraphView(
-    bridge: DspiBridge,
-    modifier: Modifier = Modifier,
-    channels: Set<Int> = emptySet(),
-    editable: Boolean = false,
-) {
+fun GraphView(bridge: DspiBridge, modifier: Modifier = Modifier, channels: Set<Int> = emptySet(), editable: Boolean = false) {
     Box(modifier.fillMaxWidth().height(200.dp)) {
         Text("Graph (${if (channels.isEmpty()) "visible channels" else channels.joinToString()}${if (editable) ", editable" else ""})")
     }

@@ -51,7 +51,7 @@ fun AppScaffold(bridge: DspiBridge, demoMode: Boolean) {
                 composable(DspiRoutes.TOOLS) { ToolsScreen(bridge, go, back) }
                 composable(
                     DspiRoutes.LIMITER,
-                    arguments = listOf(navArgument("out") { type = NavType.IntType }),
+                    arguments = listOf(navArgument("out") { type = NavType.IntType })
                 ) { entry ->
                     OutputLimiterView(bridge, entry.arguments?.getInt("out") ?: 0, go, back)
                 }

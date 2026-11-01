@@ -13,13 +13,7 @@ import se.bofr.dspi.ui.PlaceholderScreen
  * WAVE 0 placeholder; package TOOLS implements it.
  */
 @Composable
-fun OutputLimiterView(
-    bridge: DspiBridge,
-    out: Int,
-    onNavigate: (String) -> Unit,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun OutputLimiterView(bridge: DspiBridge, out: Int, onNavigate: (String) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
     PlaceholderScreen(title = "Output Limiter", owner = "TOOLS", ports = "OutputLimiterView.swift", modifier = modifier) {
         Text("Output ${out + 1}: ${if (bridge.limiterEnabled(out)) "on" else "off"}")
     }
