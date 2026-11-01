@@ -138,3 +138,51 @@ the implementation does beyond it.
 4. Multi-device: like macOS, a second unit never takes over an open
    connection; when the open unit leaves, the session switches to a survivor,
    preferring the last serial (Linux `rescan()`).
+
+## MATRIX
+
+Reference: macOS `MatrixMixerView.swift` (+ the matrix helpers of
+`DSPViewModel.swift`, `Commands.swift`) @ v1.1.6-beta5; bridge usage as Linux
+`qt/qml/MatrixMixerWindow.qml` @ 4683a2c.
+
+1. **Phone layout: one page per output.** Below 600 dp the grid becomes a
+   tab row of outputs (name + OUTn, disabled outputs dimmed) over a pager;
+   each page lists the matrix rows for that output (name, input trim in
+   8-channel mode, gain field, INV, the crosspoint dot) and the output's
+   ENABLE / GAIN / DELAY / MUTE. The ROUTING band (with Direct 1:1 / Clear in
+   8-channel mode) and the OUTPUT band keep their macOS labels and order.
+   From 600 dp the macOS grid is drawn as-is (scrolls both ways).
+2. **Compact fields on touch.** macOS: click to type, plain scroll wheel to
+   adjust. Here: tap opens a small editor (unit optional, a decimal comma is
+   accepted; non-numbers are ignored as on macOS); long-press then drag
+   (up/right = more) replaces the scroll wheel: 0.1 dB per 3 dp, delay 1 ms
+   per 4 dp. Drags are live through `Throttle` (30 ms) and commit once on
+   release: output gain via `sendOutputGainToDevice` → `setOutputGain`,
+   delay via `sendOutputDelayToDevice` → `setOutputDelay`, input trim via
+   `setInputPreamp(sendOnly = true)` → `sendOnly = false`. Crosspoint gain has
+   no sendOnly in the contract (`setMatrixRoute`), so its live values are
+   throttled full writes and the release writes once more.
+3. **Rounding as macOS:** output gain 0.1 dB, output delay whole ms
+   (README: "Applied in whole milliseconds"); delay max 42 ms (RP2040) /
+   85 ms (RP2350) as `CompactDelayField(maxDelay:)`. Gain fields −60…+12 dB.
+4. **Hover help → captions/labels.** ENABLE's tooltip text is a caption on the
+   phone page and the click label for accessibility; MatrixPoint's
+   "Connect/Disconnect" and "Phase inverted/Normal phase" are content
+   descriptions. The row's long name (e.g. "Upmix Centre") is shown under the
+   short one on the phone page.
+5. **Column header menu** opens on tap or long-press (tablet) and from a "•••"
+   button or long-press on the name (phone); items and wording as macOS
+   (Identify only when connected and the generator is supported, disabled on a
+   disabled output; Rename; Copy/Paste Parameters). Rename is a dialog
+   (≤ 31 characters, trimmed, empty ignored) instead of in-place editing.
+6. **Row count.** macOS sizes USB input rows from the host's CoreAudio
+   format; Android has no equivalent, so the device-reported active input
+   count is used (macOS's own fallback, Qt's behaviour). S/PDIF, I2S and ADAT
+   follow macOS `effectiveInputChannels`.
+7. **PDM conflict.** Same alert text and buttons; the confirm calls the
+   bridge's `enableOutputResolvingConflict` (one batch on the FFI thread)
+   instead of macOS's switchToPDM/switchFromPDM + read-backs. Graph
+   visibility follows ENABLE and the conflict switch as macOS overview mode
+   does (`setChannelVisible`); Direct 1:1 leaves visibility alone.
+8. **Icons** ("power", speaker) are drawn locally (no icon library in the
+   build); disabled crosspoints are greyed (macOS `.saturation(0)`) and dimmed.
