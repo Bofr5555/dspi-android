@@ -1,11 +1,14 @@
-// Port of DSPi-Console-b5:DSPi Console/DSPi_ConsoleApp.swift `SettingsSaveCoordinator`,
-// with the hardware category staged in Windows' PendingChangeTracker (D2:
-// pipeline-rebuilding calls run only from the save bar's Save, with one
-// HARDWARE_APPLY token).
+// Port of DSPi-Console-b5:DSPi Console/DSPi_ConsoleApp.swift `SettingsSaveCoordinator`
+// (1:1: globalDraft/globalUserEdited, outputConfigDirty/outputBaseline/
+// beginOutputEdit, csDirty/csBusy/csReloadToken, save(), revert()). Gating per
+// coordinator decision E1b: a hardware control mints HARDWARE_APPLY on the
+// user's interaction and applies at once ([applyHardware]); Save mints
+// SAVE_OUTPUT_CONFIG / CS_SAVE; Revert mints HARDWARE_APPLY from the Revert tap.
 package se.bofr.dspi.feature.settings
 
 import java.util.Collections
 import java.util.WeakHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -14,30 +17,31 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import se.bofr.dspi.bridge.ConfirmationToken
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.OUTPUT_CONFIG_MODE_INDEPENDENT
 
 /**
  * Owner of pending (unsaved) Settings changes for one bridge, so the save bar
- * survives moving between pages and leaving Settings. Three categories, one
- * Save and one Revert:
+ * survives moving between pages and leaving Settings. Categories as on macOS:
  *
- * - **Global parameters** ([globalDraft]): staged; Save writes the ones that
- *   differ (ungated directory/config writes, D3) — startup, master-volume
- *   mode, output-config mode, DAC mute.
- * - **Hardware** ([hardware]): pins, types, clocks and inputs staged as
- *   [PendingChange]s; Save mints one reusable HARDWARE_APPLY token and applies
- *   them in dependency order. Then, in independent mode, Save Output
- *   Configuration (SAVE_OUTPUT_CONFIG) keeps them — and any limiter edits the
- *   bridge reports as `hardwareUnsaved` — across a restart.
- * - **Control surfaces**: live previews the device marks dirty; Save is
- *   `cs.save` (CS_SAVE), Revert `cs.revert`.
+ * - **B, global parameters** ([globalDraft]): staged until Save (ungated
+ *   directory/config writes, D3).
+ * - **A, output config** (independent mode only): pin/type/clock/RX and
+ *   output-limiter edits apply LIVE; "dirty" means not yet flashed. Save calls
+ *   `saveOutputConfig()`; Revert re-applies the captured [outputBaseline].
+ * - **C, control surfaces**: live previews the device marks dirty.
  *
- * Tokens are minted by the Save sequence itself on the main thread — the
- * user's Save click is the confirmation, as on macOS (no extra dialog) — each
- * immediately before its use and revoked afterwards. Main thread only.
+ * Dirtiness is gated on actual user edits ([beginOutputEdit]), so fresh device
+ * data never looks unsaved. [outputConfigDirty] is kept here until the
+ * bridge's `outputConfigDirty` hook (pkg/contract2) lands; it is only read
+ * through [outputDirty] and written through [beginOutputEdit] /
+ * [markOutputClean], so switching to the hook is local. Limiter edits made in
+ * TOOLS (which can't call [beginOutputEdit]) show up through the bridge's
+ * `hardwareUnsaved` meanwhile. Main thread only.
  */
 class SettingsSaveCoordinator(
     val bridge: DspiBridge,
@@ -48,144 +52,184 @@ class SettingsSaveCoordinator(
     private val _globalUserEdited = MutableStateFlow(false)
     val globalUserEdited: StateFlow<Boolean> = _globalUserEdited.asStateFlow()
 
-    // ── Category A: hardware ──
-    val hardware = PendingChangeTracker()
+    // ── Category A: output config (live edits, flash on save) ──
+    private val _outputConfigDirty = MutableStateFlow(false)
+
+    /** The user edited the output config since the last clean point (macOS `outputConfigDirty`). */
+    val outputConfigDirty: StateFlow<Boolean> = _outputConfigDirty.asStateFlow()
+
+    /** Pre-edit config Revert restores (macOS `outputBaseline`). */
+    var outputBaseline: OutputConfigSnapshot = OutputConfigSnapshot.from(bridge.state.value, bridge.platformName)
+        private set
+
     val hardwareChanges = HardwareChanges(bridge)
 
     // ── Category C: control surfaces ──
     private var csOpsInFlight = 0
     private val _csBusy = MutableStateFlow(false)
-
-    /** A control-surfaces operation is in flight (they share one status channel). */
     val csBusy: StateFlow<Boolean> = _csBusy.asStateFlow()
     private val _csReloadToken = MutableStateFlow(0)
-
-    /** Bumped after a CS revert lands, so the page re-seeds its drafts. */
     val csReloadToken: StateFlow<Int> = _csReloadToken.asStateFlow()
 
     private val _saving = MutableStateFlow(false)
     val saving: StateFlow<Boolean> = _saving.asStateFlow()
-
     private val _lastResult = MutableStateFlow<SaveResult?>(null)
 
-    /** Outcome of the last Save (failures stay staged for a retry, as on Windows). */
+    /** What the last Save could not do (shown in the bar). */
     val lastResult: StateFlow<SaveResult?> = _lastResult.asStateFlow()
+
+    private val _hardwareStatus = MutableStateFlow<Pair<String, Boolean>?>(null)
+
+    /** Outcome of the last hardware control change (macOS `statusMessage` / `statusIsError`). */
+    val hardwareStatus: StateFlow<Pair<String, Boolean>?> = _hardwareStatus.asStateFlow()
 
     private var lastDeviceSerial: String? = bridge.selectedSerial.ifEmpty { null }
 
+    init {
+        // Keep the baseline at the device's clean config, so limiter edits from
+        // TOOLS (reported by hardwareUnsaved) still have one to revert to.
+        scope.launch {
+            bridge.state.collect { s ->
+                if (!_outputConfigDirty.value && !bridge.hardwareUnsaved.value) outputBaseline = deviceSnapshot(s)
+            }
+        }
+    }
+
     // ── Dirty state ──
 
-    /** The draft the Global page shows: the device's values until the user edits. */
+    /** The Global page's values: the device's until the user edits. */
     fun globalDraft(state: DspState = bridge.state.value): GlobalSettingsDraft =
         if (_globalUserEdited.value) storedDraft.value else GlobalSettingsDraft.from(state)
 
     fun globalDirty(state: DspState = bridge.state.value): Boolean =
         _globalUserEdited.value && storedDraft.value != GlobalSettingsDraft.from(state)
 
-    /** Live output-config edits not yet flashed (independent mode only). */
+    /** macOS `outputDirty`: user edits not yet flashed, independent mode only. */
     fun outputDirty(state: DspState = bridge.state.value): Boolean =
-        bridge.hardwareUnsaved.value && state.outputConfigMode == GlobalSettingsDraft.OUTPUT_CONFIG_MODE_INDEPENDENT
+        (_outputConfigDirty.value || bridge.hardwareUnsaved.value) && state.outputConfigMode == OUTPUT_CONFIG_MODE_INDEPENDENT
 
     fun csDirty(): Boolean = bridge.cs.supported.value && bridge.cs.unsaved.value
 
-    fun hasPendingChanges(state: DspState = bridge.state.value): Boolean =
-        globalDirty(state) || hardware.count > 0 || outputDirty(state) || csDirty()
+    fun hasPendingChanges(state: DspState = bridge.state.value): Boolean = globalDirty(state) || outputDirty(state) || csDirty()
 
     /** Only the control-surfaces preview is pending. */
-    fun csOnly(state: DspState = bridge.state.value): Boolean =
-        csDirty() && !globalDirty(state) && hardware.count == 0 && !outputDirty(state)
+    fun csOnly(state: DspState = bridge.state.value): Boolean = csDirty() && !globalDirty(state) && !outputDirty(state)
 
-    /** Something Revert can undo (live hardware edits made elsewhere can't be). */
-    fun canRevert(state: DspState = bridge.state.value): Boolean = globalDirty(state) || hardware.count > 0 || csDirty()
-
-    // ── Hardware draft ──
-
-    /** The device's hardware configuration. */
     fun deviceSnapshot(state: DspState = bridge.state.value): OutputConfigSnapshot = OutputConfigSnapshot.from(state, bridge.platformName)
 
-    /** The configuration the pages show: device + every staged change. */
-    fun hardwareDraft(state: DspState = bridge.state.value, pending: List<PendingChange> = hardware.pending.value): OutputConfigSnapshot =
-        pending.fold(deviceSnapshot(state)) { c, change -> change.patch(c) }
+    /** The pin authority over the device's config (macOS `vm.pinAssignment`). */
+    fun pinContext(state: DspState = bridge.state.value): PinContext =
+        PinContext.from(deviceSnapshot(state), state, if (bridge.connected) bridge.pinOwners() else emptyList())
 
-    /** The pin authority over the draft (macOS `vm.pinAssignment`). */
-    fun pinContext(state: DspState = bridge.state.value, pending: List<PendingChange> = hardware.pending.value): PinContext =
-        PinContext.from(hardwareDraft(state, pending), state, if (bridge.connected) bridge.pinOwners() else emptyList())
+    // ── Output-config editing ──
 
-    fun stage(change: PendingChange) {
-        _lastResult.value = null
-        hardware.stage(change)
+    /**
+     * Call at the start of any output-config edit. On the first edit since the
+     * last clean point (independent mode only), captures the pre-edit committed
+     * config as the revert baseline.
+     */
+    fun beginOutputEdit(state: DspState = bridge.state.value) {
+        if (state.outputConfigMode != OUTPUT_CONFIG_MODE_INDEPENDENT) return
+        if (!_outputConfigDirty.value) {
+            outputBaseline = deviceSnapshot(state)
+            _outputConfigDirty.value = true
+        }
     }
 
-    fun stage(changes: List<PendingChange>) = changes.forEach { stage(it) }
+    private fun markOutputClean() {
+        _outputConfigDirty.value = false
+    }
+
+    /**
+     * A hardware control was changed by the user: mint HARDWARE_APPLY now (the
+     * interaction is the confirmation, E1b), mark the edit, and apply
+     * [changes] at once — several only when one action implies several calls,
+     * in dependency order, stopping at the first refusal. Main thread.
+     */
+    fun applyHardware(changes: List<HardwareChange>): Job? {
+        val todo = HardwareChangeOrder.topoSort(changes.filter { it.oldDisplay != it.newDisplay })
+        if (todo.isEmpty()) return null
+        val token = bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY)
+        beginOutputEdit()
+        val serial = bridge.selectedSerial
+        return scope.launch {
+            try {
+                for (c in todo) {
+                    if (bridge.selectedSerial != serial) break
+                    val st = try {
+                        c.apply(token)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        -1
+                    }
+                    if (st != 0) {
+                        _hardwareStatus.value = (c.statusText?.invoke(st) ?: "Failed to set ${c.fieldLabel}") to true
+                        return@launch
+                    }
+                }
+                val one = todo.singleOrNull()
+                _hardwareStatus.value =
+                    (if (one != null) "${one.fieldLabel} set to ${one.newDisplay}" else "${todo.size} changes applied") to false
+            } finally {
+                bridge.dangerousOps.revoke(token)
+            }
+        }
+    }
+
+    fun applyHardware(change: HardwareChange): Job? = applyHardware(listOf(change))
 
     // ── Global draft editing ──
 
     /** Edit a global field; marks the draft user-edited (macOS `draftBinding`). */
     fun editGlobal(transform: (GlobalSettingsDraft) -> GlobalSettingsDraft) {
-        val base = globalDraft()
-        storedDraft.value = transform(base)
+        storedDraft.value = transform(globalDraft())
         _globalUserEdited.value = true
         _lastResult.value = null
     }
 
-    // ── Pending list (save bar) ──
-
-    /** One line per pending change, for the save bar's list (Windows InfoBar expander). */
+    /** One line per pending change, for the save bar's list. */
     fun pendingSummary(state: DspState = bridge.state.value): List<String> {
         val out = ArrayList<String>()
         if (globalDirty(state)) {
             val d = storedDraft.value
             val s = GlobalSettingsDraft.from(state)
-            if (d.presetStartupMode !=
-                s.presetStartupMode
-            ) {
+            if (d.presetStartupMode != s.presetStartupMode) {
                 out += "Startup preset: ${startupName(s.presetStartupMode)} → ${startupName(d.presetStartupMode)}"
             }
-            if (d.presetStartupMode == 0 &&
-                d.presetDefaultSlot != s.presetDefaultSlot
-            ) {
+            if (d.presetStartupMode == 0 && d.presetDefaultSlot != s.presetDefaultSlot) {
                 out += "Default preset: ${s.presetDefaultSlot + 1} → ${d.presetDefaultSlot + 1}"
             }
-            if (d.presetMasterVolumeMode !=
-                s.presetMasterVolumeMode
-            ) {
-                out +=
-                    "Master volume: ${modeName(s.presetMasterVolumeMode)} → ${modeName(d.presetMasterVolumeMode)}"
+            if (d.presetMasterVolumeMode != s.presetMasterVolumeMode) {
+                out += "Master volume: ${modeName(s.presetMasterVolumeMode)} → ${modeName(d.presetMasterVolumeMode)}"
             }
-            if (d.presetOutputConfigMode !=
-                s.presetOutputConfigMode
-            ) {
-                out +=
-                    "Hardware configuration: ${modeName(s.presetOutputConfigMode)} → ${modeName(d.presetOutputConfigMode)}"
+            if (d.presetOutputConfigMode != s.presetOutputConfigMode) {
+                out += "Hardware configuration: ${modeName(s.presetOutputConfigMode)} → ${modeName(d.presetOutputConfigMode)}"
             }
             if (d.dacHwMuteConfig != s.dacHwMuteConfig) out += "External mute control"
         }
-        hardware.pending.value.forEach { out += "${it.fieldLabel}: ${it.oldDisplay} → ${it.newDisplay}" }
-        if (outputDirty(state)) out += "Output configuration changed on the device (not yet saved to flash)"
+        if (outputDirty(state)) out += "Input and output configuration (live now, not yet saved to flash)"
         if (csDirty()) out += "Control surfaces (live now, not yet saved)"
         return out
     }
 
     // ── Save / Revert ──
 
-    /** The save bar's Save. */
     fun onSave(): Job = scope.launch { save() }
 
-    /** The save bar's Revert. */
-    fun onRevert(): Job = scope.launch { revert() }
+    /** The bar's Revert: mints HARDWARE_APPLY from the tap when the output config is restored. */
+    fun onRevert(): Job {
+        val token = if (outputDirty()) bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY) else null
+        return scope.launch { revert(token) }
+    }
 
-    /**
-     * Global writes, then the hardware batch (HARDWARE_APPLY), then Save Output
-     * Configuration in independent mode (SAVE_OUTPUT_CONFIG), then the control
-     * surfaces (CS_SAVE) — macOS order, hardware apply inserted where macOS's
-     * live edits would already have landed. Stops if the device changes.
-     */
+    /** macOS `save()`: global writes, then `saveOutputConfig()`, then the CS save. */
     suspend fun save(): SaveResult? {
         val state = bridge.state.value
         val doGlobal = globalDirty(state)
-        val doHardware = hardware.count > 0
+        val doOutput = outputDirty(state)
         val doCs = csDirty()
-        if (!doGlobal && !doHardware && !outputDirty(state) && !doCs) return null
+        if (!doGlobal && !doOutput && !doCs) return null
         val serial = bridge.selectedSerial
         fun stillCurrent() = bridge.selectedSerial == serial
         val messages = ArrayList<String>()
@@ -213,20 +257,6 @@ class SettingsSaveCoordinator(
                     bridge.setDacMute(m.enabled, m.activeLow, m.pin, m.holdMs, m.releaseMs)
                 }
             }
-            val finalMode = if (doGlobal) pending.presetOutputConfigMode else device.presetOutputConfigMode
-            var applied = 0
-            if (doHardware && stillCurrent()) {
-                val token = bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY)
-                try {
-                    val report = hardware.applyAll(token)
-                    applied = report.applied
-                    report.failures.forEach { (c, why) -> messages += "${c.fieldLabel}: $why" }
-                } finally {
-                    bridge.dangerousOps.revoke(token)
-                }
-            }
-            val doOutput = finalMode == GlobalSettingsDraft.OUTPUT_CONFIG_MODE_INDEPENDENT &&
-                (applied > 0 || bridge.hardwareUnsaved.value)
             if (doOutput && stillCurrent()) {
                 val token = bridge.dangerousOps.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)
                 val st = try {
@@ -245,7 +275,10 @@ class SettingsSaveCoordinator(
                 }
                 if (st != 0) messages += "Control surfaces: ${bridge.cs.statusMessage(st)}"
             }
-            if (stillCurrent()) _globalUserEdited.value = false
+            if (stillCurrent()) {
+                _globalUserEdited.value = false
+                markOutputClean()
+            }
             return SaveResult(messages).also { _lastResult.value = it }
         } finally {
             if (doCs) endCsOperation()
@@ -253,19 +286,105 @@ class SettingsSaveCoordinator(
         }
     }
 
-    suspend fun revert() {
+    /**
+     * macOS `revert()`: drop the global draft, revert the CS preview, and
+     * best-effort restore the live output config to [outputBaseline] in the
+     * macOS order, with [token] (HARDWARE_APPLY, minted by the Revert tap).
+     */
+    suspend fun revert(token: ConfirmationToken?) {
         val state = bridge.state.value
-        if (globalDirty(state) || _globalUserEdited.value) _globalUserEdited.value = false
-        hardware.discardAll()
+        val doOutput = outputDirty(state)
+        if (globalDirty(state)) _globalUserEdited.value = false
         _lastResult.value = null
-        if (csDirty()) {
-            beginCsOperation()
-            try {
-                bridge.cs.revert()
-            } finally {
-                endCsOperation()
-                _csReloadToken.value += 1
+        try {
+            if (csDirty()) revertControlSurfaces()
+            if (doOutput && token != null) restoreOutputConfig(outputBaseline, token)
+        } finally {
+            if (token != null) bridge.dangerousOps.revoke(token)
+        }
+    }
+
+    private suspend fun restoreOutputConfig(base: OutputConfigSnapshot, t: ConfirmationToken) {
+        val serial = bridge.selectedSerial
+        fun stillCurrent() = bridge.selectedSerial == serial
+        fun cur() = deviceSnapshot()
+        if (!stillCurrent()) return
+        var c = cur()
+        for (slot in 0 until minOf(c.numOutputSlots, base.outputSlotTypes.size)) {
+            if (c.outputSlotTypes.getOrNull(slot) != base.outputSlotTypes[slot]) bridge.setOutputType(t, slot, base.outputSlotTypes[slot])
+        }
+        c = cur()
+        for (i in 0 until minOf(c.numPinOutputs, c.outputPins.size, base.outputPins.size)) {
+            if (c.outputPins[i] != base.outputPins[i]) bridge.setOutputPin(t, i, base.outputPins[i])
+        }
+        if (!stillCurrent()) return
+        c = cur()
+        if (c.i2sBckPin != base.i2sBckPin) bridge.setI2sBckPin(t, OutputConfigSnapshot.I2S_BCK_ROLE_MASTER, base.i2sBckPin)
+        if (c.mckEnabled != base.mckEnabled) bridge.setMckEnabled(t, base.mckEnabled)
+        if (c.mckPin != base.mckPin) bridge.setMckPin(t, base.mckPin)
+        if (c.mckMultiplier != base.mckMultiplier) bridge.setMckMultiplier(t, base.mckMultiplier)
+        if (c.spdifRxPins.getOrNull(0) != base.spdifRxPins.getOrNull(0)) bridge.setSpdifRxPin(t, 0, base.spdifRxPins[0])
+        if (!stillCurrent()) return
+        // Optional S/PDIF 2..4: disable before repinning, repin, then enable
+        if (c.multiSpdifSupported) {
+            for (idx in 1 until minOf(c.spdifInputCount, base.spdifRxPins.size)) {
+                c = cur()
+                val now = c.spdifInputEnabled(idx)
+                val was = base.spdifInputEnabled(idx)
+                if (now && !was) bridge.setSpdifInputEnabled(t, idx, false)
+                if (c.spdifRxPins.getOrNull(idx) != base.spdifRxPins[idx]) bridge.setSpdifRxPin(t, idx, base.spdifRxPins[idx])
+                if (!now && was) bridge.setSpdifInputEnabled(t, idx, true)
             }
+        }
+        if (!stillCurrent()) return
+        // I2S input: a lowered count first, a raised count after the pair pins
+        c = cur()
+        val raising = base.i2sInputChannels > c.i2sInputChannels
+        if (!raising && c.i2sInputChannels != base.i2sInputChannels) bridge.setI2sInputChannels(t, base.i2sInputChannels)
+        for (pair in 0 until minOf(c.i2sRxPins.size, base.i2sRxPins.size)) {
+            if (c.i2sRxPins[pair] != base.i2sRxPins[pair]) bridge.setI2sRxPin(t, pair, base.i2sRxPins[pair])
+        }
+        if (raising) bridge.setI2sInputChannels(t, base.i2sInputChannels)
+        if (c.i2sInputRate != base.i2sInputRate) bridge.setInputRate(t, base.i2sInputRate)
+        if (c.i2sClockMode != base.i2sClockMode) bridge.setI2sClockMode(t, base.i2sClockMode)
+        // Clock-pin mode: the slave pair first, so re-entering SPLIT finds it valid
+        if (c.i2sClockPinModeSupported) {
+            if (c.i2sBckPinSlave != base.i2sBckPinSlave) {
+                bridge.setI2sBckPin(t, OutputConfigSnapshot.I2S_BCK_ROLE_SLAVE, base.i2sBckPinSlave)
+            }
+            if (c.i2sClockPinMode != base.i2sClockPinMode) bridge.setI2sClockPinMode(t, base.i2sClockPinMode)
+        }
+        if (!stillCurrent()) return
+        // ADAT: the data pin first, then the enable state
+        if (c.adatSupported) {
+            if (c.adatPin != base.adatPin) bridge.setAdatOutPin(t, base.adatPin)
+            if (c.adatEnabled != base.adatEnabled) bridge.setAdatOutEnabled(t, base.adatEnabled)
+        }
+        if (!stillCurrent()) return
+        // Output limiters last (ungated setters)
+        c = cur()
+        for (k in 0 until minOf(c.limiterEnabled.size, base.limiterEnabled.size)) {
+            if (c.limiterThresholdDb.getOrNull(k) != base.limiterThresholdDb.getOrNull(k)) {
+                bridge.setLimiterThreshold(k, base.limiterThresholdDb[k])
+            }
+            if (c.limiterReleaseMs.getOrNull(k) != base.limiterReleaseMs.getOrNull(k)) bridge.setLimiterRelease(k, base.limiterReleaseMs[k])
+            if (c.limiterLinkGroup.getOrNull(k) !=
+                base.limiterLinkGroup.getOrNull(k)
+            ) {
+                bridge.setLimiterLinkGroup(k, base.limiterLinkGroup[k])
+            }
+            if (c.limiterEnabled[k] != base.limiterEnabled[k]) bridge.setLimiterEnabled(k, base.limiterEnabled[k])
+        }
+        markOutputClean()
+    }
+
+    private suspend fun revertControlSurfaces() {
+        beginCsOperation()
+        try {
+            bridge.cs.revert()
+        } finally {
+            endCsOperation()
+            _csReloadToken.value += 1
         }
     }
 
@@ -280,10 +399,7 @@ class SettingsSaveCoordinator(
         _csBusy.value = csOpsInFlight > 0
     }
 
-    /**
-     * The selection moved: pending edits belong to the old device and are
-     * discarded; a re-plug of the same unit keeps them (macOS `noteSelectedDevice`).
-     */
+    /** Pending state belongs to one device; a re-plug of the same unit keeps it (macOS `noteSelectedDevice`). */
     fun noteSelectedDevice(serial: String) {
         if (serial.isEmpty()) return
         val last = lastDeviceSerial
@@ -293,8 +409,10 @@ class SettingsSaveCoordinator(
 
     private fun resetForNewDevice() {
         _globalUserEdited.value = false
-        hardware.discardAll()
+        markOutputClean()
+        outputBaseline = deviceSnapshot()
         _lastResult.value = null
+        _hardwareStatus.value = null
     }
 
     companion object {

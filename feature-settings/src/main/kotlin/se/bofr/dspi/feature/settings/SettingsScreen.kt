@@ -139,7 +139,7 @@ private fun SettingsHeader(title: String, onBack: () -> Unit) {
     }
 }
 
-/** The grouped page list (macOS sidebar `List`), with a dot on pages holding staged edits. */
+/** The grouped page list (macOS sidebar `List`), with a dot on pages holding unsaved edits. */
 @Composable
 private fun SettingsSidebar(
     availability: SettingsAvailability,
@@ -148,9 +148,12 @@ private fun SettingsSidebar(
     modifier: Modifier,
     onOpen: (SettingsCategory) -> Unit
 ) {
-    val pending by coordinator.hardware.pending.collectAsState()
+    val outputEdited by coordinator.outputConfigDirty.collectAsState()
+    val hwUnsaved by coordinator.bridge.hardwareUnsaved.collectAsState()
+    val state by coordinator.bridge.state.collectAsState()
     val edited by coordinator.globalUserEdited.collectAsState()
-    val pendingPages = pending.map { it.pageId }.toSet()
+    val hardwarePages = setOf(SettingsCategory.OUTPUT_ASSIGNMENT, SettingsCategory.I2S_CONFIG, SettingsCategory.SPDIF_INPUT)
+    val outputDirty = (outputEdited || hwUnsaved) && coordinator.outputDirty(state)
     LazyColumn(modifier) {
         SettingsCategory.groups.forEach { (group, items) ->
             val visible = items.filter { it.isAvailable(availability) }
@@ -184,7 +187,9 @@ private fun SettingsSidebar(
                         SettingsBadge(cat.tint, cat.title.first().toString())
                         Spacer(Modifier.width(12.dp))
                         Text(cat.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        val dot = cat.id in pendingPages || (cat == SettingsCategory.GLOBAL_PARAMS && edited && coordinator.globalDirty())
+                        val dot =
+                            (cat in hardwarePages && outputDirty) ||
+                                (cat == SettingsCategory.GLOBAL_PARAMS && edited && coordinator.globalDirty(state))
                         if (dot) Text("●", color = WarningOrange)
                     }
                 }

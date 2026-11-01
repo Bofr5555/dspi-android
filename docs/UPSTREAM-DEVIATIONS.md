@@ -309,55 +309,50 @@ the macOS alerts and mint in their confirm handler. No added dialogs.
 ## SETTINGS
 
 Reference: macOS `DSPi_ConsoleApp.swift` (v1.1.6-beta5) SettingsView and tabs;
-Windows `Settings/PendingChangeTracker.cs`, `PinNavigation.cs`; Linux
-`qt/qml/settings/` for the page split and how the core is driven.
+Windows `Settings/PendingChangeTracker.cs` (only its `TopoSort`),
+`PinNavigation.cs`; Linux `qt/qml/settings/` for the page split.
+Gating per coordinator decision E1b (supersedes D2): behaviour is macOS's.
 
-1. **Hardware edits are staged, not live (D2).** macOS applies every pin,
-   type, clock and input change from the picker the moment it changes
-   (`beginOutputEdit` + `vm.set…`) and the save bar only flashes them
-   (`saveOutputConfig`) or re-applies the baseline on Revert. Here the
-   pickers stage `PendingChange`s (Windows `PendingChangeTracker`), the
-   pages show the staged draft, and the save bar's Save mints one reusable
-   HARDWARE_APPLY token and applies them in dependency order (types before
-   pins, an enable after its pin and a disable before it, a raised I2S
-   channel count after the pair pins, slave clock pair before clock-pin
-   mode, BCK after the output types — the order of macOS's own Revert), then
-   Save Output Configuration (SAVE_OUTPUT_CONFIG) in independent mode, then
-   the control surfaces (CS_SAVE). Revert discards the draft without device
-   traffic. Consequences: you hear a pin/type change only after Save, also in
-   "with preset" mode (macOS: live, saved with the preset); refused changes
-   are reported after Save in the bar (macOS wording) and stay staged for a
-   retry (Windows). Save is the confirmation, as on macOS (no extra dialog);
-   tokens are minted inside the Save sequence just before each use and
-   revoked afterwards.
-2. **Output limiter edits** are live in TOOLS; the bar shows them as pending
-   via `hardwareUnsaved` and Save flashes them, but Revert can't restore them
-   (macOS re-applies its limiter baseline; Linux can't either).
-3. **Capabilities inferred from the platform.** `DspState` carries no
-   multi-S/PDIF / I2S-input / clock-pin-mode / ADAT capability flags; RP2350
-   gets ADAT in/out and 4 I2S pairs, RP2040 one pair, STM32 hides I2S/inputs.
-   `dacMuteSupported`/`ctrlIfaceSupported` come from the state.
+1. **Gating (E1b), otherwise as macOS.** Output-config edits (pins, types,
+   clocks, inputs) apply live from the control, with a HARDWARE_APPLY token
+   minted by that tap/choice (`SettingsSaveCoordinator.applyHardware`, which
+   also calls `beginOutputEdit`); the save bar's Save writes the global draft,
+   then `saveOutputConfig` (SAVE_OUTPUT_CONFIG token) in independent mode,
+   then the control surfaces (CS_SAVE); Revert re-applies `outputBaseline` in
+   macOS's order with a HARDWARE_APPLY token minted by the Revert tap. Where
+   one user action implies several calls (Reset Pins, the S/PDIF instance
+   count, the ADAT free-running "Enable ADAT Output"), they are applied in
+   dependency order (Windows `TopoSort`) and stop at the first refusal.
+   Success messages are generic ("Output 1 GPIO set to GPIO 7"); failures use
+   the macOS status-row wording.
+2. **`outputConfigDirty` lives in the coordinator** until the bridge hook
+   (pkg/contract2) lands. Limiter edits made in TOOLS can't call
+   `beginOutputEdit`; they show as pending through `hardwareUnsaved`, and the
+   baseline tracks the device's clean config so Revert still restores them.
+3. **Capabilities inferred from the platform** (contract request: expose
+   flags). `DspState` carries no multi-S/PDIF / I2S-input / clock-pin-mode /
+   ADAT flags; RP2350 gets ADAT in/out and 4 I2S pairs, RP2040 one pair,
+   STM32 hides I2S/inputs. `dacMuteSupported`/`ctrlIfaceSupported` come from
+   the state.
 4. **BCK candidates** also require the LRCLK neighbour (BCK + 1) to be a
    wirable GPIO (Windows `IsAudioCapable`, Linux `pairFree`); macOS would
    offer GPIO 22 (LRCLK on board-reserved 23) and let the firmware refuse.
-5. **Pin conflicts before Save.** The Overview and hardware pages list pins
-   the staged draft would put two features on (`pinConflicts`, ADAT
-   loopback excepted); a tap opens the page that sets the pin (Windows
-   PinNavigation, without the scroll-and-flash).
+5. **Overview click-through:** tapping a pin opens the page that sets it
+   (Windows PinNavigation, without the scroll-and-flash). A pin claimed by
+   two features (shouldn't survive the firmware) is listed above the map.
 6. **Page list on phones.** The macOS sidebar becomes a grouped list of
    pages (one page at a time; system back returns to the list); ≥ 840 dp
    shows sidebar + page. "Software Update" and "Networking" are not ported
    (PORT-MAP), nor the Advanced tab's "Onboarding (Developer)" section
-   (onboarding is Phase 6). The save bar adds a tap-to-expand list of
-   pending changes (Windows InfoBar).
+   (onboarding is Phase 6). The save bar adds a tap-to-expand list of what
+   is pending (Windows InfoBar).
 7. **Control Surfaces** renders the controls, groups, macros and auxiliary
    outputs from the core's `cs_snapshot`, with rename/remove of a slot,
    macro Run and aux on/off (all live previews or one-click, D1). The full
    binding editor (component/function/target pickers, IR learn, display
    pages, group and macro editors) is not ported yet.
 8. **App preferences** use the macOS `@AppStorage` key names in a
-   Preferences DataStore (`AppSettingsStore`); the macOS one-time migrations
-   of retired keys are not needed on a fresh platform.
-9. **Spectrum engine options** are pushed into `bridge.rta`
-   (fftOrder/avgMs/peakDecay) when changed on the page; the app should also
-   push the stored values at start (CR to the coordinator/ANALYSIS).
+   Preferences DataStore (`AppSettingsStore`, to move to :ui-common per E6);
+   the macOS one-time migrations of retired keys are not needed.
+9. **Spectrum engine options** are pushed into `bridge.rta` when changed on
+   the page; pushing the stored values at start is APP/ANALYSIS's.

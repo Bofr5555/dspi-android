@@ -26,20 +26,20 @@ import se.bofr.dspi.bridge.DspiBridge
 
 /**
  * A read-only map of every GPIO the device is holding. Only held pins are
- * listed: a feature configured but off reserves nothing. While hardware edits
- * are staged, the pins they would collide on are listed above the map.
+ * listed: a feature configured but off reserves nothing. A pin claimed twice
+ * (a device-side inconsistency) is listed above the map.
  */
 @Composable
 fun PinOverviewTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator, onOpen: (SettingsCategory) -> Unit) {
     val state by bridge.state.collectAsState()
-    val pending by coordinator.hardware.pending.collectAsState()
     bridge.cs.model.collectAsState().value // recompose on CS changes (pin uses)
     val connected = bridge.status.collectAsState().value.connected
     val device = PinContext.from(coordinator.deviceSnapshot(state), state, if (connected) bridge.pinOwners() else emptyList())
     val assignments = device.activePinAssignments()
     val claims = assignments.associateBy { it.pin }
     val free = VALID_PINS.filter { it !in claims }
-    val conflicts = if (pending.isEmpty()) emptyList() else coordinator.pinContext(state, pending).pinConflicts()
+    // Two features on one GPIO (should never survive the firmware's checks)
+    val conflicts = device.pinConflicts()
 
     SettingsForm {
         if (!connected) {

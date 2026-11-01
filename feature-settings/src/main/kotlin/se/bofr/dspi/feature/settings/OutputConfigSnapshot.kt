@@ -8,12 +8,9 @@ import se.bofr.dspi.core.DspState
  * The device-global hardware configuration (pins, output types, I2S clocks,
  * S/PDIF / I2S / ADAT inputs) as the Settings pages show it.
  *
- * macOS keeps one of these as the revert baseline of live edits. Here (D2)
- * hardware edits are staged in a [PendingChangeTracker] and applied by the
- * save bar, so the pages show [SettingsSaveCoordinator.hardwareDraft]: the
- * device's snapshot with every staged [PendingChange.patch] folded in. The
- * output limiters macOS also snapshots are edited live in TOOLS; their
- * unsaved state comes from `DspiBridge.hardwareUnsaved`.
+ * As on macOS, hardware edits apply live to the device's RAM; this snapshot
+ * is the baseline [SettingsSaveCoordinator] captures at the first edit since
+ * the last clean point and re-applies on Revert (limiters included).
  *
  * Indices: [outputPins] has `numOutputSlots + 1` live entries (the last is the
  * PDM subwoofer); [spdifRxPins] 4 (input 1..4); [i2sRxPins] 4 pairs.
@@ -42,7 +39,12 @@ data class OutputConfigSnapshot(
     val adatInputEnabled: Boolean = false,
     val adatInputPin: Int = PIN_UNSET,
     val adatInputClockMode: Int = 0,
-    val inputSource: Int = 0
+    val inputSource: Int = 0,
+    // Output limiters (macOS `limiterOutputs`), per output index
+    val limiterEnabled: List<Boolean> = emptyList(),
+    val limiterThresholdDb: List<Float> = emptyList(),
+    val limiterReleaseMs: List<Float> = emptyList(),
+    val limiterLinkGroup: List<Int> = emptyList()
 ) {
     val isRp2040: Boolean get() = platformName == "RP2040"
     val isRp2350: Boolean get() = platformName == "RP2350"
@@ -135,7 +137,11 @@ data class OutputConfigSnapshot(
             adatInputEnabled = s.adatInputEnabled,
             adatInputPin = s.adatInputPin,
             adatInputClockMode = s.adatInputClockMode,
-            inputSource = s.inputSource
+            inputSource = s.inputSource,
+            limiterEnabled = s.limiterEnabled,
+            limiterThresholdDb = s.limiterThresholdDb,
+            limiterReleaseMs = s.limiterReleaseMs,
+            limiterLinkGroup = s.limiterLinkGroup
         )
     }
 }

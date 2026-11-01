@@ -1,6 +1,6 @@
 // Port of DSPi-Console-b5:DSPi Console/DSPi_ConsoleApp.swift `SettingsSaveBar`,
-// with the pending-change list of DSPi-Console-Windows' Settings InfoBar
-// (PendingChangeTracker hover detail) and its "n applied, m failed" report.
+// with a tap-to-expand list of what is pending
+// (as the Windows Settings InfoBar lists its changes).
 package se.bofr.dspi.feature.settings
 
 import androidx.compose.foundation.background
@@ -30,14 +30,14 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Shown at the bottom of every Settings page while anything is pending
- * (global draft, staged hardware, unsaved output config, CS preview). Save
- * mints the gating tokens inside the coordinator's sequence (D2/D1).
+ * (global draft, live output config not yet flashed, CS preview). Save mints
+ * SAVE_OUTPUT_CONFIG / CS_SAVE, Revert HARDWARE_APPLY (E1b).
  */
 @Composable
 internal fun SettingsSaveBar(coordinator: SettingsSaveCoordinator) {
     val bridge = coordinator.bridge
     val state by bridge.state.collectAsState()
-    val pending by coordinator.hardware.pending.collectAsState()
+    val outputEdited by coordinator.outputConfigDirty.collectAsState()
     val edited by coordinator.globalUserEdited.collectAsState()
     val hwUnsaved by bridge.hardwareUnsaved.collectAsState()
     val csUnsaved by bridge.cs.unsaved.collectAsState()
@@ -46,7 +46,7 @@ internal fun SettingsSaveBar(coordinator: SettingsSaveCoordinator) {
     val result by coordinator.lastResult.collectAsState()
     val connected = bridge.status.collectAsState().value.connected
     @Suppress("UNUSED_EXPRESSION")
-    listOf(pending, edited, hwUnsaved, csUnsaved) // recompose on any of them
+    listOf(outputEdited, edited, hwUnsaved, csUnsaved) // recompose on any of them
 
     val hasPending = coordinator.hasPendingChanges(state)
     val failures = result?.failures.orEmpty()
@@ -98,7 +98,7 @@ internal fun SettingsSaveBar(coordinator: SettingsSaveCoordinator) {
                 // a CS revert is a device operation.
                 OutlinedButton(
                     onClick = { coordinator.onRevert() },
-                    enabled = !csBusy && !saving && coordinator.canRevert(state) && !(csOnly && !connected)
+                    enabled = !csBusy && !saving && !(csOnly && !connected)
                 ) { Text("Revert") }
                 Spacer(Modifier.width(8.dp))
                 Button(onClick = { coordinator.onSave() }, enabled = !csBusy && !saving && connected) { Text("Save") }

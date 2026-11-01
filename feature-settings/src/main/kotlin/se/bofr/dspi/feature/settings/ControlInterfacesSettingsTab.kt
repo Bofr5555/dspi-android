@@ -56,9 +56,8 @@ internal fun ctrlCandidates(pins: PinContext, consumer: PinConsumer, current: In
 @Composable
 fun ControlInterfacesSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) {
     val state by bridge.state.collectAsState()
-    val pending by coordinator.hardware.pending.collectAsState()
     val connected = bridge.status.collectAsState().value.connected
-    val pins = coordinator.pinContext(state, pending)
+    val pins = coordinator.pinContext(state)
     val live = state.ctrlStatus
 
     var uartDraft by remember { mutableStateOf(state.uart) }

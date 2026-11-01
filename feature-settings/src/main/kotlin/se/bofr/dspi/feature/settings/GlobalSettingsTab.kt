@@ -38,13 +38,12 @@ import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.OUTPUT_CONFIG
 fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) {
     val state by bridge.state.collectAsState()
     val edited by coordinator.globalUserEdited.collectAsState()
-    val pending by coordinator.hardware.pending.collectAsState()
     val connected = bridge.status.collectAsState().value.connected
     @Suppress("UNUSED_EXPRESSION")
     edited
     val draft = coordinator.globalDraft(state)
     val globalDirty = coordinator.globalDirty(state)
-    val pins = coordinator.pinContext(state, pending)
+    val pins = coordinator.pinContext(state)
     var testStatus by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(bridge) {
