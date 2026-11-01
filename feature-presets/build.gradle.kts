@@ -12,6 +12,10 @@ android {
 dependencies {
     implementation(project(":bridge"))
     implementation(project(":ui-common"))
+    // A catalog library :app already uses (no new artifacts): FileProvider for the share sheet.
+    implementation(libs.androidx.core.ktx)
+    // @Previews (src/debug) run against FakeDspiCore, as PACKAGES.md asks; never in release.
+    debugImplementation(project(":fake-core"))
     testImplementation(project(":fake-core"))
     testImplementation(libs.kotlinx.coroutines.test)
 }
