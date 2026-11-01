@@ -138,3 +138,17 @@ the implementation does beyond it.
 4. Multi-device: like macOS, a second unit never takes over an open
    connection; when the open unit leaves, the session switches to a survivor,
    preferring the last serial (Linux `rescan()`).
+
+## APP
+
+1. **Demo mode** ("Demo (no device)"): no official client has one. Offered
+   only while no DSPi is attached; runs `FakeDspiCore.demo()` (V32 capture)
+   behind its own `DspiBridgeImpl`, never through the USB session, is
+   labelled in the title and in a strip under it, and ends by itself as soon
+   as a DSPi appears. Its input-pair links are not persisted.
+2. **Input-pair links** are kept in a Preferences DataStore
+   (`dspi_bridge`, key `inputLinks/<serial>`) instead of QSettings, same keys
+   and bit layout.
+3. **Connection strip** under the top bar for the Android-only USB states
+   (permission required/denied/pending, open failed) with "Allow USB access";
+   macOS and Linux have no permission step.
