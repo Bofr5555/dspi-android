@@ -212,6 +212,14 @@ interface DspiBridge {
     val crossfeedITD: Boolean
     val crossfeedOutputPairMask: Int
 
+    /**
+     * K340 firmware fork (core patch 0002): which outputs each crossfeed pair
+     * processes, 4 bytes ([CrossfeedPairs] decodes them; all zero = the
+     * default pairing, also what upstream firmware reports). Whether the
+     * connected firmware can change it: [HardwareCaps.crossfeedPairMapSupported].
+     */
+    val crossfeedPairMap: List<Int>
+
     // ═══ Q_PROPERTY getters — status (statusChanged) ════════════════════
 
     val cpu0: Int
@@ -427,6 +435,21 @@ interface DspiBridge {
     fun setCrossfeedITD(en: Boolean)
 
     fun setCrossfeedOutputPairMask(mask: Int)
+
+    /**
+     * K340 firmware fork: set the outputs of EVERY crossfeed pair at once
+     * ([map]: 4 bytes, [CrossfeedPairs] encoding). A whole map, never a
+     * read-modify-write of one pair, because pairs must stay disjoint; that
+     * also makes it stale-state safe (the UI sends the complete map it
+     * shows). Refused, with [BridgeEvent.CommandFailed]: while read-only
+     * (G1), when the firmware lacks the feature ([DspiException.Unsupported]),
+     * and for a map the firmware would refuse ([DspiException.InvalidArgument],
+     * no USB traffic; check first with [crossfeedPairMapValid]).
+     */
+    fun setCrossfeedPairMap(map: List<Int>)
+
+    /** Whether [map] is a pair map the connected platform accepts (core `crossfeed_map_valid`). */
+    fun crossfeedPairMapValid(map: List<Int>): Boolean
 
     // ═══ Setters — matrix / outputs ════════════════════════════════════
 

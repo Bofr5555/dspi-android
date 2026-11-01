@@ -217,5 +217,13 @@ data class HardwareCaps(
      * Sync toggle and the LG rows of the statistics view. True while the V32
      * image is usable.
      */
-    val lgSoundSyncSupported: Boolean = false
+    val lgSoundSyncSupported: Boolean = false,
+    /**
+     * K340 firmware fork (core patch 0002): the firmware answers
+     * REQ_CROSSFEED_PAIR_MAP (0x02), probed once per connect; upstream
+     * firmware STALLs it. Gates the crossfeed pair editor.
+     */
+    val crossfeedPairMapSupported: Boolean = false,
+    /** Stereo pairs crossfeed can use (4 on RP2350, 2 on RP2040); 0 while not usable. */
+    val crossfeedPairCount: Int = 0
 )
