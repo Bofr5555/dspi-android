@@ -70,6 +70,11 @@ object FakePresetDiff {
         if (o.crossfeedPreset != n.crossfeedPreset) c += "Crossfeed preset: ${o.crossfeedPreset} → ${n.crossfeedPreset}"
         if (o.crossfeedFreq != n.crossfeedFreq) c += "Crossfeed frequency: ${v(o.crossfeedFreq)} → ${v(n.crossfeedFreq)} Hz"
         if (o.crossfeedFeed != n.crossfeedFeed) c += "Crossfeed feed: ${v(o.crossfeedFeed)} → ${v(n.crossfeedFeed)}"
+        for (p in 0 until 4) { // core patch 0002 presetdiff.rs
+            val a = FakeDspiCore.crossfeedPair(o.crossfeedPairMap, p)
+            val b = FakeDspiCore.crossfeedPair(n.crossfeedPairMap, p)
+            if (a != b) c += "Crossfeed pair ${p + 1} outputs: ${a.first + 1}/${a.second + 1} → ${b.first + 1}/${b.second + 1}"
+        }
         if (o.psybassEnabled != n.psybassEnabled) c += "Psychoacoustic Bass: ${on(n.psybassEnabled)}"
         if (o.levellerEnabled != n.levellerEnabled) c += "Volume Leveller: ${on(n.levellerEnabled)}"
         if (o.levellerAmount != n.levellerAmount) c += "Leveller amount: ${v(o.levellerAmount)}% → ${v(n.levellerAmount)}%"

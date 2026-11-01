@@ -35,6 +35,12 @@
   "crossfeedFeed": 4.5,
   "crossfeedItd": true,
   "crossfeedOutputPairMask": 0,
+  "crossfeedPairMap": [
+    0,
+    0,
+    0,
+    0
+  ],
   "channelDelays": [
     0.0,
     0.0,

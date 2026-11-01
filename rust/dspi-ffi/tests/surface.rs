@@ -180,3 +180,26 @@ fn curve_math_matches_the_core() {
     let flat = compute_magnitude_curve(vec![FilterParams { bypass: true, ..peak }]);
     assert!(flat.iter().all(|v| v.abs() < 1e-9));
 }
+
+#[test]
+fn crossfeed_pair_map_surface() {
+    // Default: zero map (= default pairing), as upstream firmware reports it.
+    let c = DspiCore::new();
+    assert_eq!(c.get_state().crossfeed_pair_map, vec![0, 0, 0, 0]);
+    // K340 (one DAC per ear): woofers L=2/R=0, tweeters L=3/R=1.
+    let k340 = vec![0x02, 0x13, 0, 0];
+    assert!(crossfeed_pair_map_valid(k340.clone(), 4));
+    assert!(crossfeed_pair_map_valid(k340.clone(), 2));
+    assert!(!crossfeed_pair_map_valid(vec![0x02, 0, 0, 0], 4), "output 2 used twice");
+    assert!(!crossfeed_pair_map_valid(vec![0x40, 0, 0, 0], 2), "PDM sub is not a pair output");
+    assert!(!crossfeed_pair_map_valid(vec![0x02, 0x13, 0], 4), "needs 4 bytes");
+    // The default (disconnected) state is RP2040-sized (5 outputs = 2 pairs).
+    // A refused map never reaches USB: InvalidArgument, not Disconnected.
+    assert!(matches!(c.set_crossfeed_pair_map(vec![0x11, 0, 0, 0]), Err(DspiError::InvalidArgument { .. })));
+    assert!(matches!(c.set_crossfeed_pair_map(vec![0, 0, 0x54, 0]), Err(DspiError::InvalidArgument { .. })));
+    assert!(matches!(c.set_crossfeed_pair_map(vec![0x02]), Err(DspiError::InvalidArgument { .. })));
+    // A valid one needs the device; the state is left alone on failure.
+    assert_eq!(c.set_crossfeed_pair_map(k340), Err(DspiError::Disconnected));
+    assert_eq!(c.get_state().crossfeed_pair_map, vec![0, 0, 0, 0]);
+    assert_eq!(c.fetch_crossfeed_pair_map(), Err(DspiError::Disconnected));
+}

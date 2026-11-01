@@ -438,6 +438,24 @@ impl DspiCore {
         Ok(self.core().set_crossfeed_outputs(pair_mask)?)
     }
 
+    /// K340 firmware fork (third_party/patches/0002): the outputs of every
+    /// crossfeed pair at once, 4 bytes (`DspState.crossfeed_pair_map`
+    /// encoding). `InvalidArgument` (no USB traffic) for a map the firmware
+    /// would refuse (see `crossfeed_pair_map_valid`); stored normalized.
+    pub fn set_crossfeed_pair_map(&self, map: Vec<u8>) -> Result<()> {
+        let map: [u8; 4] = map.try_into().map_err(|m: Vec<u8>| DspiError::InvalidArgument {
+            msg: format!("crossfeed pair map needs 4 bytes, got {}", m.len()),
+        })?;
+        Ok(self.core().set_crossfeed_pair_map(map)?)
+    }
+
+    /// Reads the live pair map (4 bytes) into the state. An error from a
+    /// connected device means the firmware does not have the feature (it
+    /// STALLs the request); the state then keeps the bulk image's zero map.
+    pub fn fetch_crossfeed_pair_map(&self) -> Result<Vec<u8>> {
+        Ok(self.core().fetch_crossfeed_pair_map()?.to_vec())
+    }
+
     // ═══ Volume leveller ═════════════════════════════════════════════
 
     pub fn set_leveller_enabled(&self, enabled: bool) -> Result<()> {

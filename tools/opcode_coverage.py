@@ -56,7 +56,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 # The staged copy (pinned core + third_party/patches, tools/stage-core.sh) is
 # what dspi-ffi builds against; fall back to the submodule when not staged.
-# The patches add no opcodes, so both give the same answer today.
+# Patch 0002 adds REQ_CROSSFEED_PAIR_MAP (0x02, K340 firmware fork): it shows
+# as "core-only" when staged and is absent from the unstaged submodule.
 _STAGED = ROOT / "rust/.staged/dspi-core/core/src"
 CORE_SRC = _STAGED if (_STAGED / "protocol.rs").is_file() else ROOT / "third_party/DSPi-Console-Linux/core/src"
 PROTOCOL = CORE_SRC / "protocol.rs"

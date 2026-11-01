@@ -171,6 +171,10 @@ pub struct DspState {
     pub crossfeed_feed: f32,
     pub crossfeed_itd: bool,
     pub crossfeed_output_pair_mask: u8,
+    /// Outputs of each crossfeed pair, 4 bytes (K340 firmware fork; zero
+    /// from other firmware). Byte p: 0 = default (2p, 2p+1), else
+    /// `(right << 4) | left`, 0-based output indices.
+    pub crossfeed_pair_map: Vec<u8>,
     // Delays (wire channel)
     pub channel_delays: Vec<f32>,
     // Matrix [input][output]

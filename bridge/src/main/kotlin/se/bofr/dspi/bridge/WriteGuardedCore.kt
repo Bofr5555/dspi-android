@@ -148,6 +148,11 @@ internal class WriteGuardedCore(private val inner: DspiCoreApi, private val allo
         return inner.setCrossfeedOutputs(pairMask)
     }
 
+    override fun setCrossfeedPairMap(map: List<Int>) {
+        guard("setCrossfeedPairMap")
+        return inner.setCrossfeedPairMap(map)
+    }
+
     override fun setLevellerEnabled(enabled: Boolean) {
         guard("setLevellerEnabled")
         return inner.setLevellerEnabled(enabled)
@@ -489,6 +494,7 @@ internal class WriteGuardedCore(private val inner: DspiCoreApi, private val allo
             "setCrossfeedFeed",
             "setCrossfeedItd",
             "setCrossfeedOutputs",
+            "setCrossfeedPairMap",
             "setLevellerEnabled",
             "setLevellerAmount",
             "setLevellerSpeed",
@@ -565,6 +571,7 @@ internal class WriteGuardedCore(private val inner: DspiCoreApi, private val allo
             "computeResponse",
             "configExport",
             "configInspect",
+            "crossfeedPairMapValid",
             "coreInfo",
             "csFetch",
             "csPinUses",
@@ -576,6 +583,7 @@ internal class WriteGuardedCore(private val inner: DspiCoreApi, private val allo
             "fetchAll",
             "fetchBufferStats",
             "fetchCore1Mode",
+            "fetchCrossfeedPairMap",
             "fetchCtrlIfaces",
             "fetchDacMute",
             "fetchInputLock",

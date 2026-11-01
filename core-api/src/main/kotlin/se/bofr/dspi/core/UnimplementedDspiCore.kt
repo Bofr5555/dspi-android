@@ -84,6 +84,10 @@ open class UnimplementedDspiCore : DspiCoreApi {
 
     override fun setCrossfeedOutputs(pairMask: Int): Unit = throw NotImplementedError("set_crossfeed_outputs")
 
+    override fun setCrossfeedPairMap(map: List<Int>): Unit = throw NotImplementedError("set_crossfeed_pair_map")
+
+    override fun fetchCrossfeedPairMap(): List<Int> = throw NotImplementedError("fetch_crossfeed_pair_map")
+
     override fun setLevellerEnabled(enabled: Boolean): Unit = throw NotImplementedError("set_leveller_enabled")
 
     override fun setLevellerAmount(pct: Float): Unit = throw NotImplementedError("set_leveller_amount")
@@ -307,6 +311,8 @@ open class UnimplementedDspiCore : DspiCoreApi {
     override fun computePhaseCurve(filters: List<FilterParams>, unwrap: Boolean): List<Double> = throw NotImplementedError("compute_phase_curve")
 
     override fun curveFreq(i: Long): Double = throw NotImplementedError("curve_freq")
+
+    override fun crossfeedPairMapValid(map: List<Int>, numPairs: Int): Boolean = throw NotImplementedError("crossfeed_pair_map_valid")
 
     override fun configInspect(text: String): String = throw NotImplementedError("config_inspect")
 
