@@ -1,0 +1,3 @@
+[submodule "third_party/DSPi-Console-Linux"]
+	path = third_party/DSPi-Console-Linux
+	url = https://github.com/WeebLabs/DSPi-Console-Linux.git

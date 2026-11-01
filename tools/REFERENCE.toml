@@ -1,0 +1,37 @@
+# Upstream references this port tracks (PLAN-NATIVE-ANDROID.md §7 "Pins").
+# Update together with the submodule bump; see docs/PORT-MAP.md.
+
+[core]
+# Rust core reused as-is (git submodule third_party/DSPi-Console-Linux, crate core/).
+repo = "https://github.com/WeebLabs/DSPi-Console-Linux"
+ref = "main"
+describe = "v1.1.6-beta4-18-g4683a2c"
+sha = "4683a2ca4b41914edbab1b756397e29fec1e88d8"
+date = "2026-10-10"
+wire_format = 32
+firmware_tracked = "1.1.6-beta4"
+verified = "2026-11-01: submodule HEAD == this sha; `git describe --tags` == describe"
+
+[ui]
+# Behavioural + visual reference: macOS DSPi Console. UI is ported file-for-file from here.
+repo = "https://github.com/WeebLabs/DSPi-Console"
+tag = "v1.1.6-beta5"
+sha = "b5fdeac4fdd27781bba18547a537b499be69f758"
+date = "2026-10-20"
+
+[ui_secondary]
+# Graph editor logic, settings pending-change tracker, NotifyDecoder names.
+repo = "https://github.com/WeebLabs/DSPi-Console-Windows"
+tag = "v1.1.6-beta4"
+sha_short = "b568ba9"
+
+[firmware]
+repo = "https://github.com/WeebLabs/DSPi"
+branch = "release/v1.1.6"
+# Tag of the firmware the macOS reference ships (bundled UF2s).
+tag = "v1.1.6-beta5"
+tag_sha = "3fe5a350658587cbcdfe1bb31dce2ac9b2049664"
+# Branch head when this file was written (post-beta5 work, e.g. CS caps v21).
+branch_head_sha = "c30eed4f8e4ba988355f40496c9723ea800b14e1"
+branch_head_date = "2026-10-26"
+config_h = "firmware/DSPi/config.h"

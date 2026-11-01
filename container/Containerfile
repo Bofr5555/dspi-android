@@ -1,0 +1,101 @@
+# dspi-android build image.
+#
+# Everything (JDK, Android SDK/NDK, Rust, cargo-ndk, Gradle) lives in this image;
+# nothing is installed on the host. Build with tools/dev.sh --build-image.
+# Run only through tools/dev.sh / tools/ci.sh: the container gets NO USB access
+# (no --device, no --privileged, no /dev/bus/usb).
+#
+# Every version is pinned. Bumping a version = edit the ARG, rebuild, bump
+# IMAGE_TAG in tools/dev.sh.
+
+# eclipse-temurin 21.0.5+11 JDK on Ubuntu 24.04 (noble), pinned by digest.
+FROM docker.io/library/eclipse-temurin:21.0.5_11-jdk-noble@sha256:b968a7db69338de40e94f5f6e7d09fdc904dbb9e378b7867197336998472d941
+
+# Command-line tools: only the current build is published with a SHA-256 on
+# https://developer.android.com/studio#command-tools (checked 2026-11-01).
+ARG CMDLINE_TOOLS_BUILD=15859902
+ARG CMDLINE_TOOLS_SHA256=4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583
+ARG ANDROID_PLATFORM=android-35
+ARG ANDROID_BUILD_TOOLS=35.0.0
+# NDK r27c (LTS)
+ARG ANDROID_NDK=27.2.12479018
+# rustup-init SHA-256 from static.rust-lang.org/rustup/archive/<ver>/<triple>/rustup-init.sha256
+ARG RUSTUP_VERSION=1.29.2
+ARG RUSTUP_INIT_SHA256=5be191e8c70a5007074254cb74d78dbfdd25cd5a61c27de7b8e5410122ec24f4
+# Must match rust-toolchain.toml in the repo.
+ARG RUST_TOOLCHAIN=1.99.1
+ARG CARGO_NDK_VERSION=4.1.2
+# Gradle SHA-256 from services.gradle.org/distributions/gradle-<ver>-bin.zip.sha256
+ARG GRADLE_VERSION=8.14.3
+ARG GRADLE_SHA256=bd71102213493060956ec229d946beee57158dbd89d0e62b91bca0fa2c5f3531
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    ANDROID_NDK_HOME=/opt/android-sdk/ndk/27.2.12479018 \
+    RUSTUP_HOME=/opt/rustup \
+    CARGO_INSTALL_ROOT=/opt/cargo \
+    GRADLE_HOME=/opt/gradle
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl unzip git make cmake pkg-config build-essential \
+      python3 file patch \
+ && rm -rf /var/lib/apt/lists/*
+
+# --- Android SDK -------------------------------------------------------------
+# SDK packages come from Google's default repository (dl.google.com); sdkmanager
+# verifies each archive against the checksum in Google's repository XML.
+RUN mkdir -p /opt/android-sdk/cmdline-tools \
+ && curl -fsSL -o /tmp/clt.zip \
+      https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_BUILD}_latest.zip \
+ && echo "${CMDLINE_TOOLS_SHA256}  /tmp/clt.zip" | sha256sum -c - \
+ && unzip -q /tmp/clt.zip -d /opt/android-sdk/cmdline-tools \
+ && mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest \
+ && rm /tmp/clt.zip \
+ && yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null \
+ && /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --install \
+      "platform-tools" "platforms;${ANDROID_PLATFORM}" \
+      "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" >/dev/null \
+ && rm -rf /opt/android-sdk/.temp
+
+# --- Gradle (used once to generate the wrapper; the wrapper is authoritative) -
+RUN curl -fsSL -o /tmp/gradle.zip \
+      https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip \
+ && echo "${GRADLE_SHA256}  /tmp/gradle.zip" | sha256sum -c - \
+ && unzip -q /tmp/gradle.zip -d /opt \
+ && mv /opt/gradle-${GRADLE_VERSION} /opt/gradle \
+ && rm /tmp/gradle.zip
+
+# --- Rust ----------------------------------------------------------------------
+# Toolchains live in RUSTUP_HOME=/opt/rustup, binaries (rustup proxies, cargo-ndk)
+# in /opt/cargo/bin. At run time CARGO_HOME points at a named volume so the
+# registry/git caches persist; the proxies only need RUSTUP_HOME.
+RUN curl -fsSL -o /tmp/rustup-init \
+      https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init \
+ && echo "${RUSTUP_INIT_SHA256}  /tmp/rustup-init" | sha256sum -c - \
+ && chmod +x /tmp/rustup-init \
+ && CARGO_HOME=/opt/cargo /tmp/rustup-init -y --no-modify-path --profile minimal \
+      --default-toolchain ${RUST_TOOLCHAIN} -c rustfmt -c clippy \
+      -t aarch64-linux-android -t armv7-linux-androideabi -t x86_64-linux-android \
+ && rm /tmp/rustup-init \
+ && CARGO_HOME=/opt/cargo /opt/cargo/bin/cargo install --locked cargo-ndk --version ${CARGO_NDK_VERSION} \
+ && rm -rf /opt/cargo/registry /opt/cargo/git
+
+ENV PATH=/opt/cargo/bin:/opt/gradle/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:${PATH}
+
+# Non-root user. The base image already has `ubuntu` (uid/gid 1000); tools/dev.sh
+# runs with --userns=keep-id so files written to the bind mount are owned by the
+# host user. Toolchain dirs are made world-readable, and the cache mount points
+# are pre-created and owned by uid 1000 so named volumes inherit that ownership.
+RUN chmod -R a+rX /opt \
+ && mkdir -p /cache/cargo /cache/gradle /cache/target \
+ && chown -R 1000:1000 /cache
+
+ENV CARGO_HOME=/cache/cargo \
+    GRADLE_USER_HOME=/cache/gradle \
+    CARGO_TARGET_DIR=/cache/target \
+    DSPI_IN_CONTAINER=1
+
+USER 1000:1000
+WORKDIR /work
