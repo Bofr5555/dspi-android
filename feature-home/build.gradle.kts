@@ -12,6 +12,8 @@ android {
 dependencies {
     implementation(project(":bridge"))
     implementation(project(":ui-common"))
+    // The one allowed feature->feature edge: the embeddable GraphView (GRAPH's contract).
+    implementation(project(":feature-graph"))
     testImplementation(project(":fake-core"))
     testImplementation(libs.kotlinx.coroutines.test)
 }

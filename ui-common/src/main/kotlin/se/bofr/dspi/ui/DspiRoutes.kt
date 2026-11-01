@@ -24,6 +24,11 @@ object DspiRoutes {
     /** :feature-tools — tool list; argument-less entry, tools are sub-routes. */
     const val TOOLS = "tools"
 
+    /** :feature-tools — OutputLimiterView for one output; argument = output index. */
+    const val LIMITER = "tools/limiter/{out}"
+
+    fun limiter(out: Int) = "tools/limiter/$out"
+
     /** :feature-presets — presets, unsaved changes, import/export, AutoEQ. */
     const val PRESETS = "presets"
 

@@ -23,6 +23,7 @@ import se.bofr.dspi.feature.home.HomeScreen
 import se.bofr.dspi.feature.matrix.MatrixMixerView
 import se.bofr.dspi.feature.presets.PresetsScreen
 import se.bofr.dspi.feature.settings.SettingsScreen
+import se.bofr.dspi.feature.tools.OutputLimiterView
 import se.bofr.dspi.feature.tools.ToolsScreen
 import se.bofr.dspi.ui.DspiRoutes
 
@@ -48,6 +49,12 @@ fun AppScaffold(bridge: DspiBridge, demoMode: Boolean) {
                 composable(DspiRoutes.GRAPH) { GraphScreen(bridge, go, back) }
                 composable(DspiRoutes.MATRIX) { MatrixMixerView(bridge, go, back) }
                 composable(DspiRoutes.TOOLS) { ToolsScreen(bridge, go, back) }
+                composable(
+                    DspiRoutes.LIMITER,
+                    arguments = listOf(navArgument("out") { type = NavType.IntType }),
+                ) { entry ->
+                    OutputLimiterView(bridge, entry.arguments?.getInt("out") ?: 0, go, back)
+                }
                 composable(DspiRoutes.PRESETS) { PresetsScreen(bridge, go, back) }
                 composable(DspiRoutes.SETTINGS) { SettingsScreen(bridge, go, back) }
                 composable(DspiRoutes.ANALYSIS) { AnalysisScreen(bridge, go, back) }
