@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Expanded connection notification: status line + volume/mute/preset actions. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/dspi_notif_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxLines="2"
+        android:textAppearance="@android:style/TextAppearance.Material.Notification" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/dspi_notif_vol_down"
+            style="@android:style/Widget.Material.Button.Borderless.Small"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:contentDescription="@string/dspi_usb_action_volume_down_description"
+            android:text="@string/dspi_usb_action_volume_down" />
+
+        <Button
+            android:id="@+id/dspi_notif_vol_up"
+            style="@android:style/Widget.Material.Button.Borderless.Small"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:contentDescription="@string/dspi_usb_action_volume_up_description"
+            android:text="@string/dspi_usb_action_volume_up" />
+
+        <Button
+            android:id="@+id/dspi_notif_mute"
+            style="@android:style/Widget.Material.Button.Borderless.Small"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/dspi_usb_action_mute" />
+
+        <Button
+            android:id="@+id/dspi_notif_preset"
+            style="@android:style/Widget.Material.Button.Borderless.Small"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/dspi_usb_action_next_preset" />
+    </LinearLayout>
+</LinearLayout>
