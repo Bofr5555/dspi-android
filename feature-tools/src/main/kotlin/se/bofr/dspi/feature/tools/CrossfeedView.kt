@@ -2,6 +2,8 @@
 // core driving as Linux qt/qml/CrossfeedWindow.qml. Crossfeed runs on output
 // PAIRS (outputs 2p / 2p+1) exactly as the firmware and macOS do: the mask is
 // a pair mask (setCrossfeedOutputPairMask), the PDM sub is never crossfed.
+// K340 fork: with the crossfeed pair map firmware a "Pairs" row and pair-labelled
+// chips (CrossfeedPairMap.kt; docs/UPSTREAM-DEVIATIONS.md CROSSFEED PAIR MAP UI).
 package se.bofr.dspi.feature.tools
 
 import androidx.compose.foundation.Canvas
@@ -20,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -53,6 +56,7 @@ import se.bofr.dspi.ui.SectionLabel
 import se.bofr.dspi.ui.SwitchRow
 import se.bofr.dspi.ui.ToolHeader
 import se.bofr.dspi.ui.writeEnabled
+import se.bofr.dspi.ui.writesAllowed
 
 /** `CrossfeedCurveView.computeCurves()`: the BS2B lowpass and its complement. */
 object CrossfeedCurve {
@@ -95,9 +99,16 @@ fun CrossfeedView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val showPairMask = ToolFirmware.supportsCrossfeedMask(st.formatVersion)
     val graphLive = rememberGraphLive<CrossfeedGraphKey>(crossfeed.freq to crossfeed.feed)
 
-    fun pairChannelName(p: Int, right: Boolean): String = bridge.channelName(2 + 2 * p + if (right) 1 else 0)
-    // Names are plain getters: read here, where `st` is observed, not inside the skippable column lambdas (audit T3).
-    val pairNames = (0 until pairCount).map { "${pairChannelName(it, false)} / ${pairChannelName(it, true)}" }
+    // Names and capabilities are plain getters: read here, where `st` is observed, not inside the skippable
+    // column lambdas (audit T3). K340 fork: the pair map moves pairs off outputs 2p / 2p+1 (CrossfeedPairMap.kt).
+    val pairs = CrossfeedPairsModel.from(
+        st,
+        supported = bridge.hardwareCaps.crossfeedPairMapSupported,
+        connected = connected,
+        writesAllowed = writesAllowed(),
+        outputName = { bridge.channelName(2 + it) }
+    )
+    val pairActions = remember(bridge) { CrossfeedPairActions(bridge) }
 
     ToolScaffold(header = {
         ToolHeader(
@@ -183,7 +194,7 @@ fun CrossfeedView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                     enabled = connected,
                     onChange = { bridge.setCrossfeedITD(it) }
                 )
-                if (showPairMask) {
+                if (showPairMask || pairs.pairMapSupported) {
                     HorizontalDivider()
                     SectionHeader("OUTPUT PAIRS") {
                         PullDownMenu(
@@ -200,13 +211,18 @@ fun CrossfeedView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                         "Crossfeed only the stereo output pairs feeding headphones. Speaker pairs stay bit-accurate. " +
                             "The mono sub is never crossfed."
                     )
-                    ChannelChips(
-                        count = pairCount,
-                        isOn = { ToolMasks.isOn(crossfeed.outputMask, it) },
-                        names = pairNames,
-                        enabled = connected,
-                        onToggle = { bridge.toggleMaskBit(MaskField.CROSSFEED_PAIRS, it) }
-                    )
+                    if (pairs.pairMapSupported) CrossfeedPairsRow(pairs, crossfeed.outputMask, pairActions)
+                    if (pairs.pairMapSupported) {
+                        CrossfeedPairChips(pairs, crossfeed.outputMask) { bridge.toggleMaskBit(MaskField.CROSSFEED_PAIRS, it) }
+                    } else {
+                        ChannelChips(
+                            count = pairCount,
+                            isOn = { ToolMasks.isOn(crossfeed.outputMask, it) },
+                            names = pairs.chipHelp,
+                            enabled = connected,
+                            onToggle = { bridge.toggleMaskBit(MaskField.CROSSFEED_PAIRS, it) }
+                        )
+                    }
                 }
             })
         }

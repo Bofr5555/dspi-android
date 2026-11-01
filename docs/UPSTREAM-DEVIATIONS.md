@@ -921,6 +921,41 @@ the same ear twice. The K340 firmware fork (`~/prog/DSPi-xfeed`, branch
    firmware STALLs it, and the setter then fails with
    `DspiException.Unsupported` without sending anything. G1 applies as to every
    setter.
-4. **UI:** not built yet (after pkg/stalestate merges); see the coordinator's
-   report for the recommended Crossfeed tool section.
+4. **UI:** see CROSSFEED PAIR MAP UI below.
+
+## CROSSFEED PAIR MAP UI (pkg/xfeed-ui, K340 fork feature)
+
+`feature-tools/…/CrossfeedPairMap.kt`, used by `CrossfeedView`'s OUTPUT PAIRS
+section. Everything the macOS view has keeps its look and wording; the fork
+adds, ONLY when `HardwareCaps.crossfeedPairMapSupported`:
+
+1. **"Pairs" row:** a pull-down titled with the current pairing: "Default (1/2,
+   3/4, …)" (`CrossfeedPairs.DEFAULT`), "One DAC per ear (K340) — woofers 3↔1,
+   tweeters 4↔2" (`ONE_DAC_PER_EAR`), or "Custom" for any other map; menu
+   entries are the two presets and "Custom…". A preset is ONE
+   `setCrossfeedPairMap(fullMap)`; it never touches the pair mask.
+2. **K340 mask offer:** after picking the K340 preset, while the observed map is
+   still K340 and pairs 1 and 2 are not both on, an inline "Crossfeed the
+   woofers and the tweeters?" with "Not Now" / "Enable Pairs 1 and 2". The
+   latter is an explicit tap that sets the absolute pair mask 0x03
+   (`setCrossfeedOutputPairMask`), not a toggle; no implicit writes.
+3. **"Custom…" editor:** a dialog with two output pickers per pair (outputs
+   1..2·pairs, the PDM sub excluded, labelled "n — channel name"), the draft
+   starting from the observed map when it opens; live validation with
+   `bridge.crossfeedPairMapValid`, an inline explanation and Apply disabled
+   while invalid; Apply sends the whole map in ONE `setCrossfeedPairMap` (never
+   pair by pair; defaults encoded 0). The dialog closes on disconnect / G1.
+4. **Chips:** with a pair map the pair chips are full-width, labelled with each
+   pair's actual outputs (`CrossfeedPairs.pair`), e.g. "Pair 1: Out 3 / Out 1";
+   the long-press help is the outputs' channel names, as the macOS chip help.
+   Toggling stays the atomic `toggleMaskBit(CROSSFEED_PAIRS, p)`.
+5. **Stale state / G1:** the section is computed (`CrossfeedPairsModel.from`)
+   from the collected `DspState`, the capabilities and `writesAllowed()` in the
+   same composition; actions write constants or the editor's complete map.
+   Every control is disabled via `writeEnabled` when writes are not allowed,
+   and `CrossfeedPairActions` also no-ops then (the bridge refuses as well).
+6. **Upstream firmware** (`crossfeedPairMapSupported` false): no Pairs row, no
+   editor, the macOS chips "1".."n" on the fixed pairs, exactly as before.
+
+Tests: `feature-tools/…/CrossfeedPairMapUiTest.kt` (FakeDspiCore).
 
