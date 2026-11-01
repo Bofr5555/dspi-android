@@ -14,7 +14,8 @@
 // ── types.rs ──────────────────────────────────────────────────────────
 
 /// One filter band, PEQ or crossover (`types.rs` `FilterParams`).
-#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FilterParams {
     /// Firmware filter type (`FILTER_*`): 0..13 PEQ, 32..63 crossover.
     pub filter_type: u8,
@@ -57,7 +58,8 @@ pub struct LgStatus {
     pub muted: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UartConfig {
     pub enabled: bool,
     pub tx_pin: u8,
@@ -66,7 +68,8 @@ pub struct UartConfig {
     pub baud: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct I2cConfig {
     pub enabled: bool,
     pub sda_pin: u8,
@@ -74,7 +77,8 @@ pub struct I2cConfig {
     pub address: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default, uniffi::Record)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, uniffi::Record, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CtrlIfaceStatus {
     pub uart_last_status: u8,
     pub uart_live: bool,
@@ -131,7 +135,8 @@ pub struct PresetDirectory {
 /// Channel-indexed vectors use wire channel indices (`[inputs][outputs]`,
 /// MAX_CHANNELS = 17 entries); output-indexed ones have MAX_OUTPUTS = 9,
 /// input-indexed MAX_INPUTS = 8. Only the first `num_*` entries are live.
-#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+#[derive(Debug, Clone, PartialEq, uniffi::Record, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DspState {
     // Device / firmware
     pub platform_id: u8,
