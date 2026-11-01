@@ -13,8 +13,9 @@ import se.bofr.dspi.core.DspiConstants.FILTER_ALLPASS1
 import se.bofr.dspi.core.DspiConstants.FILTER_HIGHPASS1
 import se.bofr.dspi.core.DspiConstants.FILTER_LINKWITZ_TRANSFORM
 import se.bofr.dspi.core.DspiConstants.FILTER_PEAKING
+import se.bofr.dspi.ui.settings.AppSettings
 
-/** The pure parts of GraphView, GraphSpectrumOverlay, GraphSettings and PeqBandHud. */
+/** The pure parts of GraphView, GraphSpectrumOverlay, AppSettings and PeqBandHud. */
 class GraphModelTest {
     // ── GraphView ───────────────────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ class GraphModelTest {
 
     @Test
     fun settingsDefaultsAreTheMacOSOnes() {
-        val s = GraphSettings()
+        val s = AppSettings()
         assertEquals(25.0, s.dbTop, 0.0)
         assertEquals(-25.0, s.dbBottom, 0.0)
         assertEquals(15.0, s.graphMinFreq, 0.0)
@@ -90,15 +91,15 @@ class GraphModelTest {
     @Test
     fun dashboardSelectionFallsBackToTheFirstOutput() {
         val avail = { tap: Int -> if (tap == DspiConstants.RTA_TAP_OUTPUT) listOf(1, 3) else listOf(0, 1) }
-        val s = GraphSettings()
+        val s = AppSettings()
         assertEquals("out:1", SpectrumSelectionState.dashboardSelection(s, avail).storageKey)
-        assertEquals("in:1", SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSource = "in:1,5"), avail).storageKey)
+        assertEquals("in:1", SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSelectionKey = "in:1,5"), avail).storageKey)
         assertEquals(
             "a deliberate nothing stays nothing",
             "in:",
-            SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSource = "in:"), avail).storageKey
+            SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSelectionKey = "in:"), avail).storageKey
         )
-        assertEquals("out:1", SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSource = "in:7"), avail).storageKey)
+        assertEquals("out:1", SpectrumSelectionState.dashboardSelection(s.copy(rtaDashboardSelectionKey = "in:7"), avail).storageKey)
         assertEquals("in:0", SpectrumSelectionState.dashboardSelection(s, { emptyList() }).storageKey)
     }
 
@@ -212,11 +213,11 @@ class GraphModelTest {
     @Test
     fun fallTauFollowsTheRefreshInterval() {
         assertEquals(0.0, rtaFallTau(0.1, 0.0), 0.0)
-        assertEquals(0.035, rtaFallTau(0.01, RTA_SMOOTHING_AMOUNT), 1e-12)
-        assertEquals(0.40, rtaFallTau(2.0, RTA_SMOOTHING_AMOUNT), 1e-12)
-        assertEquals(0.07, rtaFallTau(0.2, RTA_SMOOTHING_AMOUNT), 1e-12)
-        assertEquals(0.35, GraphSettings().rtaSmoothing, 0.0)
-        assertEquals(0.0, GraphSettings(rtaSmoothingOn = false).rtaSmoothing, 0.0)
+        assertEquals(0.035, rtaFallTau(0.01, AppSettings.RTA_SMOOTHING_AMOUNT), 1e-12)
+        assertEquals(0.40, rtaFallTau(2.0, AppSettings.RTA_SMOOTHING_AMOUNT), 1e-12)
+        assertEquals(0.07, rtaFallTau(0.2, AppSettings.RTA_SMOOTHING_AMOUNT), 1e-12)
+        assertEquals(0.35, AppSettings().rtaSmoothing, 0.0)
+        assertEquals(0.0, AppSettings(rtaSmoothingOn = false).rtaSmoothing, 0.0)
     }
 
     // ── Chip rows and typing ────────────────────────────────────────────────

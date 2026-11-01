@@ -52,6 +52,9 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.ui.settings.AppSettings
+import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.settings.LocalAppSettings
 
 /**
  * The spectrum channels of the page showing the graph: the dashboard's are
@@ -59,7 +62,7 @@ import se.bofr.dspi.core.DspiConstants
  * time one opens (or nothing, if the user hid the spectrum on channel pages).
  */
 class SpectrumSelectionState internal constructor(
-    private val store: GraphSettingsStore,
+    private val store: AppSettingsStore,
     private val activeEq: Int?,
     private val available: (Int) -> List<Int>,
     private val page: MutableState<RtaChannelSelection>,
@@ -78,7 +81,7 @@ class SpectrumSelectionState internal constructor(
     /** macOS `setRtaSelection`. */
     fun set(selection: RtaChannelSelection) {
         if (activeEq == null) {
-            store.update { it.copy(rtaDashboardSource = selection.storageKey) }
+            store.update { it.copy(rtaDashboardSelectionKey = selection.storageKey) }
         } else {
             page.value = selection
             // Hiding the spectrum on one channel page keeps it hidden on the next.
@@ -93,9 +96,9 @@ class SpectrumSelectionState internal constructor(
         if (activeEq == null) {
             val s = store.settings.value
             val other =
-                RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSide)?.takeIf { it.tap == tap }
+                RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSideKey)?.takeIf { it.tap == tap }
                     ?: RtaChannelSelection(tap, emptyList())
-            store.update { it.copy(rtaDashboardSource = other.storageKey, rtaDashboardOtherSide = current.storageKey) }
+            store.update { it.copy(rtaDashboardSelectionKey = other.storageKey, rtaDashboardOtherSideKey = current.storageKey) }
         } else {
             val other = pageOther.value?.takeIf { it.tap == tap } ?: RtaChannelSelection(tap, emptyList())
             pageOther.value = page.value
@@ -105,8 +108,8 @@ class SpectrumSelectionState internal constructor(
 
     companion object {
         /** macOS `dashboardRtaSelection`: the stored channels that are live, else the first output, else input 1. */
-        fun dashboardSelection(s: GraphSettings, available: (Int) -> List<Int>): RtaChannelSelection {
-            val stored = RtaChannelSelection.fromStorageKey(s.rtaDashboardSource)
+        fun dashboardSelection(s: AppSettings, available: (Int) -> List<Int>): RtaChannelSelection {
+            val stored = RtaChannelSelection.fromStorageKey(s.rtaDashboardSelectionKey)
             if (stored != null) {
                 if (stored.isEmpty) return stored
                 val live = stored.restricted(available(stored.tap))
@@ -128,7 +131,7 @@ class SpectrumSelectionState internal constructor(
 }
 
 @Composable
-internal fun rememberSpectrumSelection(bridge: DspiBridge, store: GraphSettingsStore, activeEq: Int?): SpectrumSelectionState {
+internal fun rememberSpectrumSelection(bridge: DspiBridge, store: AppSettingsStore, activeEq: Int?): SpectrumSelectionState {
     // A channel page starts on its own channel each time one opens.
     val page =
         remember(activeEq) {
@@ -150,7 +153,7 @@ internal fun rememberSpectrumSelection(bridge: DspiBridge, store: GraphSettingsS
 /** The gear's panel: SPECTRUM channels, FFT Graph, and Graph Setup. */
 @Composable
 internal fun GraphOptions(bridge: DspiBridge, onDashboard: Boolean, spectrum: SpectrumSelectionState, onDismiss: () -> Unit) {
-    val store = LocalGraphSettings.current
+    val store = LocalAppSettings.current
     val settings by store.settings.collectAsStateWithLifecycle()
     val caps by bridge.rta.caps.collectAsStateWithLifecycle()
     var setupPage by remember { mutableStateOf(false) }
@@ -320,7 +323,7 @@ private fun hz(f: Double) = if (f >= 1000) "${(f / 1000).roundToInt()}k" else f.
 
 /** Graph Setup (README "Graph Setup"; Settings > Graphing holds the same). */
 @Composable
-private fun GraphSetupPage(settings: GraphSettings, store: GraphSettingsStore, onBack: () -> Unit) {
+private fun GraphSetupPage(settings: AppSettings, store: AppSettingsStore, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onBack).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("‹ Back", fontSize = 13.sp)
         Spacer(Modifier.weight(1f))
@@ -334,8 +337,8 @@ private fun GraphSetupPage(settings: GraphSettings, store: GraphSettingsStore, o
             store.update { it.resetScale() }
         }, modifier = Modifier.padding(end = 4.dp)) { Text("Reset", fontSize = 11.sp) }
     }
-    ChoiceRow("Frequency from", GraphSettings.MIN_FREQS, settings.graphMinFreq, ::hz) { v -> store.update { it.copy(graphMinFreq = v) } }
-    ChoiceRow("Frequency to", GraphSettings.MAX_FREQS, settings.graphMaxFreq, ::hz) { v -> store.update { it.copy(graphMaxFreq = v) } }
+    ChoiceRow("Frequency from", AppSettings.MIN_FREQS, settings.graphMinFreq, ::hz) { v -> store.update { it.copy(graphMinFreq = v) } }
+    ChoiceRow("Frequency to", AppSettings.MAX_FREQS, settings.graphMaxFreq, ::hz) { v -> store.update { it.copy(graphMaxFreq = v) } }
     SliderRow("Range: ${settings.graphDBRange.roundToInt()} dB", settings.graphDBRange, 10f..100f) { v ->
         store.update { it.copy(graphDBRange = v.roundToInt().toDouble()) }
     }

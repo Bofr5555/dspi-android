@@ -58,6 +58,7 @@ import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.RtaCapsInfo
 import se.bofr.dspi.core.RtaSnapshot
+import se.bofr.dspi.ui.settings.AppSettings
 
 /** The analyser's level range on the plot (macOS `RtaScale`). */
 data class RtaScale(val floorDB: Double, val ceilingDB: Double) {
@@ -69,9 +70,6 @@ data class RtaScale(val floorDB: Double, val ceilingDB: Double) {
 
 /** Width each FFT bin is averaged over (macOS `rtaBinSmoothingOctaves`). */
 const val RTA_BIN_SMOOTHING_OCTAVES = 1.0 / 6.0
-
-/** Smoothing amount the views use when Smoothing is on (macOS `AppSettings.rtaSmoothing`). */
-const val RTA_SMOOTHING_AMOUNT = 0.35
 
 /**
  * Each bin's level averaged in power over [octaves] centred on it (macOS
@@ -506,7 +504,7 @@ fun GraphSpectrumOverlay(
     selection: RtaChannelSelection,
     minFreq: Double,
     maxFreq: Double,
-    settings: GraphSettings,
+    settings: AppSettings,
     modifier: Modifier = Modifier
 ) {
     val rta = bridge.rta

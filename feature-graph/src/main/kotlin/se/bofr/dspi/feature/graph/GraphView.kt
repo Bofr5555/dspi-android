@@ -73,6 +73,8 @@ import se.bofr.dspi.bridge.ChannelMap
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.ui.ChannelPalette
+import se.bofr.dspi.ui.settings.AppSettings
+import se.bofr.dspi.ui.settings.LocalAppSettings
 
 /** The graph's panel colour (the macOS card colour under a dark appearance). */
 internal val GraphBackground = Color(0xFF242426)
@@ -91,9 +93,9 @@ internal val GraphBackground = Color(0xFF242426)
  * @param editable enables on-graph PEQ editing (PeqGraphEditor) for the
  *   single channel in [channels].
  *
- * Height: [GraphSettings.graphHeight] unless [modifier] fixes one. Share the
+ * Height: [AppSettings.graphHeight] unless [modifier] fixes one. Share the
  * band selection with a band list through [LocalPeqGraphSelection]; the
- * preferences come from [LocalGraphSettings].
+ * preferences come from [LocalAppSettings].
  */
 @Composable
 fun GraphView(bridge: DspiBridge, modifier: Modifier = Modifier, channels: Set<Int> = emptySet(), editable: Boolean = false) {
@@ -277,7 +279,7 @@ internal const val GLOW_FALLBACK_NARROW = 0.25f
 private fun BodeLine(
     mags: List<Double>,
     freqs: List<Double>,
-    settings: GraphSettings,
+    settings: AppSettings,
     colors: List<Color>,
     active: Boolean,
     minFreq: Double,
@@ -375,7 +377,7 @@ private fun BodeLine(
 /** The graph (macOS `BodePlotView`). */
 @Composable
 internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<Int>, editable: Boolean) {
-    val store = LocalGraphSettings.current
+    val store = LocalAppSettings.current
     val settings by store.settings.collectAsStateWithLifecycle()
     val stateRev by bridge.stateRevision.collectAsStateWithLifecycle()
     val magRev by bridge.magnitudesRevision.collectAsStateWithLifecycle()
@@ -480,12 +482,12 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
             background = GraphBackground,
             onZoom = { ratio ->
                 store.update {
-                    it.copy(graphDBRange = (it.graphDBRange / ratio).coerceIn(GraphSettings.DB_RANGE_MIN, GraphSettings.DB_RANGE_MAX))
+                    it.copy(graphDBRange = (it.graphDBRange / ratio).coerceIn(AppSettings.DB_RANGE_MIN, AppSettings.DB_RANGE_MAX))
                 }
             },
             onZoomRange = { delta ->
                 store.update {
-                    it.copy(graphDBRange = (it.graphDBRange + delta).coerceIn(GraphSettings.DB_RANGE_MIN, GraphSettings.DB_RANGE_MAX))
+                    it.copy(graphDBRange = (it.graphDBRange + delta).coerceIn(AppSettings.DB_RANGE_MIN, AppSettings.DB_RANGE_MAX))
                 }
             }
         )
@@ -512,7 +514,7 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
 }
 
 /** What the editor is told about the graph (macOS `BodePlotView.editorConfig`). */
-internal fun editorConfigFor(bridge: DspiBridge, ch: Int?, settings: GraphSettings): PeqEditorConfig {
+internal fun editorConfigFor(bridge: DspiBridge, ch: Int?, settings: AppSettings): PeqEditorConfig {
     val base =
         PeqEditorConfig(
             minFreq = settings.graphMinFreq,
@@ -564,7 +566,7 @@ private val LABEL_FREQS = doubleArrayOf(20.0, 50.0, 100.0, 200.0, 500.0, 1000.0,
 private val LABEL_TEXTS = arrayOf("20", "50", "100", "200", "500", "1k", "2k", "5k", "10k", "20k")
 
 @Composable
-private fun GraphGrid(settings: GraphSettings, minF: Double, maxF: Double, dTop: Double, dBot: Double) {
+private fun GraphGrid(settings: AppSettings, minF: Double, maxF: Double, dTop: Double, dBot: Double) {
     Canvas(Modifier.fillMaxSize()) {
         val d = density
         val w = size.width / d
@@ -597,7 +599,7 @@ private fun GraphGrid(settings: GraphSettings, minF: Double, maxF: Double, dTop:
 }
 
 @Composable
-private fun GraphLabels(settings: GraphSettings, minF: Double, maxF: Double, dTop: Double, dBot: Double) {
+private fun GraphLabels(settings: AppSettings, minF: Double, maxF: Double, dTop: Double, dBot: Double) {
     // Up to ~25 labels at once (10 frequencies, up to 11 dB steps, 5 phase ticks).
     val measurer = rememberTextMeasurer(cacheSize = 32)
     val style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.4f))
@@ -649,7 +651,7 @@ private fun GraphLabels(settings: GraphSettings, minF: Double, maxF: Double, dTo
  */
 @Composable
 fun GraphResizeHandle(modifier: Modifier = Modifier, height: Int = 20) {
-    val store = LocalGraphSettings.current
+    val store = LocalAppSettings.current
     Box(
         modifier
             .fillMaxWidth()
@@ -660,8 +662,8 @@ fun GraphResizeHandle(modifier: Modifier = Modifier, height: Int = 20) {
                     store.update {
                         it.copy(
                             graphHeight = (it.graphHeight + dy / density).coerceIn(
-                                GraphSettings.GRAPH_HEIGHT_MIN,
-                                GraphSettings.GRAPH_HEIGHT_MAX
+                                AppSettings.GRAPH_HEIGHT_MIN,
+                                AppSettings.GRAPH_HEIGHT_MAX
                             )
                         )
                     }

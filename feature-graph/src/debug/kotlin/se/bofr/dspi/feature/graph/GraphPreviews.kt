@@ -19,6 +19,9 @@ import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.ui.DspiTheme
+import se.bofr.dspi.ui.settings.AppSettings
+import se.bofr.dspi.ui.settings.InMemoryAppSettingsStore
+import se.bofr.dspi.ui.settings.LocalAppSettings
 
 @Composable
 private fun rememberFakeBridge(): DspiBridge {
@@ -52,8 +55,8 @@ private fun GraphViewChannelPreview() {
 @Preview(name = "Phase and spectrum", widthDp = 392, heightDp = 320)
 @Composable
 private fun GraphViewPhasePreview() {
-    val store = remember { InMemoryGraphSettingsStore(GraphSettings(showPhase = true, rtaDashboardSource = "in:0,1")) }
-    CompositionLocalProvider(LocalGraphSettings provides store) {
+    val store = remember { InMemoryAppSettingsStore(AppSettings(showPhase = true, rtaDashboardSelectionKey = "in:0,1")) }
+    CompositionLocalProvider(LocalAppSettings provides store) {
         PreviewFrame { GraphView(rememberFakeBridge(), channels = setOf(0), editable = true) }
     }
 }

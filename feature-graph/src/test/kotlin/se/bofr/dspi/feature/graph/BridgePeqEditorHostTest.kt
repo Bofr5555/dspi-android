@@ -15,6 +15,7 @@ import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.DspiConstants.FILTER_PEAKING
 import se.bofr.dspi.fake.FakeDspiCore
+import se.bofr.dspi.ui.settings.AppSettings
 
 /** The editor's host over the real bridge and the fake core: live writes throttled, one commit on release. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -91,7 +92,7 @@ class BridgePeqEditorHostTest {
         val b = bridge(core)
         assertTrue(b.attachDevice(42, core.serial, DspiConstants.VENDOR_ID))
         runCurrent()
-        val s = GraphSettings()
+        val s = AppSettings()
         val none = editorConfigFor(b, null, s)
         assertNull(none.channel)
         val c = editorConfigFor(b, ch, s)
