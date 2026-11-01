@@ -11,8 +11,8 @@ android {
     namespace = "se.bofr.dspi.app"
     defaultConfig {
         applicationId = "se.bofr.dspi"
-        versionCode = 2
-        versionName = "0.1.0-hil1"
+        versionCode = 3
+        versionName = "0.1.0-hil2"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     buildTypes {
