@@ -683,8 +683,7 @@ Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
    (`sampleBands`), band slots without a level read the floor, and each
    start-group fades in its own layer, as macOS. The "Following another
    console" row, `hiddenChannels` and the `active` pause are not needed (no
-   Link hub, no analyser window sharing the view). The "Following another
-   console" row does not exist (no Link hub).
+   Link hub, no analyser window sharing the view).
 5. **Not offered in the gear panel:** RTA Bars (the bar strip belongs with
    ANALYSIS's bar renderer) and Pop Out Graph (the full-screen route is
    `GraphScreen`, reached through app navigation).
