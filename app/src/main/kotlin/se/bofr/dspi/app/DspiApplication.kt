@@ -8,6 +8,9 @@ import kotlinx.coroutines.SupervisorJob
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.ffi.FfiDspiCore
+import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.settings.DataStoreAppSettingsStore
+import se.bofr.dspi.ui.state.AppState
 import se.bofr.dspi.usb.AndroidUsbSession
 import se.bofr.dspi.usb.UiVisibilityTracker
 import se.bofr.dspi.usb.UsbSession
@@ -27,6 +30,11 @@ import se.bofr.dspi.usb.UsbSession
  * so the device stays open across Activity recreation while the foreground
  * service runs. Demo mode builds a separate fake stack on demand
  * ([AppModeController]).
+ *
+ * Also process-wide, provided to every screen by [MainActivity]: the one
+ * preference store ([appSettings], decision F3; its analyser options are
+ * pushed into the current bridge by [bindRtaOptions]), the shared selection
+ * ([appState]).
  */
 class DspiApplication : Application() {
     /** Main-thread scope for the bridge, the session and the mode controller; lives as long as the process. */
@@ -42,6 +50,13 @@ class DspiApplication : Application() {
     /** Run [block] (anything that may open a DSPi) once the persistent links are loaded (review A3). */
     lateinit var usbGate: UsbStartGate
         private set
+
+    /** The app's one preference store (macOS AppSettings, DataStore). */
+    lateinit var appSettings: AppSettingsStore
+        private set
+
+    /** The main window's selection (macOS activeEqChannel / isOverviewMode). */
+    val appState = AppState()
 
     override fun onCreate() {
         super.onCreate()
@@ -61,6 +76,8 @@ class DspiApplication : Application() {
         usbGate = UsbStartGate(appScope) { linkStore.awaitLoaded() }
         usbGate.run { usb.start(this) }
         UiVisibilityTracker(appScope) { modes.setUiVisible(it) }.install(this)
+        appSettings = DataStoreAppSettingsStore.of(this)
+        bindRtaOptions(appScope, appSettings.settings, modes.bridge)
     }
 
     private fun appVersion(): String = runCatching {

@@ -1,9 +1,10 @@
-package se.bofr.dspi.feature.settings
+package se.bofr.dspi.ui.settings
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
+import androidx.datastore.preferences.core.stringPreferencesKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -53,6 +54,7 @@ class AppSettingsTest {
     @Test
     fun preferencesUseTheMacOsKeyNames() {
         // Every macOS AppSettings @AppStorage key (DSPi_ConsoleApp.swift) + "settingsSelectedTab" (SettingsView)
+        // + "tubeModellerAdvanced" (TubeModellerView)
         val macOs = listOf(
             "showGraphGlow", "graphLineWidth", "graphAnimationSpeed", "showPhase", "phaseUnwrapped",
             "showFrequencyLabels", "showDBLabels", "showFrequencyReadout", "showLevelReadout", "showFrequencyGrid",
@@ -61,7 +63,9 @@ class AppSettingsTest {
             "rtaDashboardShowGraph", "rtaDashboardShowBars", "rtaChannelShowGraph", "rtaChannelShowBars",
             "rtaDashboardSource", "rtaDashboardOtherSide", "rtaBarColumns", "rtaBarHeight",
             "rtaChannelPagesShowSpectrum", "rtaGraphOpacity", "rtaFloorDB", "rtaCeilingDB", "rtaShowPeakHold",
-            "rtaSmoothingOn", "rtaFftOrder", "rtaAvgMs", "rtaPeakDecayDBs", "sidebarVolumeMode", "settingsSelectedTab"
+            "rtaSmoothingOn", "rtaFftOrder", "rtaAvgMs", "rtaPeakDecayDBs", "sidebarVolumeMode", "settingsSelectedTab",
+            // TubeModellerView.swift
+            "tubeModellerAdvanced"
         )
         assertEquals(macOs, AppSettingsFields.keyNames)
     }
@@ -101,15 +105,27 @@ class AppSettingsTest {
     }
 
     @Test
-    fun centerLabelMatchesMacOs() {
-        assertEquals("Center: 0 dB → +25 to -25", centerLabel(AppSettings()))
-        assertEquals("Center: -10 dB → +10 to -30", centerLabel(AppSettings(graphDBCenter = -10.0, graphDBRange = 40.0)))
+    fun legacyImportFillsOnlyMissingKeysWithFittingTypes() {
+        val p = mutablePreferencesOf(stringPreferencesKey("sidebarVolumeMode") to "auto")
+        val home = mapOf<String, Any?>("sidebarVolumeMode" to "master", "dashboardCardsPerRow" to 2)
+        val analysis = mapOf<String, Any?>("rtaDashboardSource" to "in:0,1", "rtaFloorDB" to "bad", "dashboardCardsPerRow" to 3)
+        val tools = mapOf<String, Any?>("tubeModellerAdvanced" to true, "unknownKey" to 1)
+        AppSettingsFields.importLegacy(p, listOf(home, analysis, tools))
+        val s = AppSettingsFields.read(p)
+        assertEquals("the DataStore value wins", "auto", s.sidebarVolumeMode)
+        assertEquals("first file wins", 2, s.dashboardCardsPerRow)
+        assertEquals("in:0,1", s.rtaDashboardSelectionKey)
+        assertEquals("a value of the wrong type is ignored", -90.0, s.rtaFloorDB, 0.0)
+        assertTrue(s.tubeModellerAdvanced)
+        assertEquals(true, p[AppSettingsFields.LEGACY_IMPORTED])
+        assertNull(p[intPreferencesKey("unknownKey")])
     }
 
     @Test
-    fun spectrumOrdersFollowCapsOrTheProtocolRange() {
-        assertEquals(listOf(8, 9, 10), spectrumOrders(null, null, false))
-        assertEquals(listOf(9, 10, 11), spectrumOrders(9, 11, true))
-        assertEquals(listOf(8, 9, 10), spectrumOrders(11, 9, true))
+    fun legacyImportConvertsNumbers() {
+        val p = mutablePreferencesOf()
+        AppSettingsFields.importLegacy(p, listOf(mapOf("graphDBRange" to 40f, "rtaAvgMs" to 200L)))
+        assertEquals(40.0, p[doublePreferencesKey("graphDBRange")]!!, 0.0)
+        assertEquals(200, p[intPreferencesKey("rtaAvgMs")])
     }
 }

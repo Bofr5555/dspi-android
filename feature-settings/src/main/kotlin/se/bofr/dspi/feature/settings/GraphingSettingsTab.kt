@@ -6,6 +6,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import java.util.Locale
 import kotlin.math.roundToInt
+import se.bofr.dspi.ui.settings.AppSettings
+import se.bofr.dspi.ui.settings.AppSettingsStore
 
 @Composable
 fun GraphingSettingsTab(appSettings: AppSettingsStore) {

@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.settings.AppSettingsStore
 
 @Composable
 fun AdvancedSettingsTab(bridge: DspiBridge, appSettings: AppSettingsStore) {

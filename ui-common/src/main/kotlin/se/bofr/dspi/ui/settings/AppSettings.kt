@@ -1,8 +1,13 @@
 // Port of DSPi-Console-b5:DSPi Console/DSPi_ConsoleApp.swift `AppSettings`
-// (@AppStorage preferences) and `RtaSpectrumView`. Keys are the macOS
-// UserDefaults keys, so the names stay parallel.
-package se.bofr.dspi.feature.settings
+// (@AppStorage preferences, l.84-203) and `RtaSpectrumView`, plus the one
+// view-level @AppStorage key (TubeModellerView.swift "tubeModellerAdvanced").
+// Keys are the macOS UserDefaults keys, so the names stay parallel.
+// The app's single preference store (decision F3): :app provides one
+// persistent instance through [LocalAppSettings]; every feature reads and
+// writes it there.
+package se.bofr.dspi.ui.settings
 
+import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,14 +17,17 @@ enum class RtaSpectrumView { GRAPH, BARS }
 
 /**
  * The Console's own preferences (General/Graphing/Spectrum/Advanced, plus the
- * dashboard/spectrum placement state other pages keep here). Defaults are the
- * macOS ones.
+ * dashboard/spectrum placement state other pages keep here). Property names
+ * are the macOS Swift property names; defaults are the macOS ones. Two Swift
+ * properties are stored under other keys: [rtaDashboardSelectionKey] as
+ * "rtaDashboardSource", [rtaDashboardOtherSideKey] as "rtaDashboardOtherSide".
  */
 data class AppSettings(
     // Appearance
     val showGraphGlow: Boolean = true,
     // Graphing
     val graphLineWidth: Double = 2.0,
+    /** Seconds; how long curve changes take to animate. */
     val graphAnimationSpeed: Double = 0.2,
     val showPhase: Boolean = false,
     val phaseUnwrapped: Boolean = false,
@@ -34,6 +42,7 @@ data class AppSettings(
     val graphGridOpacity: Double = 0.5,
     val graphDBRange: Double = 50.0,
     val graphDBCenter: Double = 0.0,
+    /** Points (dp), [GRAPH_HEIGHT_MIN]..[GRAPH_HEIGHT_MAX] (GraphResizeHandle). */
     val graphHeight: Double = 250.0,
     val graphMinFreq: Double = 15.0,
     val graphMaxFreq: Double = 20000.0,
@@ -48,9 +57,9 @@ data class AppSettings(
     val rtaDashboardShowBars: Boolean = false,
     val rtaChannelShowGraph: Boolean = true,
     val rtaChannelShowBars: Boolean = false,
-    /** macOS key "rtaDashboardSource". */
+    /** macOS key "rtaDashboardSource": the dashboard's channels ("in:0,2", "out:1"), "" for the default. */
     val rtaDashboardSelectionKey: String = "",
-    /** macOS key "rtaDashboardOtherSide". */
+    /** macOS key "rtaDashboardOtherSide": the dashboard's other side's channels, "" when never used. */
     val rtaDashboardOtherSideKey: String = "",
     val rtaBarColumns: Int = 2,
     val rtaBarHeight: Double = 96.0,
@@ -65,11 +74,13 @@ data class AppSettings(
     val rtaPeakDecayDBs: Int = 12,
     /** Sidebar volume slider: "auto" (host on USB / user on S/PDIF/I2S) or "master". */
     val sidebarVolumeMode: String = "auto",
-    /** Settings page shown last (macOS "settingsSelectedTab"). */
-    val settingsSelectedTab: String = SettingsCategory.GENERAL.id
+    /** Settings page shown last (macOS SettingsView "settingsSelectedTab"). */
+    val settingsSelectedTab: String = "general",
+    /** Tube Modeller Basic/Advanced (macOS TubeModellerView "tubeModellerAdvanced"). */
+    val tubeModellerAdvanced: Boolean = false
 ) {
     /** The smoothing amount the views use (the old Light setting when on). */
-    val rtaSmoothing: Double get() = if (rtaSmoothingOn) 0.35 else 0.0
+    val rtaSmoothing: Double get() = if (rtaSmoothingOn) RTA_SMOOTHING_AMOUNT else 0.0
 
     fun rtaShows(view: RtaSpectrumView, onDashboard: Boolean): Boolean = when (view) {
         RtaSpectrumView.GRAPH -> if (onDashboard) rtaDashboardShowGraph else rtaChannelShowGraph
@@ -95,6 +106,19 @@ data class AppSettings(
     companion object {
         const val RTA_ORDER_MIN = 8
         const val RTA_ORDER_MAX = 10
+
+        /** macOS `rtaSmoothing` when on (the old Light setting). */
+        const val RTA_SMOOTHING_AMOUNT = 0.35
+
+        // Graph Setup / GraphResizeHandle ranges (GraphView.swift, SpectrumAnalyserView.swift GraphSetupPage)
+        const val DB_RANGE_MIN = 10.0
+        const val DB_RANGE_MAX = 100.0
+        const val DB_CENTER_MIN = -40.0
+        const val DB_CENTER_MAX = 20.0
+        const val GRAPH_HEIGHT_MIN = 200.0
+        const val GRAPH_HEIGHT_MAX = 350.0
+        val MIN_FREQS = listOf(10.0, 15.0, 20.0, 50.0, 100.0)
+        val MAX_FREQS = listOf(5000.0, 10000.0, 20000.0)
     }
 }
 
@@ -102,14 +126,12 @@ data class AppSettings(
 data class RtaOptions(val fftOrder: Int, val avgMs: Int, val peakDecayDBs: Int)
 
 /**
- * Read/write access to [AppSettings] — the small interface other features read
- * (the graph, dashboard and spectrum views). [settings] always holds the
- * latest value (defaults until the store has loaded).
+ * Read/write access to [AppSettings]. [settings] always holds the latest
+ * value (defaults until the store has loaded).
  *
- * Get the app's instance with `AppSettingsStore.of(context)`
- * ([DataStoreAppSettingsStore]); tests and previews use
- * [InMemoryAppSettingsStore]. Consolidation note: this interface belongs in
- * :ui-common so other features can depend on it (CR to HOME/coordinator).
+ * The app's instance is `DataStoreAppSettingsStore.of(context)`, provided to
+ * every screen through [LocalAppSettings]; tests and previews use
+ * [InMemoryAppSettingsStore].
  */
 interface AppSettingsStore {
     val settings: StateFlow<AppSettings>
@@ -129,3 +151,11 @@ class InMemoryAppSettingsStore(initial: AppSettings = AppSettings()) : AppSettin
         state.value = transform(state.value)
     }
 }
+
+private val processAppSettings = InMemoryAppSettingsStore()
+
+/**
+ * The app's one [AppSettingsStore]. :app provides the persistent DataStore
+ * instance; without a provider (previews, tests) a shared in-memory store.
+ */
+val LocalAppSettings = staticCompositionLocalOf<AppSettingsStore> { processAppSettings }
