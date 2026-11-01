@@ -30,7 +30,7 @@ class ToolsMenuActions(private val bridge: DspiBridge, private val scope: Corout
                         scope.launchDeviceSequence {
                             when (val result = bridge.savePreset(token, slot)) {
                                 PresetStatus.OK -> host.showSuccess("Preset saved successfully")
-                                else -> host.showError("Failed to save preset (${presetFailureText(result)})")
+                                else -> host.showError("Failed to save preset (${result.failureText})")
                             }
                         }
                     },

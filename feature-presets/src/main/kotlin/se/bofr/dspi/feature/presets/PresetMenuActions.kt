@@ -87,7 +87,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
                         if (saveStatus != PresetStatus.OK) {
                             host.showWarning(
                                 "Save Failed",
-                                "Failed to save preset (${presetFailureText(saveStatus)}). Preset switch aborted."
+                                "Failed to save preset (${saveStatus.failureText}). Preset switch aborted."
                             )
                             return@launchDeviceSequence
                         }
@@ -114,7 +114,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
         scope.launchDeviceSequence {
             ensureName(slot)
             val status = bridge.savePreset(token, slot)
-            if (status != PresetStatus.OK) host.showWarning("Save Failed", "Failed to save preset (${presetFailureText(status)}).")
+            if (status != PresetStatus.OK) host.showWarning("Save Failed", "Failed to save preset (${status.failureText}).")
         }
     }
 
@@ -184,7 +184,7 @@ class PresetMenuActions(private val bridge: DspiBridge, private val scope: Corou
             // The destination keeps its name, or becomes "Preset N".
             ensureName(destinationSlot)
             val status = bridge.copyPreset(copyToken, sourceSlot, destinationSlot)
-            if (status != PresetStatus.OK) host.showWarning("Copy Failed", "Failed to copy preset (${presetFailureText(status)}).")
+            if (status != PresetStatus.OK) host.showWarning("Copy Failed", "Failed to copy preset (${status.failureText}).")
         }
     }
 
