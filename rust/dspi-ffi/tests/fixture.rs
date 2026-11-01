@@ -49,6 +49,23 @@ fn decodes_known_values() {
     assert_eq!(s.xover.len(), 17);
     assert_eq!(s.matrix_routing.len(), 8);
     assert!(s.matrix_routing.iter().all(|r| r.len() == 9));
+    // Per-index values that are distinctive in this capture (review F2): a
+    // channel/output off-by-one or transposition in convert.rs shows here.
+    assert_eq!(s.channel_names[0], "USB 1");
+    assert_eq!(s.channel_names[1], "USB 2");
+    assert_eq!(s.channel_names[7], "USB 8");
+    assert_eq!(s.channel_names[8], "SPDIF 1 L");
+    assert_eq!(s.channel_names[9], "SPDIF 1 R");
+    assert_eq!(s.channel_names[15], "SPDIF 4 R");
+    assert_eq!(s.channel_names[16], "PDM");
+    assert_eq!(s.output_enabled, [true, true, false, false, false, false, false, false, false]);
+    assert_eq!(s.output_pins, [6, 7, 8, 9, 10]);
+    // Default routing: input 0 -> output 0, input 1 -> output 1, nothing else.
+    for (i, row) in s.matrix_routing.iter().enumerate() {
+        for (o, &on) in row.iter().enumerate() {
+            assert_eq!(on, i == o && i < 2, "matrix_routing[{i}][{o}]");
+        }
+    }
     // Every band decodes to a known filter type (PEQ 0..13 or crossover 32..63).
     for b in s.filters.iter().flatten() {
         assert!(b.filter_type <= 13, "PEQ type {}", b.filter_type);
@@ -66,6 +83,67 @@ fn decoded_image_reencodes_identically() {
     let mut s = dspi_core::state::DspState::default();
     dspi_core::protocol::decode_bulk(&bulk, &mut s).unwrap();
     assert_eq!(dspi_core::protocol::encode_bulk(&s), bulk);
+}
+
+/// The capture is close to factory defaults, so plant distinctive values at
+/// asymmetric indices, encode them with the core, and check the record has
+/// each one exactly where it belongs (review F2).
+#[test]
+fn planted_values_land_at_their_indices() {
+    use dspi_core::types::FilterParams as CoreFilter;
+    let bulk = read("bulk_v32.bin");
+    let mut s = dspi_core::state::DspState::default();
+    dspi_core::protocol::decode_bulk(&bulk, &mut s).unwrap();
+    let peq = CoreFilter { filter_type: 1, bypass: false, freq: 2345.0, q: 1.5, gain: 3.0, qp: 0.707 };
+    s.filters[3][7] = peq;
+    s.xover[10][2] = CoreFilter { filter_type: 33, bypass: true, freq: 87.0, q: 0.707, gain: 0.0, qp: 0.707 };
+    s.output_gain_db[5] = -6.0;
+    s.output_muted[6] = true;
+    s.output_delay_ms[4] = 1.25;
+    s.channel_delays[12] = 2.5;
+    s.matrix_routing[2][4] = true;
+    s.matrix_gain[2][4] = -3.5;
+    s.matrix_invert[2][4] = true;
+    s.input_preamp_db[5] = -4.0;
+    s.limiter_threshold_db[7] = -9.0;
+    let image = dspi_core::protocol::encode_bulk(&s);
+    let r = state_from_capture(&read("platform.bin"), &image).unwrap();
+
+    let f = r.filters[3][7];
+    assert_eq!((f.filter_type, f.freq, f.q, f.gain, f.bypass), (1, 2345.0, 1.5, 3.0, false));
+    let x = r.xover[10][2];
+    assert_eq!((x.filter_type, x.freq, x.bypass), (33, 87.0, true));
+    assert_eq!(r.output_gain_db[5], -6.0);
+    assert!(r.output_muted[6]);
+    assert_eq!(r.output_delay_ms[4], 1.25);
+    assert_eq!(r.channel_delays[12], 2.5);
+    assert!(r.matrix_routing[2][4] && r.matrix_invert[2][4]);
+    assert_eq!(r.matrix_gain[2][4], -3.5);
+    assert_eq!(r.input_preamp_db[5], -4.0);
+    assert_eq!(r.limiter_threshold_db[7], -9.0);
+    // ...and nowhere else: the neighbours keep the capture's values.
+    let base = state_from_capture(&read("platform.bin"), &bulk).unwrap();
+    for (ch, bands) in r.filters.iter().enumerate() {
+        for (b, band) in bands.iter().enumerate() {
+            if (ch, b) != (3, 7) {
+                assert_eq!(*band, base.filters[ch][b], "filters[{ch}][{b}]");
+            }
+        }
+    }
+    for o in 0..9 {
+        if o != 5 {
+            assert_eq!(r.output_gain_db[o], base.output_gain_db[o], "output_gain_db[{o}]");
+        }
+    }
+    for i in 0..8 {
+        for o in 0..9 {
+            if (i, o) != (2, 4) {
+                assert_eq!(r.matrix_routing[i][o], base.matrix_routing[i][o], "matrix_routing[{i}][{o}]");
+                assert_eq!(r.matrix_gain[i][o], base.matrix_gain[i][o], "matrix_gain[{i}][{o}]");
+            }
+        }
+    }
+    assert_eq!(r.channel_delays.iter().filter(|&&d| d != 0.0).count(), 1);
 }
 
 #[test]
