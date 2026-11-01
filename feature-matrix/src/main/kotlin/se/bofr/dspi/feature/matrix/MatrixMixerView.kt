@@ -74,6 +74,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.DspiRoutes
+import se.bofr.dspi.ui.state.LocalAppState
 
 /** Tablet threshold: below this the grid becomes one page per output. */
 val MatrixGridMinWidth: Dp = 600.dp
@@ -93,7 +94,8 @@ fun MatrixMixerView(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: ()
     val siggenSupported = siggenCaps?.supported == true
     val state = remember(bridge, rev, active, connected) { MatrixMixerState.from(bridge, active, connected) }
     // App-scoped controller (E9): sequences and open alerts survive rotation.
-    val actions = remember(bridge) { MatrixActions.forBridge(bridge) }
+    val appState = LocalAppState.current
+    val actions = remember(bridge) { MatrixActions.forBridge(bridge) { appState.isOverviewMode } }
 
     MatrixMixerContent(state, actions, siggenSupported, onBack, modifier)
 }
