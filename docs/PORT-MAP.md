@@ -52,8 +52,8 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 | `Components.swift` (26 views) | 2,821 | `feature-home/…/components/`: `SidebarRows.kt`, `ConnectionStatusIndicator.kt`, `VolumeMode.kt`, `ChannelSettings.kt` (+InputRoutingPanel, limiter cell), `InputChannelHeader.kt` (+InputLinkAlerts), `FilterList.kt`, `FilterRow.kt` (+Linkwitz panel, XO row), `LiveDrag.kt`; shared parts in `ui-common` (`ValueField.kt`, `Meters.kt`, `Controls.kt`, `Formatters.kt`, `FilterTypes.kt`) | `setFilter`, `setLinkwitzTransform`, `setBandBypass`, `setAllBandsBypass`, `setCrossover*`, `setInputPreamp`, `setOutput*`, `setMatrixRoute`, `setInputLinked`, `copyChannel/pasteChannel` | HOME | done |
 | `DashboardView.swift` | 579 | `feature-home/…/DashboardView.kt` | state + `channelBands` | HOME | done |
 | `CustomSlider.swift`, `ChannelPalette.swift`, NSView wrappers | ~0.6k | `ui-common/…/CustomSlider.kt` (CustomSlider, ParameterRow), `SliderValueDelivery.kt`, `ChannelPalette.kt`, `Theme.kt` (MacColors), `DspiIcons.kt` (Linux Icon.qml), `AlertHost.kt` | — | HOME | done |
-| `GraphView.swift`, `GraphSpectrumOverlay.swift`, `LiveGraphHost.swift`, pop-out | ~1.5k | `feature-graph/…/GraphView.kt` (embeddable, Canvas), `GraphScreen.kt` (pop-out = fullscreen landscape) | `magnitudeCurve/phaseCurve`, `curveFrequencies`, `rta.snapshot` | GRAPH | W0 |
-| `PeqGraphEditor.swift`, `PeqGraphModel.swift`, `PeqGraphRenderer.swift`, `PeqGraphShaders.swift`, `PeqGraphSupport.swift`, `PeqBandHUD.swift` | ~3.4k | `feature-graph/…/PeqGraphEditor.kt` (logic from Windows `PeqGraphEditor.cs` + tests), `PeqGraphEditorView.kt`, `PeqBandHud.kt` | `channelBands`, `sendBandLive`, `commitBands` | GRAPH | — |
+| `GraphView.swift`, `GraphSpectrumOverlay.swift`, `LiveGraphHost.swift`, pop-out | ~1.5k | `feature-graph/…/GraphView.kt` (embeddable `BodePlotView`, Canvas; `GraphResizeHandle`, `GraphLegend`), `GraphSpectrumOverlay.kt`, `GraphOptions.kt` (gear panel + Graph Setup), `GraphSettings.kt` (AppSettings graph/RTA keys, `RtaChannelSelection`), `LiveGraphHost.kt` (`GraphLive`), `GraphScreen.kt` (pop-out = full-screen route + legend + edit-channel picker) | `magnitudeCurve/phaseCurve`, `curveFrequencies`, `channelVisible`, `rta.update/release/snapshot/caps` | GRAPH | done (JVM-tested logic; previews on FakeDspiCore; RTA Bars, spectrum time smoothing open) |
+| `PeqGraphEditor.swift`, `PeqGraphModel.swift`, `PeqGraphRenderer.swift`, `PeqGraphShaders.swift`, `PeqGraphSupport.swift`, `PeqBandHUD.swift` | ~3.4k | `feature-graph/…/PeqGraphEditor.kt` + `PeqGraphModel.kt` + `PeqEditorTypes.kt` + `PeqShapeChooserState.kt` (logic from Windows `GraphEditing/*.cs`; `PeqGraphEditorTests.cs` translated: 51/51 pass), `PeqGraphSupport.kt` (selection + host), `PeqGraphEditorView.kt` (overlay, `BridgePeqEditorHost`), `PeqGraphRenderer.kt` (Canvas; shaders → gradients), `PeqBandHud.kt`, `PeqTouchGestures.kt` (touch mapping), `PeqDspMath.kt` (copy of fake-core's dsp_math port) | `channelBands`, `channelGainOffset`, `sendBandLive` (via `Throttle`), `commitBands`, `setBandBypass` | GRAPH | done (JVM-tested; HIL pending) |
 | `MatrixMixerView.swift` | 817 | `feature-matrix/…/MatrixMixerView.kt` (+ `MatrixModel.kt`, `MatrixActions.kt`, `MatrixPoint.kt`, `CompactFields.kt`) | `setMatrixRoute`, `setOutput*`, `directRouting/clearRouting` | MATRIX | done (JVM-tested; phone pages + tablet grid; previews in `src/debug`) |
 | `LoudnessView`, `CrossfeedView`, `VolumeLevellerView`, `PsychoacousticBassView`, `SubharmonicSynthView`, `TubeModellerView` (+`TubeIllustration`), `UpmixerView`, `ToolParameters.swift` | ~5.3k | `feature-tools/…/*.kt`, same names; `ToolsScreen.kt` (Tools menu + internal sub-routes), `ToolComponents.kt`/`ToolFormat.kt`/`ToolGraph.kt` (local ParameterRow/ValueField/chips, to fold into ui-common) | `setLoudness*`, `setCrossfeed*`, `setLeveller*`, `setPsybass*`, `setSubharm*`/`fetchSubharm*`, `setTubeParam`, `setUpmixParam`/`fetchUpmixStatus` | TOOLS | done (JVM-tested; previews on FakeDspiCore; no device test) |
 | `OutputLimiterView.swift` | — | `feature-tools/…/OutputLimiterView.kt` (route `tools/limiter/{out}`; `OutputLimiterCell` on the output page is HOME's) | `limiter*`, `setLimiter*` | TOOLS | done (settings screen; edits via beginOutputEdit, ganging mirrored by the bridge) |
@@ -66,10 +66,32 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 
 ## Touch gestures (On-Graph Filter Editing, README l.572–792)
 
-GRAPH fills in this table. Starting point from PLAN §3.3:
-- drag = frequency/gain
-- pinch or two-finger drag = Q
-- long-press = band menu
-- double-tap = add a band
+Implemented by `feature-graph/…/PeqTouchGestures.kt` over the ported editor
+(`PeqGraphEditor.kt`); tested in `PeqTouchGesturesTest`. A mouse (and
+hardware keyboard modifiers) on Android goes to the editor exactly as on
+macOS/Windows (Cmd → Ctrl/Meta, Option → Alt). Touch targets: dots 24 dp,
+curve 14 dp (macOS 10/6 pt). A move within the system touch slop is a tap.
 
-Each row will give the macOS gesture, the Android gesture, and notes.
+| macOS | Android touch | Notes |
+|---|---|---|
+| Click a dot | Tap a dot | Selects that band only. |
+| Click empty graph / a fill | Tap empty graph / a fill | Deselects; never adds. |
+| Double-click empty graph / a fill | Double-tap | Adds a Bell at the finger's frequency and level, Q 1. |
+| Double-click a dot | Double-tap a dot | Chip opens and a dialog asks for Freq. |
+| Drag a dot | Drag a dot | Frequency + gain (Q for 12 dB cuts; frequency only for notch/all-pass/6 dB cuts). Live `sendOnly` through `Throttle`, one commit on release. Multi-selection moves together (same ratio / same dB). |
+| Drag the curve | Drag the curve | Pulls a new band out of it (Low Shelf left, High Shelf right, Bell elsewhere). |
+| Drag empty graph | Drag empty graph | Marquee selection. (While editing, the graph keeps the finger; the page scrolls elsewhere.) |
+| Right-click a dot | Long-press a dot | Band menu: Band N / N Bands, Slope/Order, Bypass/Enable, Invert Gain, Delete. |
+| Right-click empty graph | Long-press empty graph | Graph menu, headed by **Add Band…**, then Select All Bands, Deselect All, Delete Selected. |
+| Cmd-click empty graph (Add Band card) | Long-press empty graph > Add Band… | Same card: shape, then slope. |
+| Scroll over a dot/fill (Q) | Pinch over a band (spread = higher Q) or two-finger vertical drag (up = higher Q, 60 dp per octave like Cmd-drag) | Any selection owns it: with bands selected the whole selection changes, wherever the fingers are (as the wheel, `selectionOwnsTheWheel`); otherwise the band under the fingers. After a pause longer than 0.5 s the band is looked up again. Committed 0.45 s after the last pinch step. |
+| Cmd-drag (Q) | Pinch / two-finger drag | As above. |
+| Cmd-scroll (gain) | Drag the dot vertically, or the chip's Gain | No separate touch gesture. |
+| Scroll over the dB labels (zoom) | Pinch over empty graph (any graph, also the dashboard) | Changes Graph Setup > Range (10–100 dB), by the pinch ratio. A mouse wheel over the left 40 dp strip zooms as macOS: range − Δ·3 dB per notch. |
+| Option-click a dot (bypass) | Chip power button, or long-press > Bypass | |
+| Cmd-click / Shift-click a dot (add to / range select) | Marquee, long-press > Select All Bands, or the band list (HOME) | No touch modifier; a hardware keyboard's Ctrl/Shift still work. |
+| Shift (fine), Option (axis lock), Control (scale gains) while dragging | Hardware keyboard only | |
+| Hover readouts, ghost dot, chip on hover | Mouse/stylus hover only | A finger has no hover; lifting it clears them. The chip stays on the selection. |
+| Chip value: drag vertically / scroll / double-click to type | Drag vertically / tap to type (dialog); a mouse wheel scrolls the value (Shift fine, Cmd/Ctrl or a running graph scroll goes to the graph) | Drag: Shift (hardware keyboard) = ×0.12. Dialog: Return/Done applies, Tab/Shift-Tab apply and move, unreadable text keeps the field open with a haptic "beep". |
+| Chip shape button / power button | Tap | Shape page: shape, then slope. |
+| Keys: Delete, Escape, Tab, arrows, Option-arrows, Cmd-A | Same, from a hardware keyboard | Graph takes focus on a mouse click. |
