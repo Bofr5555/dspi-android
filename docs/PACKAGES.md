@@ -19,7 +19,7 @@ owns. To change a **contract** (see below), the package asks the coordinator.
 | Build and CI | `container/`, `tools/dev.sh`, `tools/ci.sh`, `buildSrc/`, `gradle/`, `settings.gradle.kts`, root `*.gradle.kts`/`.properties`, `rust-toolchain.toml`, `tools/REFERENCE.toml` | all |
 | App wiring | `app/` | — |
 
-### Gating policy (coordinator decisions D1–D3, `reviews/decisions-wave-0A.md`)
+### Gating policy (decisions D1, D3 of `reviews/decisions-wave-0A.md`; E1, E1b of `reviews/decisions-waveB-1.md` — E1b supersedes D2)
 
 Stay as close to the official clients as possible (macOS v1.1.6-beta5 is the
 behavioural reference). Confirmation is a safety net for irreversible/flash
@@ -31,8 +31,16 @@ operations, not a UX change. Full text: `UPSTREAM-DEVIATIONS.md` "Gating policy"
   0xD6, `cs.save` 0x9D, `configFiles.importConfiguration` (0xA3/0xA1),
   `enterBootloader` 0xF0; plus every pipeline-rebuilding hardware call
   (pins, output type, I2S BCK/clock pin mode/clock mode, MCK, ADAT/S/PDIF/I2S
-  pins and enables, input source, input rate) under one reusable
-  `HARDWARE_APPLY` token minted by the Settings save bar.
+  pins and enables, input source, input rate) under `HARDWARE_APPLY` (E1b).
+  As on macOS they apply LIVE to RAM: the token is minted by the explicit
+  interaction with the hardware control (picker/toggle/menu choice, incl.
+  HOME's input-source menu) and the call is made at once (no pending queue).
+  Before any output-config edit (hardware or limiter) call
+  `bridge.beginOutputEdit()`; in independent mode the Settings Save bar shows
+  `bridge.outputConfigDirty`, Save mints `SAVE_OUTPUT_CONFIG`
+  (`saveOutputConfig`), Revert mints `HARDWARE_APPLY` (`revertOutputConfig`).
+  Global parameters (startup, master-volume mode, output-config mode, DAC HW
+  mute) are a staged draft applied by Save (macOS `GlobalSettingsDraft`).
 - **Ungated** (one click in the official clients): `loadPreset`,
   `loadParams`, `clearClips`, `testDacMute`, `stats.resetWatermarks`,
   `siggen.start`/`identify`, `cs.revert`/IR learn/macro fire. Preset load is
@@ -40,15 +48,23 @@ operations, not a UX change. Full text: `UPSTREAM-DEVIATIONS.md` "Gating policy"
 - **Ungated flash writes** (D3; official clients don't confirm): preset
   rename/startup, output-config mode, master-volume mode, DAC HW mute config,
   UART/I2C persist. The bridge arms its retry blackout after them.
-- Token usage: `val t = bridge.dangerousOps.confirm(op)` in the confirmation
-  handler (main thread), then `bridge.savePreset(t, slot)`. An invalid token
+- Who mints (E1): where macOS shows a confirmation alert (Commit Parameters,
+  Revert to Saved, Factory Reset, Clear slot / Clear All, Import Device
+  Configuration, Enter Bootloader / firmware install), its confirm handler
+  with the macOS wording; where macOS acts on the explicit tap (Save preset,
+  Copy to…, Save Master Volume, Save Output Configuration, CS save, Save bar,
+  hardware controls), the tap itself — no extra dialog. Never implicitly
+  (sliders, startup, timers, notification actions).
+- Token usage: `val t = bridge.dangerousOps.confirm(op)` in that handler
+  (main thread), then `bridge.savePreset(t, slot)`. An invalid token
   (other op, spent, revoked, expired, foreign) throws `DangerousOpNotConfirmed`
   before any USB traffic. Gated members never silently no-op.
 
 Rules for changing a contract:
 - Rust FFI signatures are **final** for Wave A. If FFI finds a signature that cannot be implemented, it proposes a change. Once the coordinator approves, FFI edits the Rust and regenerates with `tools/dev.sh python3 tools/gen_kotlin_contract.py`. FFI owns that tool. FFI then fixes `UnimplementedDspiCore` users if needed.
 - New members on `DspiBridge` go through the coordinator, which adds them to the interface. BRIDGE implements them. Default implementations are not allowed.
-- Dependencies between modules are fixed: features depend on `:bridge` and `:ui-common` only, and `:feature-home` also depends on `:feature-graph` (`GraphView`), `:feature-firmware` also on `:usb`. Features never depend on each other otherwise, and never on `:ffi`/`:fake-core` except in tests (`testImplementation(":fake-core")`).
+- Dependencies between modules are fixed: features depend on `:bridge` and `:ui-common` only, and `:feature-home` also depends on `:feature-graph` (`GraphView`), `:feature-firmware` also on `:usb`. Features never depend on each other otherwise, and never on `:ffi`. `:fake-core` only as `testImplementation(project(":fake-core"))` and (E2) `debugImplementation(project(":fake-core"))` for `@Preview`s on `FakeDspiCore`, in feature modules and `:app`; release runtime classpaths must not contain `:fake-core` (`tools/ci.sh app` runs the `release-deps` check: fails for features, warns for `:app` until its release demo mode is settled).
+- `androidx.activity:activity-compose` (`libs.androidx.activity.compose`) may be used by feature modules (E3: `rememberLauncherForActivityResult`, `BackHandler`); its verification metadata is on main.
 - New libraries go into `gradle/libs.versions.toml` and `gradle/verification-metadata.xml`. That is a coordinator change: ask for it. See `SUPPLY-CHAIN.md`.
 
 ---
@@ -93,7 +109,7 @@ Rules for changing a contract:
 
 - **Owns:** `bridge/` (except the contract files listed above), `fake-core/`.
 - **Consumes:** `DspiCoreApi`, `fixtures/dspstate_v32.json` from FFI (on fake-core's classpath as `/dspstate_v32.json`: `fake-core/build.gradle.kts` adds the repo-root `fixtures/` as a resource dir). Until that lands, use `defaultDspState()`.
-- **Provides:** `DspiBridgeImpl : DspiBridge` and the controller implementations, then deletes `StubDspiBridge`. The coordinator switches `:app` to `DspiBridgeImpl`. Also a full `FakeDspiCore`.
+- **Provides:** `DspiBridgeImpl : DspiBridge` and the controller implementations, and a full `FakeDspiCore`. The APP integration package (D9) switches `:app` to `DspiBridgeImpl` and removes the Wave 0 `StubDspiBridge`; nothing new may use it.
 - **CI:** `tools/ci.sh bridge`
 - **Definition of done:**
   - A 1:1 port of `linux:qt/src/DSPiBridge.cpp` (1,765 lines), following `linux:CLAUDE.md` "Rendering and updates":

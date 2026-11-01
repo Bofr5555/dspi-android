@@ -5,7 +5,8 @@ reference it ports (PACKAGES.md), and why. One section per package.
 
 ## Gating policy (coordinator, contract)
 
-Decisions D1–D3/D5 of `reviews/decisions-wave-0A.md`. Guiding rule from the
+Decisions D1, D3, D5 of `reviews/decisions-wave-0A.md` and E1/E1b of
+`reviews/decisions-waveB-1.md` (E1b supersedes D2). Guiding rule from the
 owner: stay as close to the official clients as possible (macOS
 v1.1.6-beta5 is the behavioural reference). Confirmation is a safety net for
 irreversible/flash operations, not a UX change. Contract:
@@ -20,12 +21,20 @@ irreversible/flash operations, not a UX change. Contract:
    DELETE_PRESET 0x92, CS_SAVE 0x9D, SAVE_MASTER_VOLUME 0xD6, COPY_PRESET —
    plus ENTER_BOOTLOADER 0xF0 and CONFIG_IMPORT (bulk apply 0xA3/0xA1 + pin
    writes).
-2. **HARDWARE_APPLY** (D2): output pins/types, I2S BCK pin, clock pin mode
-   and clock mode, MCK, ADAT/S/PDIF/I2S input and output pins and enables,
-   input source and input rate rebuild the audio pipeline. macOS applies
-   them only from the Settings Save bar; here the save bar mints one
-   reusable token and applies the whole draft with it. Live UI never calls
-   them. (Qt calls them directly from its pages.)
+2. **HARDWARE_APPLY** (E1b, `reviews/decisions-waveB-1.md`; supersedes
+   D2): output pins/types, I2S BCK pin, clock pin mode and clock mode, MCK,
+   ADAT/S/PDIF/I2S input and output pins and enables, input source and input
+   rate rebuild the audio pipeline. As on macOS (`DSPi_ConsoleApp.swift`
+   `SettingsSaveCoordinator`) they apply LIVE to RAM when the user operates
+   the control; the token is minted by that explicit interaction (picker /
+   toggle / menu choice, incl. HOME's input-source menu) — the deviation is
+   only that a token exists at all. In independent mode
+   `beginOutputEdit()` captures the revert baseline and sets
+   `outputConfigDirty` (limiter edits too); the Save bar flashes with
+   `saveOutputConfig` (SAVE_OUTPUT_CONFIG minted by the Save tap) and Revert
+   re-applies the baseline (`revertOutputConfig`, HARDWARE_APPLY minted by the
+   Revert tap). Global parameters are a staged draft applied by Save. No
+   pending-hardware queue. (Qt also applies them live, without a Save bar.)
 3. **Not gated** (one click in the official clients): load preset, revert to
    saved (`loadParams`), clear clips, DAC mute test, buffer-stats reset,
    siggen start/identify, CS revert / IR learn / macro fire. The only gate on

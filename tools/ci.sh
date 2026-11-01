@@ -83,17 +83,39 @@ pkg_settings() { feature settings; }
 pkg_analysis() { feature analysis; }
 pkg_firmware() { feature firmware; }
 
-pkg_app() { step "app: :app"; android_module :app; }
+pkg_app() { step "app: :app"; android_module :app; release_deps; }
+
+# E2: `debugImplementation(project(":fake-core"))` is allowed (for @Previews);
+# release runtime classpaths must not contain :fake-core.
+has_fake_core_in_release() { # :module -> 0 if :fake-core is on its release runtime classpath
+  "${GRADLE[@]}" "$1:dependencies" --configuration releaseRuntimeClasspath | grep -q -- "project :fake-core"
+}
+
+release_deps() {
+  step "release-deps: no :fake-core in release runtime classpaths"
+  local m bad=0
+  for m in :ui-common :feature-home :feature-graph :feature-matrix :feature-tools :feature-presets \
+           :feature-settings :feature-analysis :feature-firmware; do
+    if has_fake_core_in_release "$m"; then echo "ERROR: $m releaseRuntimeClasspath contains :fake-core" >&2; bad=1; fi
+  done
+  # :app is reported, not failed, until the coordinator settles release demo
+  # mode (pkg/app's "Demo (no device)" uses FakeDspiCore in release builds).
+  if has_fake_core_in_release :app; then
+    echo "WARNING: :app releaseRuntimeClasspath contains :fake-core (E2; pending the release demo-mode decision)" >&2
+  fi
+  return "$bad"
+}
+pkg_release_deps() { release_deps; }
 
 PACKAGES=(supply contract ffi usb bridge home graph matrix tools presets settings analysis firmware app)
 
 case "${1:-}" in
   ""|-h|--help|list)
-    echo "usage: tools/ci.sh <package>|all"; echo "packages: ${PACKAGES[*]}"; exit 0 ;;
+    echo "usage: tools/ci.sh <package>|all"; echo "packages: ${PACKAGES[*]} (+ release-deps, run by app)"; exit 0 ;;
   all)
     for p in "${PACKAGES[@]}"; do "pkg_$p"; done
     step "all: OK" ;;
   *)
-    if declare -F "pkg_$1" >/dev/null; then "pkg_$1"; step "$1: OK"
+    if declare -F "pkg_${1//-/_}" >/dev/null; then "pkg_${1//-/_}"; step "$1: OK"
     else echo "unknown package: $1 (packages: ${PACKAGES[*]})" >&2; exit 2; fi ;;
 esac

@@ -3,15 +3,27 @@ package se.bofr.dspi.bridge
 /*
  * CONTRACT (coordinator-owned): the confirmation gate for dangerous operations
  * (PLAN-NATIVE-ANDROID §4 "Write-as-read safety", DESIGN §4.5, coordinator
- * decisions D1/D2/D5 of review wave 0+A). Package BRIDGE implements
+ * decisions D1/D5 of review wave 0+A, E1/E1b of wave B lot 1; E1b supersedes
+ * D2). Package BRIDGE implements
  * [DangerousOps]; UI packages mint tokens; nothing else.
  *
- * Gating policy (D1/D2) — stay as close to the official clients as possible:
+ * Gating policy (D1, E1b) — stay as close to the official clients as possible:
  * - GATED: the flash writes the official clients treat as "save" (0x51, 0x52,
  *   0x53, 0x90, 0x92, 0x9D, 0xD6, copy preset), ENTER_BOOTLOADER (0xF0),
  *   CONFIG_IMPORT (bulk apply 0xA3/0xA1), and the pipeline-rebuilding
- *   hardware calls under one [DangerousOp.HARDWARE_APPLY] token minted by the
- *   Settings save bar (where macOS applies them).
+ *   hardware calls under [DangerousOp.HARDWARE_APPLY]. As on macOS those apply
+ *   LIVE to RAM: the token is minted by the explicit user interaction with the
+ *   hardware control (picker / toggle / menu choice, incl. HOME's input-source
+ *   menu) and the call is made at once; the Settings Save bar flashes them with
+ *   SAVE_OUTPUT_CONFIG (independent mode) and its Revert re-applies the
+ *   baseline with a HARDWARE_APPLY token minted by the Revert tap.
+ * - Who mints (E1): where macOS shows a confirmation alert (Commit Parameters,
+ *   Revert to Saved, Factory Reset, Clear slot / Clear All, Import Device
+ *   Configuration, Enter Bootloader / firmware install) the alert's confirm
+ *   handler, with the macOS wording; where macOS acts on the explicit tap
+ *   (Save preset, Copy to…, Save Master Volume, Save Output Configuration, CS
+ *   save, Save bar Save, hardware controls) the tap itself. Never implicitly
+ *   (sliders, startup, timers, notification actions).
  * - NOT GATED (one click in the official clients): load preset, revert to
  *   saved (loadParams), clear clips, DAC mute test, buffer-stats reset, siggen
  *   start/identify, CS revert/IR learn/macro fire. The only gate on preset
@@ -62,10 +74,12 @@ enum class DangerousOp(val opcodes: List<Int>, val writesFlash: Boolean) {
     ENTER_BOOTLOADER(listOf(0xF0), true),
 
     /**
-     * D2: every pipeline-rebuilding hardware call (output pins/types, I2S
-     * BCK/clock pin mode and clock mode, MCK, ADAT/S/PDIF/I2S input and output
-     * pins/enables, input source, input rate). Minted once by the Settings save
-     * bar's Save; that one token covers every hardware call of that Save.
+     * E1b (supersedes D2): every pipeline-rebuilding hardware call (output
+     * pins/types, I2S BCK/clock pin mode and clock mode, MCK, ADAT/S/PDIF/I2S
+     * input and output pins/enables, input source, input rate), applied live.
+     * Minted by the explicit interaction with one hardware control (a control
+     * that issues several calls, e.g. "S/PDIF inputs" count, reuses it), or by
+     * the Save bar's Revert tap for [DspiBridge.revertOutputConfig].
      */
     HARDWARE_APPLY(
         listOf(

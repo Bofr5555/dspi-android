@@ -102,6 +102,13 @@ class DspiBridgeImpl(
     override val devices: StateFlow<DeviceListState> = _devices.asStateFlow()
     override val presetDirty: StateFlow<Boolean> = _presetDirty.asStateFlow()
     override val hardwareUnsaved: StateFlow<Boolean> = _hardwareUnsaved.asStateFlow()
+
+    // E1b / macOS SettingsSaveCoordinator (contract hook; revert is BRIDGE's to finish)
+    private val _outputConfigDirty = MutableStateFlow(false)
+    override val outputConfigDirty: StateFlow<Boolean> = _outputConfigDirty.asStateFlow()
+    private var outputEditRaw = false
+    private var outputBaseline: DspState? = null
+    private var outputEditSerial = ""
     override val magnitudesRevision: StateFlow<Long> = _magnitudesRevision.asStateFlow()
     override val events: SharedFlow<BridgeEvent> = _events.asSharedFlow()
 
@@ -297,7 +304,32 @@ class DspiBridgeImpl(
         if (magnitudes || snap.curves.isNotEmpty()) _magnitudesRevision.value += 1
         // Qt: stateChanged -> updatePresetDirty
         if (_presetDirty.value != snap.dirty) _presetDirty.value = snap.dirty
+        refreshOutputConfigDirty()
     }
+
+    /** macOS `outputDirty`: raw flag && independent mode (0). */
+    private fun refreshOutputConfigDirty() {
+        val v = outputEditRaw && current.outputConfigMode == 0
+        if (_outputConfigDirty.value != v) _outputConfigDirty.value = v
+    }
+
+    private fun clearOutputEdit() {
+        outputEditRaw = false
+        outputBaseline = null
+        refreshOutputConfigDirty()
+    }
+
+    override fun beginOutputEdit() {
+        if (current.outputConfigMode != 0) return
+        if (!outputEditRaw) {
+            outputBaseline = current
+            outputEditRaw = true
+        }
+        refreshOutputConfigDirty()
+    }
+
+    override suspend fun revertOutputConfig(token: ConfirmationToken): Boolean =
+        TODO("BRIDGE: E1b revertOutputConfig — re-apply outputBaseline in macOS SettingsSaveCoordinator.revert order")
 
     /** FFI: a filter of app channel [appCh] changed (Qt markDirty). */
     private fun markDirty(appCh: Int) {
@@ -1061,9 +1093,9 @@ class DspiBridgeImpl(
 
     // ═══ Setters — matrix / outputs ═══
 
-    override fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean) {
+    override fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean, sendOnly: Boolean) {
         if (input !in 0 until current.numInputChannels) return
-        fire("setMatrixRoute") { core.setMatrixRoute(input, output, enabled, gain, invert) }
+        fire("setMatrixRoute", live(sendOnly)) { core.setMatrixRoute(input, output, enabled, gain, invert) }
     }
 
     override suspend fun setOutputEnable(output: Int, enabled: Boolean): Boolean {
@@ -1168,6 +1200,7 @@ class DspiBridgeImpl(
 
     override fun setOutputConfigMode(mode: Int) {
         if (mode != 0) _hardwareUnsaved.value = false // saved with the preset instead
+        clearOutputEdit() // macOS: the Save that changes the mode clears outputConfigDirty
         fire("setOutputConfigMode", flash = true) { core.setOutputConfigMode(mode) }
     }
 
@@ -1175,6 +1208,7 @@ class DspiBridgeImpl(
         requireToken(token, DangerousOp.SAVE_OUTPUT_CONFIG)
         val code = onFfi { statusOf(-1) { core.saveOutputConfig() }.also { flashWritten() } }
         val st = PresetStatus.of(code)
+        if (st == PresetStatus.OK) clearOutputEdit()
         if (st == PresetStatus.OK && _hardwareUnsaved.value) {
             _hardwareUnsaved.value = false
             publish(onFfi { snapshot() })
@@ -1340,6 +1374,11 @@ class DspiBridgeImpl(
     /** DSPiBridge::selectDevice after a successful open: read everything, baseline, RTA probe. */
     private suspend fun deviceSelected(serial: String) {
         links = linkStore.load(serial)
+        // macOS noteSelectedDevice: a different unit discards pending output edits; a re-plug keeps them
+        if (serial != outputEditSerial) {
+            if (outputEditSerial.isNotEmpty()) clearOutputEdit()
+            outputEditSerial = serial
+        }
         class Opened(val snap: Snapshot, val error: String)
         val r =
             onFfi {

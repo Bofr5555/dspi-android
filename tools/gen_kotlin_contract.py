@@ -34,6 +34,12 @@ OUT_ADAPTER = ROOT / "ffi/src/main/kotlin/se/bofr/dspi/ffi/FfiDspiCore.kt"
 OUT_UNIMPL = ROOT / "core-api/src/main/kotlin/se/bofr/dspi/core/UnimplementedDspiCore.kt"
 OUT_CONSTS = ROOT / "core-api/src/main/kotlin/se/bofr/dspi/core/DspiConstants.kt"
 CORE_SRC = ROOT / "third_party/DSPi-Console-Linux/core/src"
+# Firmware constants the pinned core does not define (contract additions, coordinator E4).
+# (name, value, kdoc); provenance: firmware config.h @ [firmware].tag_sha of tools/REFERENCE.toml.
+FIRMWARE_CONSTS = [
+    ("PRESET_STARTUP_SPECIFIED", "0", "Preset startup mode: load the specified default slot (macOS \"Specified Default\")."),
+    ("PRESET_STARTUP_LAST_ACTIVE", "1", "Preset startup mode: load the last active slot (macOS \"Last Used\")."),
+]
 CONST_FILES = ["protocol.rs", "types.rs", "state.rs", "notify.rs", "stats.rs", "siggen.rs", "rta.rs", "dsp_math.rs", "cs.rs"]
 
 RAW_BYTES = {"bulk_raw"}
@@ -457,7 +463,11 @@ object DspiConstants {
             out.append(f"    // ── {fname} ──\n")
             out.extend(lines)
             out.append("\n")
-    out[-1] = ""
+    out.append("    // ── firmware config.h (not in the core; FIRMWARE_CONSTS) ──\n")
+    for name, val, doc in FIRMWARE_CONSTS:
+        if name in seen:
+            raise SystemExit(f"FIRMWARE_CONSTS {name} now exists in the core ({seen[name]}); drop it")
+        out.append(f"    /** {doc} */\n    const val {name}: Int = {val}\n")
     out.append("}\n\n/** Vendor request opcodes (`protocol.rs` `REQ_*`), for the monitor and coverage tooling. */\nobject Opcodes {\n")
     out.extend(opcodes)
     out.append("}\n")

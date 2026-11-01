@@ -65,6 +65,11 @@ open class StubDspiBridge(
     override val devices: StateFlow<DeviceListState> = _devices.asStateFlow()
     override val presetDirty: StateFlow<Boolean> = _presetDirty.asStateFlow()
     override val hardwareUnsaved: StateFlow<Boolean> = _hardwareUnsaved.asStateFlow()
+    override val outputConfigDirty: StateFlow<Boolean> = MutableStateFlow(false).asStateFlow()
+
+    override fun beginOutputEdit() = Unit // Wave 0 stub (removed by APP integration, D9)
+
+    override suspend fun revertOutputConfig(token: ConfirmationToken): Boolean = TODO("StubDspiBridge: use DspiBridgeImpl")
     override val magnitudesRevision: StateFlow<Long> = _magnitudesRevision.asStateFlow()
     override val events: SharedFlow<BridgeEvent> = _events
 
@@ -377,7 +382,7 @@ open class StubDspiBridge(
 
     override fun setCrossfeedOutputPairMask(mask: Int) = fire("setCrossfeedOutputPairMask") { setCrossfeedOutputs(mask) }
 
-    override fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean) =
+    override fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean, sendOnly: Boolean) =
         fire("setMatrixRoute") { setMatrixRoute(input, output, enabled, gain, invert) }
 
     override suspend fun setOutputEnable(output: Int, enabled: Boolean): Boolean =

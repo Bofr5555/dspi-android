@@ -461,6 +461,28 @@ class DspiBridgeImplTest {
         assertFalse(b.hardwareUnsaved.value)
     }
 
+    @Test
+    fun outputConfigDirtyFollowsBeginOutputEditAndSave() = runTest {
+        val core = FakeDspiCore(se.bofr.dspi.fake.demoDspState().copy(outputConfigMode = 0))
+        val b = newBridge(core)
+        attach(b, core)
+        assertFalse(b.outputConfigDirty.value)
+        b.beginOutputEdit()
+        assertTrue(b.outputConfigDirty.value)
+        b.setLimiterEnabled(0, true)
+        assertEquals(se.bofr.dspi.core.PresetStatus.OK, b.saveOutputConfig(b.dangerousOps.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)))
+        assertFalse(b.outputConfigDirty.value)
+    }
+
+    @Test
+    fun beginOutputEditIsIgnoredOutsideIndependentMode() = runTest {
+        val core = FakeDspiCore(se.bofr.dspi.fake.demoDspState().copy(outputConfigMode = 1))
+        val b = newBridge(core)
+        attach(b, core)
+        b.beginOutputEdit()
+        assertFalse(b.outputConfigDirty.value)
+    }
+
     // ── Devices ──
 
     @Test

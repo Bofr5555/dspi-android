@@ -37,7 +37,7 @@ import se.bofr.dspi.core.PresetStatus
  *
  * Threading: all members are main-thread safe; flows emit on the main thread.
  *
- * Gating (coordinator decisions D1/D2, see [DangerousOp]): members marked
+ * Gating (coordinator decisions D1, E1b (supersedes D2), see [DangerousOp]): members marked
  * GATED take a [ConfirmationToken] from [dangerousOps] as their first
  * parameter. A token that is not valid for the call (other op, spent,
  * revoked, expired, other bridge) makes the call throw
@@ -65,8 +65,57 @@ interface DspiBridge {
     /** presetDirtyChanged: live settings differ from the active preset. */
     val presetDirty: StateFlow<Boolean>
 
-    /** Hardware edits made in independent mode that Save Output Config would keep. */
+    /**
+     * Qt model (`DSPiBridge::hardwareUnsaved`): a successful pin/IO setter in
+     * independent mode or a hardware import; cleared by saveOutputConfig,
+     * a mode change away from independent and device selection. The macOS
+     * Settings Save bar uses [outputConfigDirty] instead.
+     */
     val hardwareUnsaved: StateFlow<Boolean>
+
+    /**
+     * E1b / TOOLS (D): macOS `SettingsSaveCoordinator.outputDirty` — the live
+     * output configuration (pins, output types, I2S/MCK clocks, S/PDIF/I2S/ADAT
+     * RX and ADAT out, input rate, I2S clock mode and clock-pin mode, and the
+     * output limiters) has edits not yet flashed, in independent mode.
+     * Value = raw flag && `outputConfigMode == OUTPUT_CONFIG_MODE_INDEPENDENT`
+     * (the raw flag survives a mode change, as on macOS).
+     *
+     * Set: by [beginOutputEdit] (which every output-config edit calls first).
+     * Cleared (raw flag): by a successful [saveOutputConfig] (the Save bar
+     * calls it whenever this is true), by [setOutputConfigMode] (only the Save
+     * bar's global draft changes the mode, and macOS clears the flag on every
+     * Save), by [revertOutputConfig], and when a DIFFERENT device is selected
+     * (a re-plug of the same serial keeps it). NOT cleared by preset load or
+     * by a disconnect (macOS keeps it).
+     */
+    val outputConfigDirty: StateFlow<Boolean>
+
+    /**
+     * macOS `SettingsSaveCoordinator.beginOutputEdit()`: call at the start of
+     * every user output-config edit (any hardware setter, any limiter setter
+     * incl. link groups/copy/disable-all, a `.dspipreset` import that writes
+     * limiters or hardware). Independent mode only (no-op otherwise); on the
+     * first edit since the last clean point captures the revert baseline
+     * (macOS `OutputConfigSnapshot`: limiter per output, outputPins,
+     * outputTypes, i2sBckPin, mck enable/pin/multiplier, S/PDIF RX pins and
+     * enables, I2S RX pins, I2S input channels, input rate, I2S clock mode,
+     * clock-pin mode, slave BCK pin, ADAT enable/pin) and sets [outputConfigDirty].
+     */
+    fun beginOutputEdit()
+
+    /**
+     * Save bar Revert for the output configuration (macOS
+     * `SettingsSaveCoordinator.revert`): re-applies the captured baseline,
+     * best effort, in the macOS order (slot types, pins, BCK, MCK, S/PDIF 1,
+     * S/PDIF 2/3 disable-repin-enable, I2S channels down / RX pins / channels
+     * up, input rate, clock mode, slave BCK then clock-pin mode, ADAT pin then
+     * enable, limiters last via ungang-set-regang), then clears
+     * [outputConfigDirty]. GATED [DangerousOp.HARDWARE_APPLY], minted by the
+     * Revert tap (E1b). Aborts when the device changes mid-sequence.
+     * Returns false when nothing was pending or the device changed.
+     */
+    suspend fun revertOutputConfig(token: ConfirmationToken): Boolean
 
     /** magnitudesChanged: increments when any channel's curve was recomputed. */
     val magnitudesRevision: StateFlow<Long>
@@ -336,7 +385,12 @@ interface DspiBridge {
 
     // ═══ Setters — matrix / outputs ════════════════════════════════════
 
-    fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean)
+    /**
+     * Qt/macOS `setMatrixRoute` (same five arguments). E4: `sendOnly = true`
+     * is the live variant for a gain drag (device + core state, no emission;
+     * commit with a final `sendOnly = false`), like the other `sendOnly` setters.
+     */
+    fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean, sendOnly: Boolean = false)
 
     /** Returns the resulting state (the firmware may refuse a PDM/Core 1 conflict). */
     suspend fun setOutputEnable(output: Int, enabled: Boolean): Boolean
@@ -366,7 +420,7 @@ interface DspiBridge {
 
     // ═══ Pins / output config / names ══════════════════════════════════
 
-    /** GATED [DangerousOp.HARDWARE_APPLY] (Settings save bar). */
+    /** GATED [DangerousOp.HARDWARE_APPLY] (minted by the pin picker; applied live, E1b). */
     suspend fun setOutputPin(token: ConfirmationToken, output: Int, pin: Int): PinConfigStatus
 
     /** Flash write, ungated (D3; 0x98). */
@@ -444,7 +498,7 @@ interface DspiBridge {
 
     // ═══ Input source / tools ══════════════════════════════════════════
 
-    /** GATED [DangerousOp.HARDWARE_APPLY] (Settings save bar; rebuilds the input pipeline). */
+    /** GATED [DangerousOp.HARDWARE_APPLY] (minted by the source menu/picker tap, e.g. HOME's input-source menu; rebuilds the input pipeline). */
     fun setInputSource(token: ConfirmationToken, source: Int)
 
     fun setLevellerEnabled(en: Boolean)
@@ -486,6 +540,16 @@ interface DspiBridge {
     suspend fun fetchSubharmMeter(): List<Float>
 
     // ═══ Output limiter (output index) ═════════════════════════════════
+    // TOOLS (C): linked outputs are ganged by the firmware (limiter spec
+    // §2.2; macOS `LimiterGang`): an enable/threshold/release SET on a linked
+    // output reaches its whole link group, and an output joining a group adopts
+    // the settings of the group's lowest-numbered existing member (the first
+    // member keeps its own; leaving a group keeps the current values). The
+    // published state ([state] limiter fields and the getters below) mirrors
+    // that propagation in one emission, so the UI shows what the device holds.
+    // `sendOnly = true` sends to the device only (macOS
+    // `sendLimiterParamToDevice`). In independent mode limiter edits are part
+    // of the output configuration: call [beginOutputEdit] first.
 
     fun limiterEnabled(out: Int): Boolean
 
@@ -518,9 +582,12 @@ interface DspiBridge {
     fun disableAllLimiters()
 
     // ═══ Hardware IO setters (Settings) ════════════════════════════════
-    // D2: the pipeline-rebuilding setters are GATED [DangerousOp.HARDWARE_APPLY]:
-    // the Settings save bar mints one token and applies the whole draft with it,
-    // as macOS does (SettingsSaveCoordinator). Live UI never calls them.
+    // E1b (supersedes D2): the pipeline-rebuilding setters are GATED
+    // [DangerousOp.HARDWARE_APPLY]. As on macOS they apply LIVE to RAM: the
+    // token is minted by the explicit user interaction with the hardware control
+    // (picker / toggle / menu choice) and the call is made at once — no pending
+    // queue. Call [beginOutputEdit] first. The Save bar then flashes with
+    // [saveOutputConfig] (independent mode); Revert uses [revertOutputConfig].
 
     suspend fun setOutputType(token: ConfirmationToken, slot: Int, kind: Int): PinConfigStatus
 

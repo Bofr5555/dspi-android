@@ -400,6 +400,12 @@ object DspiConstants {
     const val CS_MAX_MACROS: Int = 8
     const val CS_MAX_STEPS: Int = 8
     const val CS_MAX_PAGES: Int = 16
+
+    // ── firmware config.h (not in the core; FIRMWARE_CONSTS) ──
+    /** Preset startup mode: load the specified default slot (macOS "Specified Default"). */
+    const val PRESET_STARTUP_SPECIFIED: Int = 0
+    /** Preset startup mode: load the last active slot (macOS "Last Used"). */
+    const val PRESET_STARTUP_LAST_ACTIVE: Int = 1
 }
 
 /** Vendor request opcodes (`protocol.rs` `REQ_*`), for the monitor and coverage tooling. */

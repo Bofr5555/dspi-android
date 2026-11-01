@@ -82,7 +82,7 @@ Only `:ffi` and `:app` builds compile Rust: cargo-ndk, the NDK, and roughly 1 to
 - Keep names parallel (see the naming rule in PORT-MAP.md).
 - Put a header comment on each ported file: `Port of <repo>:<path> @ <ref>`.
 - Record intentional deviations (touch gestures, phone layout, no hub) in `docs/UPSTREAM-DEVIATIONS.md` under your package's heading.
-- Wave B UI must never call a gated operation (PACKAGES.md "Gating policy") without a confirmation dialog that uses the macOS wording; the token from `bridge.dangerousOps.confirm(op)` is minted in that dialog's OK handler (the Settings save bar's Save for `HARDWARE_APPLY`). Ungated operations stay one click, as in the official clients.
+- Wave B UI mints confirmation tokens exactly where macOS asks the user (PACKAGES.md "Gating policy", E1): in the confirm handler of the alert macOS shows (same wording), or on the explicit tap where macOS has no alert (Save preset, Copy to…, Save Master Volume, Save Output Configuration, CS save, the Settings Save bar, hardware controls for `HARDWARE_APPLY`). Never implicitly. Ungated operations stay one click, as in the official clients.
 
 ## Definition of done (every package)
 
