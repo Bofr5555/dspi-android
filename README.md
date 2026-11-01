@@ -69,6 +69,14 @@ tools/dev.sh ./gradlew :app:assembleDebug -Pdspi.rustProfile=release
 The APK lands in `app/build/outputs/apk/debug/`. `tools/dev.sh <cmd>` runs any command in the
 container; the container never gets USB or device access.
 
+## Publishing
+
+Release builds are signed Android App Bundles for Google Play (target API 36):
+`tools/upload-key.sh` once (keep the key safe), then `tools/dev.sh ./gradlew :app:bundleRelease`;
+`tools/ci.sh release` validates a bundle with a throwaway key. The full checklist — Play Console,
+app ID, Play App Signing, testing tracks, store listing, privacy and licensing — is in
+[`docs/RELEASE.md`](docs/RELEASE.md).
+
 ## Project layout
 
 | Path | What |
