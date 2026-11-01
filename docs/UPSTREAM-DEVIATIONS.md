@@ -305,3 +305,59 @@ the macOS alerts and mint in their confirm handler. No added dialogs.
    Android, so `presetFailureText` never says "locked".
 9. **Rename** limits the field to 31 characters (README; macOS truncates in
    firmware).
+
+## HOME
+
+Reference: macOS `ContentView.swift`, `Components.swift`, `DashboardView.swift`,
+`CustomSlider.swift`, `ChannelPalette.swift`, `FirmwareUpdateView.swift`
+(FirmwareMismatchBanner) @ `b5fdeac`; Linux `qt/qml` @ `4683a2c` for how the
+core is driven. Gating follows coordinator E1/E1b (`reviews/decisions-waveB-1.md`).
+
+1. **Layout.** Tablet (>= 840 dp): the macOS split view (sidebar | graph +
+   detail, selection toggled in place). Phone: the sidebar content is the
+   home page (graph, INPUTS/OUTPUTS, tool icons, Preset/Source/volume, CPU,
+   then the dashboard) and a channel row opens `channel/{ch}`
+   (`ChannelScreen`: graph soloed on the channel + the detail pane). Cards
+   that are one row on macOS (ChannelSettingsView, InputChannelHeader, filter
+   rows) keep that row from 600/560 dp up and stack below it.
+2. **Right-click -> long-press.** Channel row context menu (Identify, Rename,
+   Copy/Paste Parameters), tool icons (open the tool page: the TOOLS route,
+   tool sub-routes are TOOLS-internal), device picker (reconnect), limiter
+   icon (`tools/limiter/{out}`), preset picker (context menu; also a ⋯
+   button, since touch has no discoverable secondary click). Slider resets
+   (right-click on macOS) are a double-tap.
+3. **Value fields** edit on tap with the decimal keyboard and accept a decimal
+   comma / Unicode minus; the macOS Cmd-scroll stepping has no touch
+   equivalent (`scrollStep` kept for API parity). Tooltips (`.help`) have no
+   hover: kept as accessibility labels; the dashboard layout gear is always
+   visible instead of on hover.
+4. **Popovers -> dialogs / menus.** Linkwitz Transform panel is a dialog
+   (Revert / Apply as macOS, plus Done to close; closing still drops unapplied
+   edits). Hierarchical menus (PEQ type shapes, Copy to…) open their
+   submenu in place with a back row.
+5. **Live drags** go to the device through `SliderValueDelivery` (30/s,
+   `sendOnly = true`) for every slider; macOS sends gain/volume/preamp on every
+   change event. Commit on release as macOS.
+6. **Preset flows**: as macOS, including the Unsaved Changes alert on switch
+   and Copy to…; Save and Copy to… (clean) act on the tap, which mints the
+   token (E1). Clear / Clear All use the macOS alerts. The "Copy to…" when
+   dirty mints SAVE_PRESET/COPY_PRESET from the alert's Save/Discard.
+7. **Source picker** mints `HARDWARE_APPLY` from the menu choice and applies
+   immediately (E1b), as macOS does.
+8. **Firmware banner** is driven by the bridge's `compat` (too old / too new),
+   not by a comparison with a bundled firmware (FIRMWARE owns
+   `FirmwareVersion`); the expected version shown is `1.1.6-beta5`. Hidden
+   for the process lifetime ("this launch").
+9. **Not ported here:** `SpectrumBarStrip` above the channel pages and the
+   dashboard (RTA, ANALYSIS); the PEQ list's graph-selection sync
+   (`PeqGraphSelection`, live readouts, band colours from `PeqBandPalette`)
+   until GRAPH exposes them; onboarding anchors (Phase 6); graph resize
+   handle (fixed heights).
+10. **Capability gates** (`firmwareSupportsNotch`, …) are all true: the core
+    only talks to 1.1.6-compatible firmware.
+11. **Linked input pairs** are mirrored by the bridge (`targets()`), not at
+    the call site; Clear PEQ calls `clearPeq` once.
+12. **Preferences** `sidebarVolumeMode` and `dashboardCardsPerRow` live in
+    SharedPreferences `dspi_home` until `:app` owns AppSettings.
+13. **Icons** are the Linux client's stroke set (`Icon.qml`) in place of SF
+    Symbols; the bass clef is the Linux glyph.
