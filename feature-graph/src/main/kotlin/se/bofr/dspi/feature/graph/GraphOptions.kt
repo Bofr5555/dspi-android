@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.ui.SegmentedPicker
@@ -60,9 +63,19 @@ import se.bofr.dspi.ui.settings.LocalAppSettings
  * The spectrum channels of the page showing the graph: the dashboard's are
  * remembered in the settings, a channel page's start as its own channel each
  * time one opens (or nothing, if the user hid the spectrum on channel pages).
+ *
+ * [value] is snapshot-observable: it reads [settings] (a Compose State
+ * mirroring the store) and the page's MutableStates, never the store's
+ * StateFlow.value, so whichever composition reads it — the graph, or the
+ * gear panel's Dialog, which is a composition of its own — recomposes when
+ * the selection changes. The edits ([toggle], [clear], [switchSide]) compute
+ * from the store's latest value inside [AppSettingsStore.update], never
+ * from a selection read at composition time, so two taps between frames
+ * both land (reviews/stale-state-audit.md S1).
  */
 class SpectrumSelectionState internal constructor(
     private val store: AppSettingsStore,
+    private val settings: State<AppSettings>,
     private val activeEq: Int?,
     private val available: (Int) -> List<Int>,
     private val page: MutableState<RtaChannelSelection>,
@@ -71,12 +84,14 @@ class SpectrumSelectionState internal constructor(
     /** Changes whenever the channel page's own selection does (a key for callers caching [value]). */
     val pageKey: Any? get() = page.value to pageOther.value
 
-    /** macOS `DSPViewModel.rtaSelection`. */
+    /** macOS `DSPViewModel.rtaSelection` (snapshot-observable; for display). */
     val value: RtaChannelSelection
-        get() {
-            if (activeEq != null) return page.value.restricted(available(page.value.tap))
-            return dashboardSelection(store.settings.value, available)
-        }
+        get() = selectionIn(settings.value)
+
+    private fun selectionIn(s: AppSettings): RtaChannelSelection {
+        if (activeEq != null) return page.value.restricted(available(page.value.tap))
+        return dashboardSelection(s, available)
+    }
 
     /** macOS `setRtaSelection`. */
     fun set(selection: RtaChannelSelection) {
@@ -89,17 +104,33 @@ class SpectrumSelectionState internal constructor(
         }
     }
 
+    /** A channel chip: show or hide [channel] in the CURRENT selection (atomic against the store). */
+    fun toggle(channel: Int) = edit { it.toggled(channel) }
+
+    /** "Clear": hide the spectrum, keeping the current side. */
+    fun clear() = edit { RtaChannelSelection(it.tap, emptyList()) }
+
+    private fun edit(change: (RtaChannelSelection) -> RtaChannelSelection) {
+        if (activeEq == null) {
+            store.update { s -> s.copy(rtaDashboardSelectionKey = change(dashboardSelection(s, available)).storageKey) }
+        } else {
+            set(change(selectionIn(store.settings.value)))
+        }
+    }
+
     /** macOS `switchRtaSide`: show the other side, bringing back what was checked there. */
     fun switchSide(tap: Int) {
-        val current = value
-        if (current.tap == tap) return
         if (activeEq == null) {
-            val s = store.settings.value
-            val other =
-                RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSideKey)?.takeIf { it.tap == tap }
-                    ?: RtaChannelSelection(tap, emptyList())
-            store.update { it.copy(rtaDashboardSelectionKey = other.storageKey, rtaDashboardOtherSideKey = current.storageKey) }
+            store.update { s ->
+                val current = dashboardSelection(s, available)
+                if (current.tap == tap) return@update s
+                val other =
+                    RtaChannelSelection.fromStorageKey(s.rtaDashboardOtherSideKey)?.takeIf { it.tap == tap }
+                        ?: RtaChannelSelection(tap, emptyList())
+                s.copy(rtaDashboardSelectionKey = other.storageKey, rtaDashboardOtherSideKey = current.storageKey)
+            }
         } else {
+            if (selectionIn(store.settings.value).tap == tap) return
             val other = pageOther.value?.takeIf { it.tap == tap } ?: RtaChannelSelection(tap, emptyList())
             pageOther.value = page.value
             page.value = other
@@ -144,9 +175,11 @@ internal fun rememberSpectrumSelection(bridge: DspiBridge, store: AppSettingsSto
             mutableStateOf(start)
         }
     val pageOther = remember(activeEq) { mutableStateOf<RtaChannelSelection?>(null) }
-    // One object per page; callers read `value` with their own inputs (settings, caps) as keys.
-    return remember(bridge, store, activeEq, page, pageOther) {
-        SpectrumSelectionState(store, activeEq, { bridge.rta.availableChannels(it) }, page, pageOther)
+    // A snapshot State mirroring the store, so `value` is observable from any composition.
+    val settings = store.settings.collectAsStateWithLifecycle()
+    // One object per page; `value` is observable, callers cache it with their device inputs (caps, stateRevision) as keys.
+    return remember(bridge, store, settings, activeEq, page, pageOther) {
+        SpectrumSelectionState(store, settings, activeEq, { bridge.rta.availableChannels(it) }, page, pageOther)
     }
 }
 
@@ -162,6 +195,9 @@ internal fun GraphOptions(
     val store = LocalAppSettings.current
     val settings by store.settings.collectAsStateWithLifecycle()
     val caps by bridge.rta.caps.collectAsStateWithLifecycle()
+    // Observed, not the plain `bridge.connected` getter: the Dialog is its own composition (S1).
+    val connectedFlow = remember(bridge) { bridge.status.map { it.connected }.distinctUntilChanged() }
+    val connected by connectedFlow.collectAsStateWithLifecycle(bridge.connected)
     var setupPage by remember { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(12.dp), tonalElevation = 6.dp) {
@@ -177,7 +213,7 @@ internal fun GraphOptions(
                     modifier = Modifier.padding(start = 12.dp, top = 12.dp, end = 12.dp)
                 )
                 val c = caps
-                if (c != null && c.supported && bridge.connected) {
+                if (c != null && c.supported && connected) {
                     SpectrumChannelSection(bridge, spectrum)
                     HorizontalDivider()
                     ToggleRow("FFT Graph", settings.rtaShowsGraph(onDashboard)) { on ->
@@ -185,7 +221,7 @@ internal fun GraphOptions(
                     }
                 } else {
                     Text(
-                        if (bridge.connected) "This firmware has no spectrum analyser." else "Connect a DSPi to show its spectrum.",
+                        if (connected) "This firmware has no spectrum analyser." else "Connect a DSPi to show its spectrum.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(12.dp)
@@ -206,8 +242,11 @@ internal fun GraphOptions(
 
 @Composable
 private fun SpectrumChannelSection(bridge: DspiBridge, spectrum: SpectrumSelectionState) {
+    // Inside the Dialog's own composition: `spectrum.value` is snapshot-observable, and the
+    // device-derived reads (channels, names, colours) are keyed on stateRevision read HERE.
+    val stateRev by bridge.stateRevision.collectAsStateWithLifecycle()
     val selection = spectrum.value
-    val channels = bridge.rta.availableChannels(selection.tap)
+    val channels = remember(stateRev, selection.tap) { bridge.rta.availableChannels(selection.tap) }
     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -244,7 +283,7 @@ private fun SpectrumChannelSection(bridge: DspiBridge, spectrum: SpectrumSelecti
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(if (on) color.copy(alpha = 0.15f) else Color.Transparent)
                                 .border(1.dp, if (on) color.copy(alpha = 0.6f) else Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
-                                .clickable { spectrum.set(selection.toggled(ch)) }
+                                .clickable { spectrum.toggle(ch) }
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -264,7 +303,7 @@ private fun SpectrumChannelSection(bridge: DspiBridge, spectrum: SpectrumSelecti
                 modifier = Modifier.weight(1f)
             )
             if (!selection.isEmpty) {
-                TextButton(onClick = { spectrum.set(RtaChannelSelection(selection.tap, emptyList())) }) { Text("Clear", fontSize = 10.sp) }
+                TextButton(onClick = { spectrum.clear() }) { Text("Clear", fontSize = 10.sp) }
             }
         }
     }
