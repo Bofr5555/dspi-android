@@ -15,9 +15,15 @@ import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.feature.home.components.InputPairMismatch
+import se.bofr.dspi.feature.presets.AlertHost
+import se.bofr.dspi.feature.presets.PresetMenuActions
 
+/**
+ * The sidebar picker drives PRESETS' controller (F1); these check the wiring
+ * HOME relies on, plus the link-mismatch rule (review H5).
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
-class PresetFlowsTest {
+class HomeViewModelTest {
     private suspend fun TestScope.connectedBridge(): DspiBridgeImpl {
         val core = FakeDspiCore.seeded()
         val d = StandardTestDispatcher(testScheduler)
@@ -35,62 +41,49 @@ class PresetFlowsTest {
     }
 
     @Test
-    fun cleanSwitchLoadsWithoutAlert() = runTest {
+    fun dirtySwitchShowsUnsavedChangesAndCancelKeepsTheSlot() = runTest {
         val b = connectedBridge()
-        assertTrue(b.connected)
-        val flows = PresetFlows(b, backgroundScope)
-        val target = (b.activePresetSlot + 1) % DspiConstants.MAX_PRESETS
-        // Copy to… on a clean preset goes straight through (no alert on macOS).
-        flows.requestCopy(target)
-        settle()
-        assertNull(flows.dialog)
-        assertTrue(b.isPresetOccupied(target))
-        flows.switchTo(target)
-        settle()
-        assertNull(flows.dialog)
-        assertFalse(flows.switchInFlight)
-        assertEquals(target, b.activePresetSlot)
-    }
-
-    @Test
-    fun dirtySwitchAsksAndCancelKeepsSlot() = runTest {
-        val b = connectedBridge()
-        val flows = PresetFlows(b, backgroundScope)
+        val host = AlertHost()
+        val menu = PresetMenuActions(b, backgroundScope, host)
         val before = b.activePresetSlot
         b.setBypass(!b.bypass)
         settle()
         assertTrue(b.presetDirty.value)
-        flows.switchTo((before + 1) % DspiConstants.MAX_PRESETS)
+        menu.selectPreset((before + 1) % DspiConstants.MAX_PRESETS)
         settle()
-        assertTrue(flows.dialog is PresetDialog.Unsaved)
-        assertTrue(flows.switchInFlight)
-        flows.dismiss()
+        val alert = host.alert.value!!
+        assertEquals("Unsaved Changes", alert.messageText)
+        assertTrue(menu.presetSwitchInFlight.value)
+        host.dismiss()
         settle()
-        assertNull(flows.dialog)
-        assertFalse(flows.switchInFlight)
+        assertNull(host.alert.value)
+        assertFalse(menu.presetSwitchInFlight.value)
         assertEquals(before, b.activePresetSlot)
     }
 
     @Test
-    fun saveFromMenuMintsItsOwnToken() = runTest {
+    fun menuSaveActsOnTheTap() = runTest {
         val b = connectedBridge()
-        val flows = PresetFlows(b, backgroundScope)
+        val host = AlertHost()
+        val menu = PresetMenuActions(b, backgroundScope, host)
         b.setBypass(!b.bypass)
         settle()
-        flows.save()
+        menu.saveActivePreset()
         settle()
-        assertNull(flows.dialog)
+        assertNull(host.alert.value)
         assertFalse(b.presetDirty.value)
-        assertTrue(b.isPresetOccupied(b.activePresetSlot))
     }
 
     @Test
-    fun linkMismatchDetectsPreamp() = runTest {
+    fun linkMismatchFollowsMacOs() = runTest {
         val b = connectedBridge()
         b.setInputPreamp(0, -6f)
         b.setInputPreamp(1, 0f)
         settle()
-        val m = InputPairMismatch.of(b.state.value, 0, 1)
-        assertTrue(m.preamp)
+        assertTrue(InputPairMismatch.of(b.state.value, 0, 1).preamp)
+        b.setInputPreamp(1, -6.04f)
+        settle()
+        // Within 0.05 dB: trims are stored rounded to 0.1 dB, the rest is noise.
+        assertFalse(InputPairMismatch.of(b.state.value, 0, 1).preamp)
     }
 }

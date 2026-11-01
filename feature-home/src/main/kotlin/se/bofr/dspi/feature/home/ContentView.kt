@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import se.bofr.dspi.bridge.ChannelMap
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
@@ -51,7 +52,6 @@ import se.bofr.dspi.feature.home.components.ChannelRow
 import se.bofr.dspi.feature.home.components.ConnectionStatusIndicator
 import se.bofr.dspi.feature.home.components.SidebarVolumeMode
 import se.bofr.dspi.feature.home.components.VolumeModeSelector
-import se.bofr.dspi.feature.home.components.rememberLiveDrag
 import se.bofr.dspi.ui.ChannelPalette
 import se.bofr.dspi.ui.CpuSection
 import se.bofr.dspi.ui.CustomSlider
@@ -65,6 +65,7 @@ import se.bofr.dspi.ui.PopUpButton
 import se.bofr.dspi.ui.SidebarIconButton
 import se.bofr.dspi.ui.UserVolumeTaper
 import se.bofr.dspi.ui.VerticalRule
+import se.bofr.dspi.ui.rememberSliderDrag
 
 /** Saves a [SidebarSelection] across configuration changes. */
 private val SelectionSaver =
@@ -90,7 +91,7 @@ private val SelectionSaver =
 fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modifier = Modifier) {
     val c = DspiTheme.colors
     val prefs = rememberHomePreferences()
-    val flows = rememberPresetFlows(bridge)
+    val homeVm: HomeViewModel = viewModel(factory = HomeViewModel.factory(bridge))
     val connected = bridge.observeStatus { it.connected }
     val s = bridge.observeState()
     var selection by rememberSaveable(stateSaver = SelectionSaver) { mutableStateOf<SidebarSelection>(SidebarSelection.Overview) }
@@ -116,7 +117,7 @@ fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modi
                                     if (it == selection) SidebarSelection.Overview else it
                             })
                         }
-                        SidebarBottomPanel(bridge, flows, prefs, onNavigate)
+                        SidebarBottomPanel(bridge, homeVm, prefs, onNavigate)
                     }
                     VerticalRule()
                     Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
@@ -155,7 +156,7 @@ fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modi
                                 SidebarSelection.Overview -> Unit
                             }
                         })
-                        SidebarBottomPanel(bridge, flows, prefs, onNavigate)
+                        SidebarBottomPanel(bridge, homeVm, prefs, onNavigate)
                     }
                     Spacer(Modifier.height(18.dp))
                     DashboardOverview(bridge, prefs)
@@ -220,7 +221,9 @@ private fun SidebarChannels(bridge: DspiBridge, selection: SidebarSelection, onS
         renaming = null
     }
 
-    Column(Modifier.alpha(if (connected) 1f else 0f)) {
+    // macOS fades the rows until the device is ready (isDeviceReady: connected + fetched).
+    val ready = bridge.observeDeviceReady()
+    Column(Modifier.alpha(if (ready) 1f else 0f)) {
         SectionHeader("INPUTS")
         for (i in 0 until numInputs) {
             val ch = bridge.inputAppId(i)
@@ -302,9 +305,10 @@ private fun ChannelContextMenu(
     onDismiss: () -> Unit,
     onRename: () -> Unit
 ) {
-    val siggenCaps by bridge.siggen.caps.collectAsStateWithLifecycle()
+    // macOS siggenSupported, announced through the generator's caps probe.
+    bridge.siggen.caps.collectAsStateWithLifecycle().value
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        if (outputIndex != null && bridge.connected && siggenCaps != null) {
+        if (outputIndex != null && bridge.connected && bridge.siggenSupported) {
             DropdownMenuItem(text = { Text("Identify") }, onClick = {
                 onDismiss()
                 bridge.siggen.identify(outputIndex)
@@ -333,7 +337,7 @@ private fun ChannelContextMenu(
  * right-click opens the tool window).
  */
 @Composable
-private fun SidebarBottomPanel(bridge: DspiBridge, flows: PresetFlows, prefs: HomePreferences, onNavigate: (String) -> Unit) {
+private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: HomePreferences, onNavigate: (String) -> Unit) {
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
@@ -375,7 +379,7 @@ private fun SidebarBottomPanel(bridge: DspiBridge, flows: PresetFlows, prefs: Ho
         }
         HorizontalRule(Modifier.fillMaxWidth())
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PresetPickerRow(bridge, flows, Modifier.fillMaxWidth())
+            PresetPickerRow(bridge, vm, Modifier.fillMaxWidth())
             if (bridge.inputSources.isNotEmpty()) {
                 SourceRow(bridge, connected)
             }
@@ -399,29 +403,22 @@ private fun SidebarBottomPanel(bridge: DspiBridge, flows: PresetFlows, prefs: Ho
 private fun SourceRow(bridge: DspiBridge, connected: Boolean) {
     val c = DspiTheme.colors
     val sources = bridge.inputSources
-    val current = sources.firstOrNull { it.id == bridge.inputSource }
+    // macOS hides the picker when the firmware reports no usable source.
+    val current = sources.firstOrNull { it.id == bridge.inputSource } ?: return
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Source", style = DspiType.caption2, color = c.secondaryLabel)
         Spacer(Modifier.weight(1f))
-        if (!connected || current == null) {
-            Text(
-                if (connected) "USB" else "—",
-                style = DspiType.body,
-                color = c.label,
-                modifier = Modifier.alpha(if (connected) 1f else 0.4f)
-            )
-        } else {
-            PopUpButton(
-                items = sources,
-                selection = current,
-                titleForItem = { it.name },
-                onSelect = { src ->
-                    if (src.id != bridge.inputSource) {
-                        bridge.setInputSource(bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY), src.id)
-                    }
+        PopUpButton(
+            items = sources,
+            selection = current,
+            titleForItem = { it.name },
+            enabled = connected,
+            onSelect = { src ->
+                if (src.id != bridge.inputSource) {
+                    bridge.setInputSource(bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY), src.id)
                 }
-            )
-        }
+            }
+        )
     }
 }
 
@@ -435,7 +432,7 @@ fun UserVolumeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modi
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
-    val drag = rememberLiveDrag(UserVolumeTaper.dbToScalar(s.userVolumeDb).toFloat())
+    val drag = rememberSliderDrag(UserVolumeTaper.dbToScalar(s.userVolumeDb).toFloat())
     fun db(v: Float) = UserVolumeTaper.scalarToDB(v.toDouble())
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -465,7 +462,7 @@ fun MasterModeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modi
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
-    val drag = rememberLiveDrag(MasterVolumeTaper.dbToSlider(s.masterVolumeDb))
+    val drag = rememberSliderDrag(MasterVolumeTaper.dbToSlider(s.masterVolumeDb))
     val db = MasterVolumeTaper.sliderToDB(drag.value)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {

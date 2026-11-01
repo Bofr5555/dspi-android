@@ -1,15 +1,13 @@
 // Pure presentation logic of the home screen, kept out of the composables so
 // it is JVM-tested. Ports from DSPi-Console-b5 @ b5fdeac:
-// ContentView.swift (SidebarSelection, sidebarRowHeight, preset labels,
-// presetFailureText use), MatrixMixerView.swift (MatrixOutput.visible),
-// DashboardView.swift (cards, columnCount), Components.swift
-// (InputLinkAlerts), FirmwareUpdateView.swift (FirmwareMismatchBanner text),
-// USBDevice.swift (DSPiDevice.displayName), PresetSnapshot.swift
-// (PresetDiff.summary, PresetAlerts).
+// ContentView.swift (SidebarSelection, sidebarRowHeight), MatrixMixerView.swift
+// (MatrixOutput.visible), DashboardView.swift (cards, columnCount),
+// Components.swift (InputLinkAlerts), FirmwareUpdateView.swift
+// (FirmwareMismatchBanner text), USBDevice.swift (DSPiDevice.displayName).
+// Preset labels and alerts are PRESETS' (PresetLabels.kt, PresetAlerts.kt; F1).
 package se.bofr.dspi.feature.home
 
 import se.bofr.dspi.core.DspiConstants
-import se.bofr.dspi.core.PresetStatus
 
 /** What the detail pane shows (macOS `SidebarSelection`); ids are APP channel ids / output indices. */
 sealed interface SidebarSelection {
@@ -57,41 +55,6 @@ object HomeModel {
         numInputs >= 6 -> 44
         else -> 48
     }
-
-    /** `presetDropdownLabel`: the slot's name, "Preset N" when unnamed, "Empty" when unoccupied. */
-    fun presetDropdownLabel(slot: Int, occupied: Boolean, name: String): String {
-        if (!occupied) return "Empty"
-        val trimmed = name.trim()
-        return trimmed.ifEmpty { "Preset ${slot + 1}" }
-    }
-
-    /** `presetLabel`: "3: Living Room". */
-    fun presetLabel(slot: Int, occupied: Boolean, name: String): String = "${slot + 1}: ${presetDropdownLabel(slot, occupied, name)}"
-
-    /** The picker's title for a slot: the active one gets "*" while there are unsaved changes. */
-    fun presetPickerTitle(slot: Int, occupied: Boolean, name: String, activeSlot: Int, dirty: Boolean): String {
-        val base = presetDropdownLabel(slot, occupied, name)
-        return if (slot == activeSlot && dirty) "$base*" else base
-    }
-
-    /** `presetFailureText`: "error N" (the LOCKED message has no equivalent in this core). */
-    fun presetFailureText(status: PresetStatus): String = "error ${status.code}"
-
-    /** "Load Failed" text after a failed preset switch. */
-    fun loadFailedMessage(status: PresetStatus): String =
-        if (status == PresetStatus.CRC) "Preset data is corrupted." else "Failed to load preset (error ${status.code})."
-
-    /** `PresetDiff.summary`: bullets, at most 15 lines, then "...and N more change(s)". */
-    fun unsavedChangesSummary(changes: List<String>): String {
-        val maxLines = 15
-        val shown = changes.take(maxLines).joinToString("\n") { "• $it" }
-        val remaining = changes.size - maxLines
-        return if (remaining <= 0) shown else "$shown\n...and $remaining more change${if (remaining == 1) "" else "s"}"
-    }
-
-    /** `PresetAlerts.showUnsavedChangesAlert` informative text. */
-    fun unsavedChangesMessage(changes: List<String>): String =
-        "The current preset has unsaved changes:\n\n${unsavedChangesSummary(changes)}\n\nSave before continuing?"
 
     /** `DSPiDevice.displayName`: "DSPi (last 8 of serial)". */
     fun deviceDisplayName(serial: String): String = "DSPi (${serial.takeLast(8)})"

@@ -40,6 +40,7 @@ import se.bofr.dspi.ui.PillButton
 import se.bofr.dspi.ui.ValueField
 import se.bofr.dspi.ui.VerticalRule
 import se.bofr.dspi.ui.dspiCard
+import se.bofr.dspi.ui.rememberSliderDrag
 
 /** How a pair differs before linking (`inputPairMismatch`). */
 data class InputPairMismatch(val bands: Boolean, val preamp: Boolean) {
@@ -52,10 +53,15 @@ data class InputPairMismatch(val bands: Boolean, val preamp: Boolean) {
             val a = map.wire(ch)
             val b = map.wire(partner)
             if (a < 0 || b < 0) return InputPairMismatch(bands = false, preamp = false)
-            val preamp = s.inputPreampDb.getOrNull(map.inputOf(ch)) != s.inputPreampDb.getOrNull(map.inputOf(partner))
+            // macOS inputPairMismatch: trims are stored rounded to 0.1 dB, finer is noise;
+            // an empty (unfetched) side reports no band mismatch.
+            val pa = s.inputPreampDb.getOrElse(map.inputOf(ch)) { 0f }
+            val pb = s.inputPreampDb.getOrElse(map.inputOf(partner)) { 0f }
+            val preamp = kotlin.math.abs(pa - pb) > 0.05f
             val fa = s.filters.getOrElse(a) { emptyList() }
             val fb = s.filters.getOrElse(b) { emptyList() }
-            return InputPairMismatch(bands = fa != fb, preamp = preamp)
+            val bands = if (fa.isEmpty() || fb.isEmpty()) false else fa != fb
+            return InputPairMismatch(bands = bands, preamp = preamp)
         }
     }
 }
@@ -78,7 +84,7 @@ fun InputChannelHeader(bridge: DspiBridge, ch: Int, onClearPEQ: () -> Unit, modi
     val pairAvailable = activeInputs >= 0 && bridge.pairAvailable(ch)
     val linked = pairAvailable && bridge.isInputLinked(ch)
     val pairLabel = HomeModel.pairLabel(maxOf(input, 0))
-    val preamp = rememberLiveDrag(s.inputPreampDb.getOrElse(input) { 0f })
+    val preamp = rememberSliderDrag(s.inputPreampDb.getOrElse(input) { 0f })
     var mismatch by remember { mutableStateOf<InputPairMismatch?>(null) }
 
     fun toggleLink() {

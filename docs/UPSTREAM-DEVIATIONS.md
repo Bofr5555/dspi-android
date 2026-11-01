@@ -325,7 +325,8 @@ core is driven. Gating follows coordinator E1/E1b (`reviews/decisions-waveB-1.md
    tool sub-routes are TOOLS-internal), device picker (reconnect), limiter
    icon (`tools/limiter/{out}`), preset picker (context menu; also a ⋯
    button, since touch has no discoverable secondary click). Slider resets
-   (right-click on macOS) are a double-tap.
+   (right-click on macOS) are a double-tap on the slider; a value field
+   without a slider (matrix crosspoint gain) resets on long-press.
 3. **Value fields** edit on tap with the decimal keyboard and accept a decimal
    comma / Unicode minus; the macOS Cmd-scroll stepping has no touch
    equivalent (`scrollStep` kept for API parity). Tooltips (`.help`) have no
@@ -335,13 +336,19 @@ core is driven. Gating follows coordinator E1/E1b (`reviews/decisions-waveB-1.md
    (Revert / Apply as macOS, plus Done to close; closing still drops unapplied
    edits). Hierarchical menus (PEQ type shapes, Copy to…) open their
    submenu in place with a back row.
-5. **Live drags** go to the device through `SliderValueDelivery` (30/s,
+5. **Sliders** (`CustomSlider`) move relative to where they were on a
+   horizontal drag; a tap does not jump the thumb (macOS click-to-jump), so a
+   stray tap or a scroll brushing a volume slider never changes a level, and
+   a double-tap reset has no intermediate values (review H8). Nothing is sent
+   on the grab (F4).
+   **Live drags** go to the device through `SliderValueDelivery` (30/s,
    `sendOnly = true`) for every slider; macOS sends gain/volume/preamp on every
    change event. Commit on release as macOS.
-6. **Preset flows**: as macOS, including the Unsaved Changes alert on switch
-   and Copy to…; Save and Copy to… (clean) act on the tap, which mints the
-   token (E1). Clear / Clear All use the macOS alerts. The "Copy to…" when
-   dirty mints SAVE_PRESET/COPY_PRESET from the alert's Save/Discard.
+6. **Preset flows** are PRESETS' `PresetMenuActions` (coordinator F1), held
+   in `HomeViewModel` (E9); HOME keeps the picker row and the context-menu
+   UI. Wording, tokens and failure texts are therefore PRESETS'. The
+   "LOCKED" failure text of macOS `presetFailureText` has no `PresetStatus`
+   entry in core-api (review H12, core-api gap).
 7. **Source picker** mints `HARDWARE_APPLY` from the menu choice and applies
    immediately (E1b), as macOS does.
 8. **Firmware banner** is driven by the bridge's `compat` (too old / too new),
@@ -350,14 +357,21 @@ core is driven. Gating follows coordinator E1/E1b (`reviews/decisions-waveB-1.md
    for the process lifetime ("this launch").
 9. **Not ported here:** `SpectrumBarStrip` above the channel pages and the
    dashboard (RTA, ANALYSIS); the PEQ list's graph-selection sync
-   (`PeqGraphSelection`, live readouts, band colours from `PeqBandPalette`)
-   until GRAPH exposes them; onboarding anchors (Phase 6); graph resize
+   (`LocalPeqGraphSelection`, live readouts, band colours) until GRAPH is
+   on main (review H10, follow-up after the GRAPH merge); onboarding anchors (Phase 6); graph resize
    handle (fixed heights).
 10. **Capability gates** (`firmwareSupportsNotch`, …) are all true: the core
     only talks to 1.1.6-compatible firmware.
 11. **Linked input pairs** are mirrored by the bridge (`targets()`), not at
     the call site; Clear PEQ calls `clearPeq` once.
 12. **Preferences** `sidebarVolumeMode` and `dashboardCardsPerRow` live in
-    SharedPreferences `dspi_home` until `:app` owns AppSettings.
+    SharedPreferences `dspi_home` under the macOS key names until the F3
+    consolidation moves AppSettings into :ui-common (review H16 / X1).
 13. **Icons** are the Linux client's stroke set (`Icon.qml`) in place of SF
     Symbols; the bass clef is the Linux glyph.
+14. **Light theme**: `DspiColors.Light` is AppKit's light appearance; no
+    reference client ships a light palette (review H15), it exists because
+    Android follows the system theme. The dark set is `MacColors.qml`.
+15. **isDeviceReady** (row/dashboard fade) is `connected && bulkValid`: the
+    core marks the state valid once the connect fetch landed (review H13).
+16. **Typed band values** go to the bridge unclamped, as macOS (review H7).

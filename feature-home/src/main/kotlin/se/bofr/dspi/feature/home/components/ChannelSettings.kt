@@ -45,10 +45,12 @@ import se.bofr.dspi.ui.DspiRoutes
 import se.bofr.dspi.ui.DspiTheme
 import se.bofr.dspi.ui.DspiType
 import se.bofr.dspi.ui.HorizontalRule
+import se.bofr.dspi.ui.SliderDragState
 import se.bofr.dspi.ui.ValueField
 import se.bofr.dspi.ui.ValueFormat
 import se.bofr.dspi.ui.VerticalRule
 import se.bofr.dspi.ui.dspiCard
+import se.bofr.dspi.ui.rememberSliderDrag
 
 /**
  * The output channel's settings card (macOS `ChannelSettingsView`): input
@@ -68,8 +70,8 @@ fun ChannelSettingsView(bridge: DspiBridge, outputIndex: Int, onNavigate: (Strin
     val isMuted = s.outputMuted.getOrElse(outputIndex) { false }
     val maxDelay = bridge.maxDelayMs.takeIf { it > 0f } ?: if (bridge.platformName == "RP2040") 42f else 85f
 
-    val gain = rememberLiveDrag(gainDB)
-    val delay = rememberLiveDrag(delayMS)
+    val gain = rememberSliderDrag(gainDB)
+    val delay = rememberSliderDrag(delayMS)
 
     val gainSection: @Composable (Modifier) -> Unit = { m ->
         SliderSection(
@@ -129,7 +131,7 @@ fun ChannelSettingsView(bridge: DspiBridge, outputIndex: Int, onNavigate: (Strin
 internal fun SliderSection(
     title: String,
     unit: String,
-    drag: LiveDrag,
+    drag: SliderDragState,
     range: ClosedFloatingPointRange<Float>,
     live: (Float) -> Unit,
     commit: (Float) -> Unit,
@@ -185,37 +187,44 @@ private fun MuteLimiterColumn(bridge: DspiBridge, outputIndex: Int, isMuted: Boo
                 modifier = Modifier.size(22.dp)
             )
         }
-        val desc =
-            if (enabled) {
-                "Output limiter on, ceiling ${ValueFormat.fixedPoint(s.limiterThresholdDb.getOrElse(outputIndex) { 0f }, 1)} dBFS. " +
-                    "Tap to switch off, long-press for settings."
-            } else {
-                "Output limiter off. Tap to switch on, long-press for settings."
-            }
-        Box(
-            Modifier
-                .size(44.dp)
-                .alpha(if (connected) 1f else 0.5f)
-                .combinedClickable(
-                    enabled = connected,
-                    onClickLabel = desc,
-                    onClick = { bridge.setLimiterEnabled(outputIndex, !enabled) },
-                    onLongClick = { onNavigate(DspiRoutes.limiter(outputIndex)) }
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                DspiIcons.gauge,
-                contentDescription = desc,
-                tint = if (limiting) {
-                    c.orange
-                } else if (enabled) {
-                    c.accent
+        // macOS firmwareSupportsLimiter: without it mute keeps the whole column.
+        if (bridge.hardwareCaps.limiterSupported) {
+            val desc =
+                if (enabled) {
+                    "Output limiter on, ceiling ${ValueFormat.fixedPoint(s.limiterThresholdDb.getOrElse(outputIndex) { 0f }, 1)} dBFS. " +
+                        "Tap to switch off, long-press for settings."
                 } else {
-                    c.secondaryLabel
-                },
-                modifier = Modifier.size(21.dp)
-            )
+                    "Output limiter off. Tap to switch on, long-press for settings."
+                }
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .alpha(if (connected) 1f else 0.5f)
+                    .combinedClickable(
+                        enabled = connected,
+                        onClickLabel = desc,
+                        onClick = {
+                            // Part of the output configuration in independent mode (macOS beginOutputEdit, F2).
+                            bridge.beginOutputEdit()
+                            bridge.setLimiterEnabled(outputIndex, !enabled)
+                        },
+                        onLongClick = { onNavigate(DspiRoutes.limiter(outputIndex)) }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    DspiIcons.gauge,
+                    contentDescription = desc,
+                    tint = if (limiting) {
+                        c.orange
+                    } else if (enabled) {
+                        c.accent
+                    } else {
+                        c.secondaryLabel
+                    },
+                    modifier = Modifier.size(21.dp)
+                )
+            }
         }
     }
 }
@@ -287,7 +296,9 @@ private fun InputRoutingRow(
             width = 52.dp,
             scrollStep = 0.5f,
             maxDecimals = 2,
-            modifier = Modifier.alpha(if (connected) 1f else 0.55f)
+            modifier = Modifier.alpha(if (connected) 1f else 0.55f),
+            // macOS right-click -> 0 dB.
+            onReset = { bridge.setMatrixRoute(input, output, connected, 0f, inverted) }
         ) { v -> bridge.setMatrixRoute(input, output, connected, v, inverted) }
         Text(
             "INV",

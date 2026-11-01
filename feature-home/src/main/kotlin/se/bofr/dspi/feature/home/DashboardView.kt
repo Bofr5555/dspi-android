@@ -60,9 +60,9 @@ import se.bofr.dspi.ui.VerticalRule
 @Composable
 fun DashboardOverview(bridge: DspiBridge, prefs: HomePreferences, modifier: Modifier = Modifier) {
     val s = bridge.observeState()
-    val connected = bridge.observeStatus { it.connected }
+    val ready = bridge.observeDeviceReady()
     val cards = DashboardCard.cards(s.numOutputChannels, s.outputEnabled)
-    BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp).alpha(if (connected) 1f else 0f)) {
+    BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp).alpha(if (ready) 1f else 0f)) {
         val columns = DashboardCard.columnCount(prefs.dashboardCardsPerRow, maxWidth.value, cards.size)
         Column(verticalArrangement = Arrangement.spacedBy(DashboardCard.SPACING.dp)) {
             cards.chunked(columns).forEach { row ->

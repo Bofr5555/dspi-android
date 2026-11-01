@@ -152,7 +152,7 @@ fun FilterRowView(
 @Composable
 private fun PeqFields(p: BandFields, onChange: (BandFields) -> Unit) {
     ValueField(label = "Hz", value = p.freq, width = FilterColumns.freq, scrollStep = 10f, minValue = BandFields.MIN_FREQ) {
-        onChange(p.copy(freq = maxOf(it, BandFields.MIN_FREQ)))
+        onChange(p.copy(freq = it))
     }
     if (p.type.usesGain) {
         ValueField(label = "dB", value = p.gain, width = FilterColumns.gain, maxDecimals = 3) { onChange(p.copy(gain = it)) }
@@ -168,7 +168,7 @@ private fun PeqFields(p: BandFields, onChange: (BandFields) -> Unit) {
             maxDecimals = 3,
             stripTrailingZeros = true
         ) {
-            onChange(p.copy(q = it.coerceIn(BandFields.Q_MIN, BandFields.Q_MAX)))
+            onChange(p.copy(q = it))
         }
     } else {
         Spacer(Modifier.width(FilterColumns.q + FilterColumns.unit))
@@ -276,7 +276,7 @@ private fun CrossoverControls(p: BandFields, onChange: (BandFields) -> Unit) {
         textStyle = DspiType.body.copy(fontSize = 14.sp)
     )
     ValueField(label = "Hz", value = p.freq, width = FilterColumns.freq, scrollStep = 10f, minValue = BandFields.MIN_FREQ) {
-        onChange(p.copy(freq = maxOf(it, BandFields.MIN_FREQ)))
+        onChange(p.copy(freq = it))
     }
 }
 
@@ -396,8 +396,8 @@ private fun LinkwitzRow(
     val c = DspiTheme.colors
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = DspiType.captionBold, color = c.secondaryLabel, modifier = Modifier.width(52.dp))
-        LabeledField(fLabel, fUnit, f, 64.dp, fDecimals) { onF(maxOf(it, BandFields.MIN_FREQ)) }
-        LabeledField(qLabel, "", q, 56.dp, 3) { onQ(it.coerceIn(BandFields.Q_MIN, BandFields.Q_MAX)) }
+        LabeledField(fLabel, fUnit, f, 64.dp, fDecimals) { onF(it) }
+        LabeledField(qLabel, "", q, 56.dp, 3) { onQ(it) }
     }
 }
 

@@ -3,7 +3,7 @@
 package se.bofr.dspi.ui
 
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +50,10 @@ import androidx.compose.ui.unit.dp
  * @param displayOverride text shown instead of the number while not editing (e.g. "Off").
  * @param liveText while non-null (a slider drag in progress), shown instead of
  *   the number, as macOS `LiveValueReadout`.
+ * @param onReset long-press action: the macOS right-click reset of a field
+ *   that has no slider (e.g. a matrix crosspoint gain -> 0 dB).
+ *
+ * Stable API (lot 3).
  */
 @Composable
 fun ValueField(
@@ -66,6 +70,7 @@ fun ValueField(
     liveText: String? = null,
     enabled: Boolean = true,
     textStyle: TextStyle = DspiType.bodyMono,
+    onReset: (() -> Unit)? = null,
     onCommit: (Float) -> Unit
 ) {
     val colors = DspiTheme.colors
@@ -87,7 +92,13 @@ fun ValueField(
             Modifier
                 .width(width)
                 .border(1.dp, if (editing) colors.accent else colors.pillStroke.copy(alpha = 0.15f), RoundedCornerShape(5.dp))
-                .clickable(enabled = enabled && !editing, interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                .combinedClickable(
+                    enabled = enabled && !editing,
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onLongClick = onReset,
+                    onLongClickLabel = if (onReset != null) "Reset" else null
+                ) {
                     field = TextFieldValue(shown, TextRange(0, shown.length))
                     editing = true
                 }.padding(horizontal = 4.dp, vertical = 4.dp),

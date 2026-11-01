@@ -46,3 +46,13 @@ internal fun DspiBridge.observeDirty(): Boolean {
 
 /** The channel map of a state snapshot. */
 internal val DspState.channelMap: ChannelMap get() = ChannelMap(numInputChannels, numOutputChannels)
+
+/**
+ * macOS `isDeviceReady`: connected and the connect fetches have landed (the
+ * core's bulk image is valid), so a layout never fades in half-formed.
+ */
+@Composable
+internal fun DspiBridge.observeDeviceReady(): Boolean {
+    val connected = observeStatus { it.connected }
+    return connected && observeState().bulkValid
+}

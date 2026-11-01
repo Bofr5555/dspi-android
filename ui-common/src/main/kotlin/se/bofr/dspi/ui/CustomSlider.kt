@@ -2,22 +2,20 @@
 // ParameterRow) @ b5fdeac; Linux qt/qml/components/{CustomSlider,ParamRow}.qml.
 package se.bofr.dspi.ui
 
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -27,35 +25,61 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
+
+/** Pure slider math (JVM-tested). */
+object SliderMath {
+    /** The value after a horizontal drag of [dxPx] on a track [widthPx] wide, starting at [start]. */
+    fun dragged(start: Float, dxPx: Float, widthPx: Float, range: ClosedFloatingPointRange<Float>): Float {
+        if (widthPx <= 0f) return start
+        val span = range.endInclusive - range.start
+        return (start + dxPx / widthPx * span).coerceIn(range.start, range.endInclusive)
+    }
+
+    /** 0..1 position of [value] in [range]. */
+    fun fraction(value: Float, range: ClosedFloatingPointRange<Float>): Float {
+        val span = range.endInclusive - range.start
+        return if (span <= 0f) 0f else ((value - range.start) / span).coerceIn(0f, 1f)
+    }
+}
 
 /**
  * The Console's slider (macOS `CustomSlider` over SwiftUI `Slider`).
+ * Stable API (lot 3); device-facing (decision F4): it emits only values the
+ * user produced.
  *
- * Contract used by every feature: [onValueChange] fires during a drag (send
- * it to the device with the bridge's `sendOnly = true` setters through
- * [SliderValueDelivery] or the bridge's Throttle); [onValueChangeFinished]
- * fires once on release (commit with the normal setter).
- * [onEditingChanged] reports drag start (true) and end (false), as SwiftUI's
- * `onEditingChanged` does.
+ * Touch behaviour: a horizontal drag anywhere on the slider moves the value
+ * relative to where it was (no jump to the touch point, so a stray tap or a
+ * scroll that brushes the slider never changes a level); vertical gestures
+ * pass through to the enclosing scroll view. A double-tap resets to
+ * [defaultValue] (the macOS right-click reset) without any intermediate
+ * value. Accessibility services can set the value directly.
  *
- * [defaultValue]: a double-tap resets to it (the touch counterpart of the
- * macOS right-click reset): [onReset] when given, otherwise [onValueChange]
- * with the default, then [onValueChangeFinished].
+ * Callbacks: [onEditingChanged] true when a drag starts (nothing is emitted
+ * on the grab), then [onValueChange] for every value the drag produces,
+ * then [onEditingChanged] false and [onValueChangeFinished] on release.
+ * Send drag values with the bridge's `sendOnly = true` setters through
+ * [SliderValueDelivery] (or [SliderDragState]); commit on release.
+ * Reset: [onReset] when given, otherwise [onValueChange] with the default,
+ * then [onValueChangeFinished].
  *
- * @param trackColor tint of the filled track and thumb (`.tint(.red)` for the
- *   master volume); the accent colour when null.
+ * @param trackColor tint of the filled track (`.tint(.red)` for the master
+ *   volume); the accent colour when null.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomSlider(
     value: Float,
@@ -71,72 +95,153 @@ fun CustomSlider(
 ) {
     val colors = DspiTheme.colors
     val tint = trackColor ?: colors.accent
-    var editing by remember { mutableStateOf(false) }
+    val current by rememberUpdatedState(value.coerceIn(valueRange.start, valueRange.endInclusive))
+    val range by rememberUpdatedState(valueRange)
     val change by rememberUpdatedState(onValueChange)
     val finished by rememberUpdatedState(onValueChangeFinished)
     val editingChanged by rememberUpdatedState(onEditingChanged)
     val resetNow by rememberUpdatedState(onReset)
-    val scope = rememberCoroutineScope()
-    val slop = LocalViewConfiguration.current.touchSlop
-    val reset =
-        if (defaultValue == null || !enabled) {
-            Modifier
+    val default by rememberUpdatedState(defaultValue)
+
+    fun reset() {
+        val d = default ?: return
+        val r = resetNow
+        if (r != null) {
+            r()
         } else {
-            Modifier.pointerInput(defaultValue) {
-                var lastTapUp = 0L
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                    val up = waitForUpOrCancellation(PointerEventPass.Final) ?: return@awaitEachGesture
-                    val isTap = up.uptimeMillis - down.uptimeMillis < 300 && (up.position - down.position).getDistance() < slop
-                    if (!isTap) {
-                        lastTapUp = 0L
-                    } else if (lastTapUp != 0L && down.uptimeMillis - lastTapUp < 350) {
-                        lastTapUp = 0L
-                        // After the slider has committed the tap itself.
-                        scope.launch {
-                            delay(32)
-                            val r = resetNow
-                            if (r != null) {
-                                r()
-                            } else {
-                                change(defaultValue)
-                                finished?.invoke()
-                            }
-                        }
-                    } else {
-                        lastTapUp = up.uptimeMillis
+            change(d)
+            finished?.invoke()
+        }
+    }
+
+    val thumbColor = if (colors.isDark) Color(0xFFD8D8D8) else Color.White
+    val inactive = colors.gray.copy(alpha = 0.25f)
+    Canvas(
+        modifier
+            .height(32.dp)
+            .alpha(if (enabled) 1f else 0.4f)
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(current, range)
+                if (enabled) {
+                    setProgress { v ->
+                        editingChanged?.invoke(true)
+                        change(v.coerceIn(range.start, range.endInclusive))
+                        editingChanged?.invoke(false)
+                        finished?.invoke()
+                        true
                     }
                 }
-            }
+            }.then(
+                if (!enabled) {
+                    Modifier
+                } else {
+                    Modifier
+                        .pointerInput(Unit) {
+                            var dragValue = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = {
+                                    dragValue = current
+                                    editingChanged?.invoke(true)
+                                },
+                                onDragEnd = {
+                                    editingChanged?.invoke(false)
+                                    finished?.invoke()
+                                },
+                                onDragCancel = {
+                                    editingChanged?.invoke(false)
+                                    finished?.invoke()
+                                },
+                                onHorizontalDrag = { ch, dx ->
+                                    ch.consume()
+                                    val trackWidth = size.width - 2 * THUMB_RADIUS.toPx()
+                                    val next = SliderMath.dragged(dragValue, dx, trackWidth, range)
+                                    if (next != dragValue) {
+                                        dragValue = next
+                                        change(next)
+                                    }
+                                }
+                            )
+                        }.pointerInput(Unit) {
+                            detectTapGestures(onDoubleTap = { reset() })
+                        }
+                }
+            )
+    ) {
+        val r = THUMB_RADIUS.toPx()
+        val trackH = 4.dp.toPx()
+        val left = r
+        val right = size.width - r
+        val y = size.height / 2
+        val x = left + (right - left) * SliderMath.fraction(current, range)
+        val cr = CornerRadius(trackH / 2)
+        drawRoundRect(inactive, Offset(left, y - trackH / 2), Size(right - left, trackH), cr)
+        drawRoundRect(tint, Offset(left, y - trackH / 2), Size(x - left, trackH), cr)
+        drawCircle(Color.Black.copy(alpha = 0.25f), r + 0.5.dp.toPx(), Offset(x, y))
+        drawCircle(thumbColor, r, Offset(x, y))
+    }
+}
+
+private val THUMB_RADIUS = 9.dp
+
+/**
+ * The drag pattern every Console slider uses (macOS UserVolumeSection,
+ * ChannelSettingsView, InputChannelHeader, ParameterRow): a local value that
+ * follows the thumb; the model is ignored while dragging (a late echo can't
+ * pull the thumb back); values go to the device live (sendOnly, at most
+ * 30/s, never on the grab, never a value equal to the last one sent); one
+ * commit on release. Stable API (lot 3).
+ */
+@Stable
+class SliderDragState(scope: CoroutineScope, initial: Float, intervalMs: Long = 1000L / 30L) {
+    var value by mutableFloatStateOf(initial)
+        private set
+    var dragging by mutableStateOf(false)
+        private set
+    private val delivery = SliderValueDelivery(scope, intervalMs)
+
+    /** The model changed: follow it unless a drag owns the value. */
+    fun sync(model: Float) {
+        if (!dragging) value = model
+    }
+
+    /** A value the user produced; sent through [live] while dragging. */
+    fun change(v: Float, live: (Float) -> Unit) {
+        value = v
+        if (dragging) {
+            delivery.onValue = live
+            delivery.submit(v)
         }
-    Slider(
-        value = value.coerceIn(valueRange.start, valueRange.endInclusive),
-        onValueChange = {
-            if (!editing) {
-                editing = true
-                editingChanged?.invoke(true)
-            }
-            change(it)
-        },
-        onValueChangeFinished = {
-            if (editing) {
-                editing = false
-                editingChanged?.invoke(false)
-            }
-            finished?.invoke()
-        },
-        modifier = modifier.then(reset).height(28.dp),
-        valueRange = valueRange,
-        enabled = enabled,
-        colors =
-        SliderDefaults.colors(
-            thumbColor = if (colors.isDark) Color(0xFFD8D8D8) else Color.White,
-            activeTrackColor = tint,
-            inactiveTrackColor = colors.gray.copy(alpha = 0.25f),
-            activeTickColor = Color.Transparent,
-            inactiveTickColor = Color.Transparent
-        )
-    )
+    }
+
+    /** `onEditingChanged`: the grab sends nothing; the end drops pending live values and [commit]s once. */
+    fun editing(started: Boolean, commit: (Float) -> Unit) {
+        if (started) {
+            dragging = true
+            delivery.synchronize(value)
+        } else if (dragging) {
+            dragging = false
+            delivery.cancel()
+            commit(value)
+        }
+    }
+
+    /** A typed value or a reset: set locally and [commit]. */
+    fun set(v: Float, commit: (Float) -> Unit) {
+        value = v
+        commit(v)
+    }
+
+    fun cancel() = delivery.cancel()
+}
+
+/** A [SliderDragState] that follows [model] while no drag runs. */
+@Composable
+fun rememberSliderDrag(model: Float): SliderDragState {
+    val scope = rememberCoroutineScope()
+    val drag = remember { SliderDragState(scope, model) }
+    LaunchedEffect(model) { drag.sync(model) }
+    DisposableEffect(Unit) { onDispose { drag.cancel() } }
+    return drag
 }
 
 /**
@@ -178,16 +283,9 @@ fun ParameterRow(
     live: ((Float) -> Unit)? = null
 ) {
     val colors = DspiTheme.colors
-    val scope = rememberCoroutineScope()
-    val delivery = remember { SliderValueDelivery(scope) }
-    val drag = remember { DragValueBox() }
-    var localValue by remember { mutableFloatStateOf(value) }
-    var liveText by remember { mutableStateOf<String?>(null) }
+    val drag = rememberSliderDrag(value)
     val setNow by rememberUpdatedState(set)
     val liveNow by rememberUpdatedState(live)
-
-    LaunchedEffect(value) { if (!drag.active) localValue = value }
-    DisposableEffect(Unit) { onDispose { delivery.cancel() } }
 
     fun liveFormat(v: Float) = formatLive?.invoke(v) ?: ValueFormat.format(v, maxDecimals, stripTrailingZeros = false)
 
@@ -199,55 +297,25 @@ fun ParameterRow(
             }
             ValueField(
                 label = unit,
-                value = localValue,
+                value = drag.value,
                 width = fieldWidth,
                 scrollStep = scrollStep,
                 maxDecimals = maxDecimals,
                 displayOverride = displayOverride,
-                liveText = liveText,
+                liveText = if (drag.dragging) liveFormat(drag.value) else null,
                 enabled = isEnabled
-            ) { typed -> setNow(typed) }
+            ) { typed ->
+                // Commit and let the published value echo back (a clamped entry shows the clamp).
+                setNow(typed)
+            }
         }
         CustomSlider(
-            value = if (drag.active) drag.value else localValue,
-            onValueChange = { v ->
-                drag.value = v
-                localValue = v
-                if (drag.active) {
-                    liveText = liveFormat(v)
-                    liveNow?.let {
-                        delivery.onValue = it
-                        delivery.submit(v)
-                    }
-                }
-            },
-            onEditingChanged = { editing ->
-                if (editing) {
-                    drag.active = true
-                    delivery.synchronize(localValue)
-                    liveText = liveFormat(drag.value)
-                    liveNow?.let {
-                        delivery.onValue = it
-                        delivery.submit(drag.value)
-                    }
-                } else {
-                    drag.active = false
-                    liveText = null
-                    // The commit is the last write: drop any live value still waiting.
-                    delivery.cancel()
-                    localValue = drag.value
-                    setNow(drag.value)
-                }
-            },
+            value = drag.value,
+            onValueChange = { v -> drag.change(v) { liveNow?.invoke(it) } },
+            onEditingChanged = { e -> drag.editing(e) { setNow(it) } },
             valueRange = range,
             defaultValue = defaultValue,
-            onReset =
-            defaultValue?.let { d ->
-                {
-                    localValue = d
-                    setNow(d)
-                }
-            },
+            onReset = defaultValue?.let { d -> { drag.set(d) { setNow(it) } } },
             enabled = isEnabled,
             modifier = Modifier.fillMaxWidth()
         )
