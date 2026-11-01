@@ -434,9 +434,14 @@ interface DspiBridge {
      * state, not a value the caller read while composing: two chip taps
      * landing before the first write is published both take effect
      * (reviews/stale-state-audit.md T1). [whenUnreported] is the mask to
-     * start from when the device reports none (a parameter list too short).
-     * The default reads the getters (for doubles); DspiBridgeImpl does the
-     * read-modify-write on its serialized FFI thread from the core's state.
+     * start from when the device reports none (a parameter list too short);
+     * it applies only to [MaskField.SUBHARM_OUTPUTS] and [MaskField.TUBE_OUTPUTS]
+     * (parameter lists) and is ignored for the other fields.
+     *
+     * The interface default is a NON-atomic read-modify-write on the getters,
+     * meant for test doubles only. An implementation that queues writes MUST
+     * override it with a read-modify-write on its write queue, as
+     * DspiBridgeImpl does on its serialized FFI thread from the core's state.
      */
     fun toggleMaskBit(field: MaskField, bit: Int, whenUnreported: Int = 0) {
         if (bit !in 0 until 32) return
@@ -471,13 +476,27 @@ interface DspiBridge {
      * Toggle a crosspoint's connection ([polarity] false) or its polarity
      * ([polarity] true), keeping the other two fields, against the LATEST
      * state (reviews/stale-state-audit.md T2: connect then INV in quick
-     * succession must not resend the old connection). Default: the getters.
+     * succession must not resend the old connection).
+     *
+     * The default is a NON-atomic read-modify-write on the getters (test
+     * doubles only); an implementation that queues writes MUST override it
+     * with a read-modify-write on its write queue.
      */
     fun toggleMatrixRoute(input: Int, output: Int, polarity: Boolean) {
         val on = matrixRouting(input, output)
         val inv = matrixInvert(input, output)
         setMatrixRoute(input, output, if (polarity) on else !on, matrixGain(input, output), if (polarity) !inv else inv)
     }
+
+    /**
+     * A crosspoint's gain ([sendOnly]: the live drag variant, as
+     * [setMatrixRoute]), keeping its connection and polarity as they are in
+     * the LATEST state, so a gain drag started right after a connect or INV
+     * tap does not resend the old flags (review-stalestate #2). Same
+     * default/override rule as [toggleMatrixRoute].
+     */
+    fun setMatrixGain(input: Int, output: Int, gain: Float, sendOnly: Boolean = false) =
+        setMatrixRoute(input, output, matrixRouting(input, output), gain, matrixInvert(input, output), sendOnly)
 
     /** Returns the resulting state (the firmware may refuse a PDM/Core 1 conflict). */
     suspend fun setOutputEnable(output: Int, enabled: Boolean): Boolean

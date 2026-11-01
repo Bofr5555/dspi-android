@@ -40,7 +40,7 @@ class MatrixActions(
     private val isOverviewMode: () -> Boolean = { false }
 ) {
     private val throttles = HashMap<String, Throttle<Float>>()
-    private val routeThrottles = HashMap<Long, Throttle<MatrixRoute>>()
+    private val gainThrottles = HashMap<Long, Throttle<Float>>()
 
     private fun throttle(key: String, send: (Float) -> Unit): Throttle<Float> = throttles.getOrPut(key) {
         Throttle(scope, THROTTLE_MS, send)
@@ -59,18 +59,20 @@ class MatrixActions(
     fun toggleInvert(row: Int, col: Int) = bridge.toggleMatrixRoute(row, col, polarity = true)
 
     /**
-     * matrixGainBinding during a drag: throttled `setMatrixRoute(sendOnly = true)`;
+     * matrixGainBinding during a drag: throttled `setMatrixGain(sendOnly = true)`;
      * [matrixGainCommit] writes the final value once with `sendOnly = false`.
+     * Only the gain is sent: the bridge keeps the crosspoint's connection and
+     * polarity from the latest state, not the composed route (review-stalestate #2).
      */
-    fun matrixGainLive(row: Int, col: Int, route: MatrixRoute, db: Float) = routeThrottles
+    fun matrixGainLive(row: Int, col: Int, db: Float) = gainThrottles
         .getOrPut(routeKey(row, col)) {
-            Throttle(scope, THROTTLE_MS) { r -> bridge.setMatrixRoute(row, col, r.isConnected, r.gain, r.isInverted, sendOnly = true) }
-        }.submit(route.copy(gain = db))
+            Throttle(scope, THROTTLE_MS) { g -> bridge.setMatrixGain(row, col, g, sendOnly = true) }
+        }.submit(db)
 
     /** matrixGainBinding set (release / typed value). */
-    fun matrixGainCommit(row: Int, col: Int, route: MatrixRoute, db: Float) {
-        routeThrottles[routeKey(row, col)]?.cancel()
-        bridge.setMatrixRoute(row, col, route.isConnected, db, route.isInverted, sendOnly = false)
+    fun matrixGainCommit(row: Int, col: Int, db: Float) {
+        gainThrottles[routeKey(row, col)]?.cancel()
+        bridge.setMatrixGain(row, col, db, sendOnly = false)
     }
 
     private fun routeKey(row: Int, col: Int): Long = (row.toLong() shl 32) or col.toLong()
@@ -202,7 +204,7 @@ class MatrixActions(
 
     fun cancelAll() {
         throttles.values.forEach { it.cancel() }
-        routeThrottles.values.forEach { it.cancel() }
+        gainThrottles.values.forEach { it.cancel() }
     }
 
     companion object {

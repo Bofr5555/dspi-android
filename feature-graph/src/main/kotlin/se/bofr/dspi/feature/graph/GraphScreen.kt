@@ -66,13 +66,21 @@ fun GraphScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> 
     val choices = remember(stateRev, liveInputs) { editableChannels(bridge) }
     if (picked >= 0 && picked !in choices) picked = -1
     val edited = if (follows) selected?.takeIf { it in choices } ?: -1 else picked
+    // Plain getters read here, keyed on the observed revision, and handed to the button and the
+    // menu as values: they follow a rename by value, not by the identity of `choices`
+    // (review-stalestate #7, audit N4).
+    val labels =
+        remember(stateRev, choices) {
+            choices.associateWith { "${bridge.channelDescriptor(it)}  ${bridge.channelName(it)}" }
+        }
+    val editedDescriptor = remember(stateRev, edited) { if (edited >= 0) bridge.channelDescriptor(edited) else null }
     Column(modifier.fillMaxSize().background(Color(0xFF1A1A1C)).padding(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("‹ Back") }
             Text("Response Graph", fontWeight = FontWeight.Bold, color = Color.White, modifier = Modifier.weight(1f))
             if (follows) {
                 Text(
-                    if (edited >= 0) "Following: ${bridge.channelDescriptor(edited)}" else "Following: overview",
+                    if (editedDescriptor != null) "Following: $editedDescriptor" else "Following: overview",
                     fontSize = 13.sp,
                     color = Color.White.copy(alpha = 0.7f),
                     modifier = Modifier.padding(horizontal = 12.dp)
@@ -80,7 +88,7 @@ fun GraphScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> 
             } else {
                 Box {
                     TextButton(onClick = { menuOpen = true }) {
-                        Text(if (edited >= 0) "Edit: ${bridge.channelDescriptor(edited)}" else "Edit: none", fontSize = 13.sp)
+                        Text(if (editedDescriptor != null) "Edit: $editedDescriptor" else "Edit: none", fontSize = 13.sp)
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(text = { Text("None (view only)") }, onClick = {
@@ -89,7 +97,7 @@ fun GraphScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> 
                         })
                         for (ch in choices) {
                             DropdownMenuItem(
-                                text = { Text("${bridge.channelDescriptor(ch)}  ${bridge.channelName(ch)}") },
+                                text = { Text(labels[ch].orEmpty()) },
                                 onClick = {
                                     picked = ch
                                     if (!bridge.channelVisible(ch)) bridge.setChannelVisible(ch, true)

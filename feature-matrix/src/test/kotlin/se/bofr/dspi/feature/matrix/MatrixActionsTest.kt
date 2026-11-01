@@ -99,14 +99,27 @@ class MatrixActionsTest {
         assertEquals(-3f, r.bridge.matrixGain(1, 4), 1e-6f)
     }
 
+    /** review-stalestate #2: a gain commit right after a connect keeps the connection. */
+    @Test
+    fun aGainCommitRightAfterConnectKeepsTheConnection() = runTest {
+        val r = rig()
+        r.bridge.setMatrixRoute(1, 4, false, 0f, false)
+        runCurrent()
+        r.actions.toggleRoute(1, 4)
+        r.actions.matrixGainCommit(1, 4, -2f) // same frame: the composed route still says disconnected
+        runCurrent()
+        assertTrue(r.bridge.matrixRouting(1, 4))
+        assertEquals(-2f, r.bridge.matrixGain(1, 4), 1e-6f)
+    }
+
     @Test
     fun matrixGainDragIsThrottledThenCommittedOnce() = runTest {
         val r = rig()
-        val route = MatrixRoute(true, 0f, false)
+        check(r.bridge.matrixRouting(0, 0) && !r.bridge.matrixInvert(0, 0))
         val rev0 = r.bridge.stateRevision.value
-        r.actions.matrixGainLive(0, 0, route, -1f) // goes out at once
-        r.actions.matrixGainLive(0, 0, route, -2f)
-        r.actions.matrixGainLive(0, 0, route, -3f) // latest wins
+        r.actions.matrixGainLive(0, 0, -1f) // goes out at once
+        r.actions.matrixGainLive(0, 0, -2f)
+        r.actions.matrixGainLive(0, 0, -3f) // latest wins
         runCurrent()
         advanceTimeBy(MatrixActions.THROTTLE_MS + 1)
         runCurrent()
@@ -119,9 +132,9 @@ class MatrixActionsTest {
         advanceTimeBy(100) // the throttle goes idle
         runCurrent()
         r.core.calls.clear()
-        r.actions.matrixGainLive(0, 0, route, -4f)
-        r.actions.matrixGainLive(0, 0, route, -5f) // pending, dropped by the commit
-        r.actions.matrixGainCommit(0, 0, route, -6f)
+        r.actions.matrixGainLive(0, 0, -4f)
+        r.actions.matrixGainLive(0, 0, -5f) // pending, dropped by the commit
+        r.actions.matrixGainCommit(0, 0, -6f)
         runCurrent()
         advanceTimeBy(100)
         runCurrent()

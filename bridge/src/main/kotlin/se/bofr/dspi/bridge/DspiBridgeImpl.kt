@@ -1285,8 +1285,20 @@ class DspiBridgeImpl(
         fire("toggleMatrixRoute") {
             val st = core.getState()
             val on = st.matrixRouting.getOrNull(input)?.getOrNull(output) ?: return@fire
-            val inv = st.matrixInvert[input][output]
-            core.setMatrixRoute(input, output, if (polarity) on else !on, st.matrixGain[input][output], if (polarity) !inv else inv)
+            val inv = st.matrixInvert.getOrNull(input)?.getOrNull(output) ?: return@fire
+            val gain = st.matrixGain.getOrNull(input)?.getOrNull(output) ?: return@fire
+            core.setMatrixRoute(input, output, if (polarity) on else !on, gain, if (polarity) !inv else inv)
+        }
+    }
+
+    /** Atomic against queued writes, as [toggleMatrixRoute]; emits as [setMatrixRoute] (review-stalestate #2). */
+    override fun setMatrixGain(input: Int, output: Int, gain: Float, sendOnly: Boolean) {
+        if (!inRange(input, output) || input !in 0 until current.numInputChannels) return
+        fire("setMatrixGain", live(sendOnly)) {
+            val st = core.getState()
+            val on = st.matrixRouting.getOrNull(input)?.getOrNull(output) ?: return@fire
+            val inv = st.matrixInvert.getOrNull(input)?.getOrNull(output) ?: return@fire
+            core.setMatrixRoute(input, output, on, gain, inv)
         }
     }
 

@@ -76,6 +76,8 @@ class ReadOnlyTest {
             "setMatrixRoute" to { b.setMatrixRoute(0, 0, true, -3f, false) },
             "setMatrixRoute" to { b.setMatrixRoute(0, 0, true, -3f, false, sendOnly = true) },
             "toggleMatrixRoute" to { b.toggleMatrixRoute(0, 0, polarity = false) },
+            "setMatrixGain" to { b.setMatrixGain(0, 0, -3f) },
+            "setMatrixGain" to { b.setMatrixGain(0, 0, -3f, sendOnly = true) },
             "setOutputEnable" to { assertFalse(b.setOutputEnable(1, true)) },
             "setOutputGain" to { b.setOutputGain(0, -1f) },
             "sendOutputGainToDevice" to { b.sendOutputGainToDevice(0, -1f) },

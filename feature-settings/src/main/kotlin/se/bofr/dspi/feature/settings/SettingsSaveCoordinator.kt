@@ -5,9 +5,11 @@
 // sequences and the hardware controls' apply (E1b gating, E9 scope).
 package se.bofr.dspi.feature.settings
 
+import android.util.Log
 import androidx.compose.runtime.mutableStateOf
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -142,6 +144,18 @@ class SettingsSaveCoordinator(
      * snapshot the page was composed with — so a second pick made before the
      * first one landed diffs against what the first one did
      * (reviews/stale-state-audit.md S3: S/PDIF 1 -> 3 -> 2 must end on 2).
+     *
+     * Unlike [applyHardware], it cannot know before [build] runs whether
+     * anything differs, so it always mints a HARDWARE_APPLY token at the tap
+     * (E1b) and launches a job; a no-op pick takes the lock, makes no device
+     * call and revokes the token. [DspiBridge.beginOutputEdit] likewise runs
+     * inside the job, after the earlier sequences, and only when the diff is
+     * non-empty, so `outputConfigDirty` flips a little later than with the
+     * list form (review-stalestate #4). A token that idled out while queued
+     * ends the sequence with [CONFIRMATION_TIMED_OUT] instead of a crash.
+     * There is deliberately no per-call timeout: the macOS client has none
+     * (its USB transfers carry their own), and an expiry mid-sequence is
+     * reported the same way.
      */
     fun applyHardwareLatest(successText: String? = null, build: (OutputConfigSnapshot, PinContext) -> List<HardwareChange>): Job =
         launchHardware(successText) {
@@ -153,12 +167,19 @@ class SettingsSaveCoordinator(
     private val hardwareLock = Mutex()
 
     private fun launchHardware(successText: String?, build: () -> List<HardwareChange>): Job {
+        // E1b: minted by the tap; the sequence may then wait behind earlier ones (hardwareLock)
         val token = bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY)
         // macOS transport.generation: a re-plug, even of the same unit, aborts the sequence
         val generation = bridge.deviceGeneration.value
-        return scope.launch {
+        return scope.launch(hardwareGuard) {
             try {
                 hardwareLock.withLock {
+                    // The token idles out after DangerousOps.ttlMs; a long queue of earlier sequences
+                    // can outlast it. Not an error: ask for the pick again (review-stalestate #1).
+                    if (!bridge.dangerousOps.isValid(token)) {
+                        _hardwareStatus.value = CONFIRMATION_TIMED_OUT to true
+                        return@launch
+                    }
                     val todo = HardwareChangeOrder.topoSort(build().filter { it.oldDisplay != it.newDisplay })
                     if (todo.isEmpty()) return@launch
                     bridge.beginOutputEdit()
@@ -169,8 +190,11 @@ class SettingsSaveCoordinator(
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: DangerousOpNotConfirmed) {
-                            // A programming error: never turned into a status line (review S6)
-                            throw e
+                            // Never a plain "Failed to set" row (review S6), and never a crash of the
+                            // launched job (review-stalestate #1): an expiry mid-sequence asks again,
+                            // anything else is a programming error, logged and shown as such.
+                            _hardwareStatus.value = notConfirmed(c, token, e) to true
+                            return@launch
                         } catch (e: Exception) {
                             -1
                         }
@@ -189,6 +213,21 @@ class SettingsSaveCoordinator(
                 bridge.dangerousOps.revoke(token)
             }
         }
+    }
+
+    /**
+     * Last line of defence for a hardware job (in production scopes, whose
+     * SupervisorJob lets a child's handler run): log and show, never crash.
+     */
+    private val hardwareGuard = CoroutineExceptionHandler { _, e ->
+        logError("hardware change failed", e)
+        _hardwareStatus.value = "Hardware change failed: ${e.message ?: e::class.simpleName}" to true
+    }
+
+    private fun notConfirmed(c: HardwareChange, token: ConfirmationToken, e: DangerousOpNotConfirmed): String {
+        if (!bridge.dangerousOps.isValid(token)) return CONFIRMATION_TIMED_OUT
+        logError("${c.fieldLabel}: hardware change refused by the confirmation gate", e)
+        return "${c.fieldLabel} not applied: confirmation refused (internal error)"
     }
 
     fun applyHardware(change: HardwareChange): Job? = applyHardware(listOf(change))
@@ -373,6 +412,12 @@ class SettingsSaveCoordinator(
     }
 
     companion object {
+        const val CONFIRMATION_TIMED_OUT = "Not applied: the confirmation timed out. Pick again."
+
+        private fun logError(msg: String, e: Throwable) {
+            runCatching { Log.e("DspiSettings", msg, e) }
+        }
+
         /** One app bridge: a single slot, so a replaced bridge (tests) is not kept alive (review S17). */
         private var cached: Pair<WeakReference<DspiBridge>, SettingsSaveCoordinator>? = null
 

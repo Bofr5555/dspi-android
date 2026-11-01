@@ -328,11 +328,16 @@ private fun ChannelContextMenu(
     onDismiss: () -> Unit,
     onRename: () -> Unit
 ) {
-    // macOS siggenSupported, announced through the generator's caps probe.
-    bridge.siggen.caps.collectAsStateWithLifecycle().value
+    // Observed here and captured by the menu content, which is its own composition: a
+    // disconnect or the siggen caps probe landing while the menu is open updates it
+    // (review-stalestate #6). macOS siggenSupported = the generator's caps probe.
+    val siggenSupported = bridge.siggen.caps.collectAsStateWithLifecycle().value?.supported == true
+    val connected = bridge.observeStatus { it.connected }
+    // The paste buffer is a plain getter: re-read each time the menu opens (`expanded` flips).
+    val canPaste = expanded && bridge.canPaste()
     val canWrite = writesAllowed()
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        if (outputIndex != null && bridge.connected && bridge.siggenSupported) {
+        if (outputIndex != null && connected && siggenSupported) {
             DropdownMenuItem(text = { Text("Identify") }, enabled = canWrite, onClick = {
                 onDismiss()
                 bridge.siggen.identify(outputIndex)
@@ -348,7 +353,7 @@ private fun ChannelContextMenu(
             onDismiss()
             bridge.copyChannel(ch)
         })
-        DropdownMenuItem(text = { Text("Paste Parameters") }, enabled = canWrite && bridge.canPaste(), onClick = {
+        DropdownMenuItem(text = { Text("Paste Parameters") }, enabled = canWrite && canPaste, onClick = {
             onDismiss()
             bridge.pasteChannel(ch)
         })

@@ -70,4 +70,21 @@ class AtomicToggleTest {
         runCurrent()
         assertTrue(b.matrixRouting(1, 3))
     }
+
+    @Test
+    fun aGainWrittenRightAfterAConnectKeepsTheConnection() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        attach(b, core)
+        b.setMatrixRoute(1, 3, false, 0f, false)
+        runCurrent()
+        b.toggleMatrixRoute(1, 3, polarity = false) // connect
+        b.toggleMatrixRoute(1, 3, polarity = true) // INV
+        b.setMatrixGain(1, 3, -4f, sendOnly = true) // drag, same frame
+        b.setMatrixGain(1, 3, -5f) // commit
+        runCurrent()
+        assertTrue(b.matrixRouting(1, 3))
+        assertTrue(b.matrixInvert(1, 3))
+        assertEquals(-5f, b.matrixGain(1, 3), 1e-6f)
+    }
 }
