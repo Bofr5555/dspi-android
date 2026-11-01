@@ -73,6 +73,7 @@ class ReadOnlyTest {
             "setCrossfeedFeed" to { b.setCrossfeedFeed(4f, sendOnly = true) },
             "setCrossfeedITD" to { b.setCrossfeedITD(true) },
             "setCrossfeedOutputPairMask" to { b.setCrossfeedOutputPairMask(1) },
+            "setCrossfeedPairMap" to { b.setCrossfeedPairMap(CrossfeedPairs.ONE_DAC_PER_EAR) },
             "setMatrixRoute" to { b.setMatrixRoute(0, 0, true, -3f, false) },
             "setMatrixRoute" to { b.setMatrixRoute(0, 0, true, -3f, false, sendOnly = true) },
             "toggleMatrixRoute" to { b.toggleMatrixRoute(0, 0, polarity = false) },
@@ -345,7 +346,7 @@ class ReadOnlyTest {
                 "limiterThreshold", "linkedPartner", "liveInputCount", "magnitudeCurve", "matrixGain", "matrixInvert",
                 "matrixRouting", "numPinOutputs", "outputDelayMS", "outputEnabled", "outputGainDB", "outputMuted", "outputPin",
                 "pairAvailable", "pairPartner", "peakLevel", "phaseCurve", "pinOwners", "presetChanges", "presetName",
-                "refreshCtrlIfaces", "restoreInputLinks"
+                "refreshCtrlIfaces", "restoreInputLinks", "crossfeedPairMapValid"
             )
 
         /** Controller members that read or only edit app-side drafts/subscriptions. */

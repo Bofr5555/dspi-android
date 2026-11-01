@@ -50,6 +50,10 @@ pkg_ffi() {
   (cd rust && cargo fmt --check -p dspi-ffi -p uniffi-bindgen)
   (cd rust && cargo clippy --locked -p dspi-ffi --all-targets -- -D warnings)
   (cd rust && cargo test --locked -p dspi-ffi)
+  step "ffi: staged (pinned + patched) core unit tests"
+  # --lib: the patches' tests (e.g. 0002 crossfeed pair map) live in dspi-core;
+  # the upstream doctest in core/src/filterfile.rs fails on the pinned core too.
+  (cd rust && cargo test --locked -p dspi-core --lib)
   step "ffi: cross-compile for every shipped ABI (arm64-v8a, armeabi-v7a, x86_64)"
   (cd rust && cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -P 26 build --locked -p dspi-ffi)
   step "ffi: generated Kotlin contract up to date"

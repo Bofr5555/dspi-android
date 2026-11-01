@@ -53,6 +53,7 @@ fun defaultDspState(): DspState = DspState(
     crossfeedFeed = 4.5f,
     crossfeedItd = true,
     crossfeedOutputPairMask = 0,
+    crossfeedPairMap = List(4) { 0 },
     channelDelays = List(MAX_CHANNELS) { 0f },
     matrixRouting = List(MAX_INPUTS) { List(MAX_OUTPUTS) { false } },
     matrixGain = List(MAX_INPUTS) { List(MAX_OUTPUTS) { 0f } },

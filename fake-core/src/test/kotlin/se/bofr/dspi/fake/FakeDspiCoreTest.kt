@@ -222,4 +222,50 @@ class FakeDspiCoreTest {
         core.setInputSource(1)
         assertEquals(44_100L, core.fetchInputRate()) // S/PDIF: the stream's rate
     }
+
+    @Test
+    fun crossfeedPairMapMirrorsTheCorePatch() {
+        val core = FakeDspiCore()
+        assertEquals(listOf(0, 0, 0, 0), core.getState().crossfeedPairMap)
+        // K340: woofers L=out3/R=out1, tweeters L=out4/R=out2 (0-based 2/0, 3/1)
+        val k340 = listOf(0x02, 0x13, 0, 0)
+        assertTrue(core.crossfeedPairMapValid(k340, 4))
+        assertTrue(core.crossfeedPairMapValid(k340, 2))
+        assertFalse(core.crossfeedPairMapValid(listOf(0x02, 0, 0, 0), 4)) // output 2 also in default pair 1
+        assertFalse(core.crossfeedPairMapValid(listOf(0x11, 0, 0, 0), 4))
+        assertFalse(core.crossfeedPairMapValid(listOf(0x80, 0, 0, 0), 4)) // PDM sub
+        assertFalse(core.crossfeedPairMapValid(listOf(0, 0, 0x54, 0), 2))
+        assertFalse(core.crossfeedPairMapValid(listOf(0x02, 0x13, 0), 4))
+        core.setCrossfeedPairMap(k340)
+        assertEquals(k340, core.getState().crossfeedPairMap)
+        assertEquals(k340, core.fetchCrossfeedPairMap())
+        // Explicit defaults are stored normalized
+        core.setCrossfeedPairMap(listOf(0x10, 0x32, 0x54, 0x76))
+        assertEquals(listOf(0, 0, 0, 0), core.getState().crossfeedPairMap)
+        // Refused before USB, even when disconnected
+        try {
+            core.setCrossfeedPairMap(listOf(0x11, 0, 0, 0))
+            throw AssertionError("expected InvalidArgument")
+        } catch (_: DspiException.InvalidArgument) {
+        }
+        assertEquals(2 to 0, FakeDspiCore.crossfeedPair(k340, 0))
+        assertEquals(4 to 5, FakeDspiCore.crossfeedPair(k340, 2))
+    }
+
+    @Test
+    fun upstreamFirmwareStallsThePairMapRequest() {
+        val core = FakeDspiCore()
+        core.crossfeedPairMapSupported = false
+        try {
+            core.fetchCrossfeedPairMap()
+            throw AssertionError("expected Transfer")
+        } catch (_: DspiException.Transfer) {
+        }
+        try {
+            core.setCrossfeedPairMap(listOf(0x02, 0x13, 0, 0))
+            throw AssertionError("expected Transfer")
+        } catch (_: DspiException.Transfer) {
+        }
+        assertEquals(listOf(0, 0, 0, 0), core.getState().crossfeedPairMap)
+    }
 }

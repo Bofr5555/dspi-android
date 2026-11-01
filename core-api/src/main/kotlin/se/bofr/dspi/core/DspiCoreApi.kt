@@ -173,6 +173,23 @@ interface DspiCoreApi : AutoCloseable {
     @Throws(DspiException::class)
     fun setCrossfeedOutputs(pairMask: Int)
 
+    /**
+     * K340 firmware fork (third_party/patches/0002): the outputs of every
+     * crossfeed pair at once, 4 bytes (`DspState.crossfeed_pair_map`
+     * encoding). `InvalidArgument` (no USB traffic) for a map the firmware
+     * would refuse (see `crossfeed_pair_map_valid`); stored normalized.
+     */
+    @Throws(DspiException::class)
+    fun setCrossfeedPairMap(map: List<Int>)
+
+    /**
+     * Reads the live pair map (4 bytes) into the state. An error from a
+     * connected device means the firmware does not have the feature (it
+     * STALLs the request); the state then keeps the bulk image's zero map.
+     */
+    @Throws(DspiException::class)
+    fun fetchCrossfeedPairMap(): List<Int>
+
     @Throws(DspiException::class)
     fun setLevellerEnabled(enabled: Boolean)
 
@@ -724,6 +741,16 @@ interface DspiCoreApi : AutoCloseable {
      * Stateless (a free function in dspi-ffi); needs no device.
      */
     fun curveFreq(i: Long): Double
+
+    /**
+     * Whether `map` (4 bytes, `DspState.crossfeed_pair_map` encoding) is a pair
+     * map the firmware accepts for `num_pairs` stereo pairs (4 on RP2350, 2 on
+     * RP2040): every pair gets two distinct non-PDM outputs, no output is used
+     * twice, bytes beyond `num_pairs` are 0 (core `protocol::crossfeed_map_valid`).
+     *
+     * Stateless (a free function in dspi-ffi); needs no device.
+     */
+    fun crossfeedPairMapValid(map: List<Int>, numPairs: Int): Boolean
 
     /**
      * Check a `.dspipreset` document: JSON {ok, error, name, platform, firmware,

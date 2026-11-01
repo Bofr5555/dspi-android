@@ -185,6 +185,13 @@ open class FakeDspiCore(
     /** Peaks fetchStatus reports (per wire); null = animated. */
     @Volatile var peaksOverride: List<Float>? = null
 
+    /**
+     * Whether the fake firmware has the K340 crossfeed pair map (core patch
+     * 0002, request 0x02). False models upstream firmware: the request STALLs
+     * (Transfer) and the bulk image carries the zero map.
+     */
+    @Volatile var crossfeedPairMapSupported: Boolean = true
+
     // ═══ Internals ═══════════════════════════════════════════════════════
 
     @Synchronized
@@ -385,6 +392,19 @@ open class FakeDspiCore(
             crossfeedOutputPairMask =
             pairMask and 0xFF
         )
+    }
+
+    // Core patch 0002 commands.rs: refused maps never reach USB; stored normalized.
+    override fun setCrossfeedPairMap(map: List<Int>) = op("setCrossfeedPairMap", map.joinToString(","), device = false) {
+        if (!crossfeedPairMapValid(map, crossfeedPairCount(s))) bad("Invalid argument")
+        if (!connected) throw DspiException.Disconnected()
+        if (!crossfeedPairMapSupported) throw DspiException.Transfer("Pipe error")
+        state = state.copy(crossfeedPairMap = normalizeCrossfeedPairMap(map))
+    }
+
+    override fun fetchCrossfeedPairMap(): List<Int> = op("fetchCrossfeedPairMap") {
+        if (!crossfeedPairMapSupported) throw DspiException.Transfer("Pipe error")
+        s.crossfeedPairMap
     }
 
     override fun setLevellerEnabled(enabled: Boolean) = set("setLevellerEnabled", "$enabled") { it.copy(levellerEnabled = enabled) }
@@ -1218,6 +1238,23 @@ open class FakeDspiCore(
 
     override fun curveFreq(i: Long): Double = DspMath.curveFreq(i.toInt())
 
+    override fun crossfeedPairMapValid(map: List<Int>, numPairs: Int): Boolean {
+        if (map.size != 4 || numPairs !in 1..4 || map.any { it !in 0..255 }) return false
+        var used = 0
+        for (p in 0 until 4) {
+            if (p >= numPairs) {
+                if (map[p] != 0) return false
+                continue
+            }
+            val (l, r) = crossfeedPair(map, p)
+            if (l >= 2 * numPairs || r >= 2 * numPairs || l == r) return false
+            val bits = (1 shl l) or (1 shl r)
+            if (used and bits != 0) return false
+            used = used or bits
+        }
+        return true
+    }
+
     override fun configInspect(text: String): String = FakeFiles.inspectConfig(text)
 
     override fun bootloaderCounts(): BootloaderCounts = BootloaderCounts(0, 0)
@@ -1305,6 +1342,19 @@ open class FakeDspiCore(
                 type(13, "Inter-Sample Peaks", 0, p(6, 0f, 1f, 0f)),
                 type(14, "Channel ID", 2, p(2, 30f, 1000f, 120f))
             )
+
+        /** Outputs (left, right) of crossfeed pair [p]; map byte 0 = (2p, 2p+1) (core patch 0002). */
+        fun crossfeedPair(map: List<Int>, p: Int): Pair<Int, Int> {
+            val b = map.getOrElse(p) { 0 }
+            return if (b == 0) (2 * p) to (2 * p + 1) else (b and 0x0F) to (b shr 4)
+        }
+
+        /** Explicit default bytes become 0, as the firmware reports the map. */
+        fun normalizeCrossfeedPairMap(map: List<Int>): List<Int> =
+            map.mapIndexed { p, b -> if (b == ((2 * p + 1) shl 4 or (2 * p))) 0 else b }
+
+        /** Stereo pairs of the platform: every output but the PDM sub, two per pair. */
+        fun crossfeedPairCount(s: DspState): Int = ((s.numOutputChannels - 1).coerceAtLeast(0) / 2).coerceIn(1, 4)
 
         /** A fake seeded from FFI's `dspstate_v32.json` text. */
         fun fromFixture(json: String, animate: Boolean = false): FakeDspiCore = FakeDspiCore(DspStateJson.parse(json), animate)

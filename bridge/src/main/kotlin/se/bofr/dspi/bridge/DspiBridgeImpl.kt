@@ -123,6 +123,24 @@ class DspiBridgeImpl(
     private val _writesAllowed = MutableStateFlow(false)
     override val writesAllowed: StateFlow<Boolean> = _writesAllowed.asStateFlow()
 
+    /** FFI thread: whether the firmware answers REQ_CROSSFEED_PAIR_MAP (K340 fork). */
+    private fun probeCrossfeedPairMap(): Boolean {
+        repeat(2) {
+            try {
+                core.fetchCrossfeedPairMap()
+                return true
+            } catch (e: DspiException.Transfer) {
+                return false // STALL: upstream firmware
+            } catch (e: Exception) {
+                // timeout / busy: try once more
+            }
+        }
+        return false
+    }
+
+    /** K340 fork: the connected firmware answered the pair-map probe (main thread). */
+    private var crossfeedPairMapSupported = false
+
     private fun refreshWritesAllowed() {
         val v = usable
         if (_writesAllowed.value != v) _writesAllowed.value = v
@@ -815,6 +833,7 @@ class DspiBridgeImpl(
     override val crossfeedFeed: Float get() = current.crossfeedFeed
     override val crossfeedITD: Boolean get() = current.crossfeedItd
     override val crossfeedOutputPairMask: Int get() = current.crossfeedOutputPairMask
+    override val crossfeedPairMap: List<Int> get() = current.crossfeedPairMap
     override val cpu0: Int get() = _status.value.cpu0
     override val cpu1: Int get() = _status.value.cpu1
 
@@ -1272,6 +1291,17 @@ class DspiBridgeImpl(
         }
     }
 
+    override fun setCrossfeedPairMap(map: List<Int>) {
+        val name = "setCrossfeedPairMap"
+        if (writeRefused(name)) return
+        if (!crossfeedPairMapSupported) return emit(BridgeEvent.CommandFailed(name, DspiException.Unsupported()))
+        val copy = map.toList() // the caller's list may change before the FFI thread runs
+        fire(name) { core.setCrossfeedPairMap(copy) }
+    }
+
+    override fun crossfeedPairMapValid(map: List<Int>): Boolean =
+        usable && runCatching { core.crossfeedPairMapValid(map, CrossfeedPairs.pairCount(current.numOutputChannels)) }.getOrDefault(false)
+
     // ═══ Setters — matrix / outputs ═══
 
     override fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean, sendOnly: Boolean) {
@@ -1660,7 +1690,7 @@ class DspiBridgeImpl(
             if (outputEditSerial.isNotEmpty()) clearOutputEdit()
             outputEditSerial = serial
         }
-        class Opened(val snap: Snapshot, val error: String)
+        class Opened(val snap: Snapshot, val error: String, val pairMap: Boolean)
         val r =
             onFfi {
                 lastClipMs.fill(0)
@@ -1670,11 +1700,16 @@ class DspiBridgeImpl(
                 val compatOk = core.isConnected() && st.compat == COMPAT_OK
                 if (fetched && compatOk) core.captureBaseline()
                 if (compatOk) runCatching { core.rtaStart() } // probes for the spectrum analyser
+                // K340 fork probe (core patch 0002): upstream firmware STALLs 0x02
+                // (Transfer: the answer, no retry); any other error retries once.
+                val pairMap = fetched && compatOk && probeCrossfeedPairMap()
                 Opened(
                     snapshot(all = true),
-                    if (fetched) "" else "Connected, but the device's settings could not be read. Reconnect it to retry."
+                    if (fetched) "" else "Connected, but the device's settings could not be read. Reconnect it to retry.",
+                    pairMap
                 )
             }
+        crossfeedPairMapSupported = r.pairMap
         _hardwareUnsaved.value = false
         _status.value = BridgeStatus(connected = true, connectionError = r.error)
         val d = _devices.value
@@ -1703,6 +1738,7 @@ class DspiBridgeImpl(
 
     private fun setDisconnected() {
         bumpGeneration()
+        crossfeedPairMapSupported = false
         _status.value = _status.value.copy(connected = false, cpu0 = 0, cpu1 = 0, clipFlags = 0, peaks = BridgeStatus().peaks)
         refreshWritesAllowed()
         _devices.value = _devices.value.copy(selectedSerial = "")
@@ -2227,7 +2263,9 @@ class DspiBridgeImpl(
                 i2sClockPinModeSupported = v32,
                 adatOutSupported = rp2350,
                 adatInputSupported = rp2350,
-                limiterSupported = v32
+                limiterSupported = v32,
+                crossfeedPairMapSupported = crossfeedPairMapSupported,
+                crossfeedPairCount = CrossfeedPairs.pairCount(current.numOutputChannels)
             )
         }
 

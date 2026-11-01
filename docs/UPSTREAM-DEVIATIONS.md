@@ -891,3 +891,48 @@ banner but still send every command).
 5. **Not covered here:** the foreground notification's volume/mute/preset
    actions live in :usb (`NotificationControls`); the bridge refuses them
    while read-only, but the notification does not hide them (USB package).
+
+## CROSSFEED PAIR MAP (K340 firmware fork, owner request 2026-11-01)
+
+Not in any official client or upstream firmware. The owner's K340 amplifier
+wires one DAC per ear (out1 = right woofer, out2 = right tweeter, out3 = left
+woofer, out4 = left tweeter), so crossfeed's fixed pairs (out1/out2, ...) are
+the same ear twice. The K340 firmware fork (`~/prog/DSPi-xfeed`, branch
+`k340-xfeed`) makes each pair's outputs configurable.
+
+1. **Core patch** `third_party/patches/0002-crossfeed-pair-map.patch` (after
+   0001): `REQ_CROSSFEED_PAIR_MAP` 0x02 (OUT sets / IN gets, 4 bytes),
+   `DspState.crossfeed_pair_map` decoded from / encoded into the former
+   `WireCrossfeedParams.reserved2` (bulk offset 44; wire format stays V32, so
+   upstream firmware stays COMPAT_OK and reports the zero = default map),
+   `set_crossfeed_pair_map` (validates like the firmware, `InvalidArgument`
+   without USB traffic), `fetch_crossfeed_pair_map`, preset-file `"pairMap"`,
+   preset-diff lines. Encoding: byte p = pair p, 0 = default (2p, 2p+1), else
+   `(right shl 4) or left`.
+2. **FFI/contract:** `setCrossfeedPairMap(map)`, `fetchCrossfeedPairMap()`,
+   free `crossfeedPairMapValid(map, numPairs)`, `DspState.crossfeedPairMap`.
+   `WriteGuardedCore`: the setter is a WRITE, the fetch and validity check
+   pass through.
+2a. **Other clients:** a bulk apply from an UNPATCHED core (Linux/macOS
+    console preset import/apply) writes zero at offset 44 and so resets the
+    map to the default pairing (the firmware treats zero as default). This app
+    recovers the live value by itself (the firmware's BULK_INVALIDATED after a
+    bulk apply triggers a refresh that decodes offset 44). The Windows console
+    has no bulk-SET writer. Presets saved on the device keep the map in the
+    former tube_reserved_f bytes (slot version unchanged), so upstream firmware
+    loads them and ignores it.
+2b. **Setup:** with the K340 map use output-pair mask 0x03
+    (`CrossfeedPairs.ONE_DAC_PER_EAR_PAIR_MASK`); the default 0x01 crossfeeds
+    the woofer band only. Changing the map while audio plays may click once
+    (the affected pairs restart from clean filter state).
+3. **Bridge:** `crossfeedPairMap`, `setCrossfeedPairMap(map)` (whole map only:
+   pairs must stay disjoint, and a full map is stale-state safe),
+   `crossfeedPairMapValid(map)`, `HardwareCaps.crossfeedPairMapSupported` /
+   `crossfeedPairCount`, `CrossfeedPairs` helpers (`ONE_DAC_PER_EAR`). Support
+   is probed once per connect (only when compat is OK) with the GET; upstream
+   firmware STALLs it, and the setter then fails with
+   `DspiException.Unsupported` without sending anything. G1 applies as to every
+   setter.
+4. **UI:** not built yet (after pkg/stalestate merges); see the coordinator's
+   report for the recommended Crossfeed tool section.
+
