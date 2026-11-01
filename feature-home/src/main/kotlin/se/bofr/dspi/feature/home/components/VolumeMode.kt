@@ -29,6 +29,7 @@ import se.bofr.dspi.ui.DspiIcons
 import se.bofr.dspi.ui.DspiTheme
 import se.bofr.dspi.ui.DspiType
 import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.writesAllowed
 
 /** The sidebar volume slider's mode: `auto` drives the user volume, `master` the master volume. */
 enum class SidebarVolumeMode(val raw: String, val heading: String) {
@@ -81,7 +82,7 @@ fun VolumeModeSelector(mode: SidebarVolumeMode, onModeChange: (SidebarVolumeMode
 @Composable
 fun MuteableLabel(text: String, isMuted: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
     Row(
-        modifier.clickable(onClickLabel = if (isMuted) "Unmute" else "Mute", onClick = onToggle),
+        modifier.clickable(enabled = writesAllowed(), onClickLabel = if (isMuted) "Unmute" else "Mute", onClick = onToggle),
         horizontalArrangement = Arrangement.Start
     ) {
         Text(text, style = DspiType.mono9, color = DspiTheme.colors.secondaryLabel, modifier = Modifier.alpha(if (isMuted) 0.3f else 1f))

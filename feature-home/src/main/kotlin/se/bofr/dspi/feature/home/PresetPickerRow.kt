@@ -40,6 +40,7 @@ import se.bofr.dspi.ui.DspiType
 import se.bofr.dspi.ui.PopUpButton
 import se.bofr.dspi.ui.alert.AlertHost
 import se.bofr.dspi.ui.alert.ConsoleAlertHost
+import se.bofr.dspi.ui.writesAllowed
 
 /** The home screen's controllers that must outlive a configuration change (E9). */
 class HomeViewModel(bridge: DspiBridge) : ViewModel() {
@@ -92,7 +93,8 @@ fun PresetPickerRow(bridge: DspiBridge, vm: HomeViewModel, modifier: Modifier = 
                 isCurrentOccupied = bridge.isPresetOccupied(s.activePresetSlot),
                 anySlotOccupied = s.presetOccupied != 0,
                 isActiveDefault = actions.isActiveDefault,
-                isDeviceConnected = connected,
+                // G1: every preset action writes
+                isDeviceConnected = connected && writesAllowed(),
                 onSave = actions::saveActivePreset,
                 onRename = actions::renameActivePreset,
                 onSetDefault = actions::setActiveAsDefault,
@@ -141,7 +143,9 @@ fun PresetContextMenuItems(
             DropdownMenuItem(text = { Text("‹ Copy to…", color = c.secondaryLabel) }, onClick = { copyOpen = false })
             HorizontalDivider()
             for (dest in slotLabels.indices) {
-                if (dest != activeSlot) DropdownMenuItem(text = { Text(slotLabels[dest]) }, onClick = { run { onCopyTo(dest) } })
+                if (dest != activeSlot) {
+                    DropdownMenuItem(text = { Text(slotLabels[dest]) }, onClick = { run { onCopyTo(dest) } }, enabled = isDeviceConnected)
+                }
             }
         } else {
             DropdownMenuItem(text = { Text("Save") }, onClick = { run(onSave) }, enabled = isDeviceConnected)
