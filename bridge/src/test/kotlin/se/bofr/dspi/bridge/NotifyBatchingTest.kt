@@ -1,6 +1,7 @@
 package se.bofr.dspi.bridge
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -112,6 +113,56 @@ class NotifyBatchingTest {
         assertTrue(BridgeEvent.SiggenNotified in events)
         assertTrue(BridgeEvent.CsNotified(aux = true, learn = false) in events)
         assertEquals(rev, b.stateRevision.value) // no NOTIFY_STATE: no stateChanged
+    }
+
+    /** Review N1: a failing drain is reported, does not kill the scope, and the next wake still drains. */
+    @Test
+    fun aThrowingDrainIsContained() = runTest {
+        var fail = true
+        val core =
+            object : FakeDspiCore() {
+                override fun processNotifications(): se.bofr.dspi.core.NotifyResult {
+                    if (fail) {
+                        fail = false
+                        throw IllegalStateException("decode failed")
+                    }
+                    return super.processNotifications()
+                }
+            }
+        val b = newBridge(core)
+        b.setUiVisible(false)
+        attach(b, core)
+        val events = collectEvents(b)
+        advanceTimeBy(100)
+        core.simulateUserVolume(-25f)
+        advanceTimeBy(40)
+        runCurrent()
+        assertTrue(events.any { it is BridgeEvent.CommandFailed && it.command == "processNotifications" })
+        core.simulateUserVolume(-26f)
+        advanceTimeBy(40)
+        runCurrent()
+        assertEquals(-26f, b.userVolumeDB)
+    }
+
+    /** Review N6 / B9a: on NOTIFY_INPUT_FORMAT the status is polled before the state is published (Qt order). */
+    @Test
+    fun inputFormatPollsTheStatusBeforeStateChanged() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        b.setUiVisible(false) // the only status poll is the notification's
+        attach(b, core)
+        advanceTimeBy(100)
+        val pollsAtEmission = mutableListOf<Int>()
+        backgroundScope.launch(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)) {
+            b.stateRevision.collect { pollsAtEmission += core.callCount("fetchStatus") }
+        }
+        runCurrent()
+        val before = core.callCount("fetchStatus")
+        core.simulateRemote(flags = DspiConstants.NOTIFY_STATE or DspiConstants.NOTIFY_INPUT_FORMAT, text = "INPUT_FORMAT")
+        advanceTimeBy(40)
+        runCurrent()
+        assertEquals(before + 1, core.callCount("fetchStatus"))
+        assertEquals(before + 1, pollsAtEmission.last())
     }
 
     /** Review B1: a wake that lands while a drain is in flight is not lost. */

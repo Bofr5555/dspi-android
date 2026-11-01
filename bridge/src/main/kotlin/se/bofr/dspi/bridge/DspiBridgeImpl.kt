@@ -108,8 +108,13 @@ class DspiBridgeImpl(
     private val ops = DangerousOpsImpl(clock)
     override val dangerousOps: DangerousOps get() = ops
 
-    /** Spend [token] for [op] or throw [DangerousOpNotConfirmed] — before any device traffic. */
-    internal fun requireToken(token: ConfirmationToken, op: DangerousOp) = ops.require(token, op)
+    /**
+     * Check [token] for [op] or throw [DangerousOpNotConfirmed] — before any
+     * device traffic. Spent only while connected (review N2): a call made
+     * while disconnected fails with its usual no-reply value and leaves the
+     * token valid; an invalid token throws either way.
+     */
+    internal fun requireToken(token: ConfirmationToken, op: DangerousOp) = ops.require(token, op, spend = connected)
 
     private val map: ChannelMap get() = ChannelMap(current.numInputChannels, current.numOutputChannels)
 
@@ -383,13 +388,18 @@ class DspiBridgeImpl(
                 draining = true
                 try {
                     processNotifications()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Never let a drain failure reach the app scope (review N1)
+                    emit(BridgeEvent.CommandFailed("processNotifications", e))
                 } finally {
                     draining = false
-                }
-                notifyJob = null
-                if (notifyRearm) {
-                    notifyRearm = false
-                    scheduleNotifications()
+                    notifyJob = null
+                    if (notifyRearm && isActive) {
+                        notifyRearm = false
+                        scheduleNotifications()
+                    }
                 }
             }
     }

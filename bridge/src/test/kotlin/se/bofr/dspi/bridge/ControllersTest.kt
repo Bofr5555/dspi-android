@@ -1,13 +1,11 @@
 package se.bofr.dspi.bridge
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiConstants
@@ -131,7 +129,14 @@ class ControllersTest {
         assertFalse(b.cs.unsaved.value)
         assertTrue(b.cs.apply("""{"op":"binding","index":0}""").contains("\"ok\":true"))
         assertTrue(b.cs.unsaved.value)
-        assertThrows(DangerousOpNotConfirmed::class.java) { runBlocking { b.cs.apply("""{"op":"save"}""") } }
+        assertTrue(runCatching { b.cs.apply("""{"op":"save"}""") }.exceptionOrNull() is DangerousOpNotConfirmed)
+        // Text that is not a JSON operation never reaches the core (review N8)
+        val n = core.callCount("csApply")
+        assertTrue(b.cs.apply("""{"op":"save"""").contains("invalid operation"))
+        assertTrue(b.cs.apply("""["save"]""").contains("invalid operation"))
+        b.cs.sendOnly("""{op: save}""")
+        runCurrent()
+        assertEquals(n, core.callCount("csApply"))
         assertEquals(0, b.cs.save(b.dangerousOps.confirm(DangerousOp.CS_SAVE)))
         assertFalse(b.cs.unsaved.value)
         assertEquals("", b.cs.statusMessage(0))

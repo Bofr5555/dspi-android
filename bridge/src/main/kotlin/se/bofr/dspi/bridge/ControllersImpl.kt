@@ -720,11 +720,17 @@ class CsControllerImpl internal constructor(private val bridge: DspiBridgeImpl) 
      * `learnArm`, `macroFire` are ungated (D1).
      */
     override suspend fun apply(opJson: String): String {
-        if (isSave(opJson)) throw DangerousOpNotConfirmed(DangerousOp.CS_SAVE, "control-surface save goes through save(token)")
+        val op = opOf(opJson) ?: return """{"ok":false,"status":255,"error":"invalid operation"}"""
+        if (op == "save") throw DangerousOpNotConfirmed(DangerousOp.CS_SAVE, "control-surface save goes through save(token)")
         return run(opJson)
     }
 
-    private fun isSave(opJson: String) = Json.parseObject(opJson)?.str("op") == "save"
+    /**
+     * The operation name, or null for anything that is not a JSON object with
+     * a string `op`: such text is never handed to the core, so a parser
+     * disagreement cannot slip a save past the CS_SAVE gate (review N8).
+     */
+    private fun opOf(opJson: String): String? = runCatching { Json.parseObject(opJson)?.str("op") }.getOrNull()
 
     private suspend fun run(opJson: String): String {
         if (!bridge.connected) return """{"ok":false,"status":255}"""
@@ -752,7 +758,8 @@ class CsControllerImpl internal constructor(private val bridge: DspiBridgeImpl) 
 
     /** An aux level while its slider is dragged: sent, the model isn't refreshed until the release commits with [apply]. */
     override fun sendOnly(opJson: String) {
-        if (isSave(opJson)) throw DangerousOpNotConfirmed(DangerousOp.CS_SAVE, "control-surface save goes through save(token)")
+        val op = opOf(opJson) ?: return
+        if (op == "save") throw DangerousOpNotConfirmed(DangerousOp.CS_SAVE, "control-surface save goes through save(token)")
         if (!bridge.connected) return
         bridge.scope.launch(bridge.ffi) { runCatching { bridge.core.csApply(opJson) } }
     }
