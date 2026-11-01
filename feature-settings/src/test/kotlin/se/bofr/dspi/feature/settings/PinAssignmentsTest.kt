@@ -63,7 +63,13 @@ class PinAssignmentsTest {
 
     @Test
     fun rp2040HasOneUnnumberedI2sPair() {
-        val c = base.copy(platformName = "RP2040", numPinOutputs = 3, outputPins = listOf(6, 7, 10, 0, 0), i2sInputChannels = 8)
+        val c = base.copy(
+            platformName = "RP2040",
+            numPinOutputs = 3,
+            outputPins = listOf(6, 7, 10, 0, 0),
+            i2sInputChannels = 8,
+            caps = OutputConfigSnapshot.FULL_CAPS.copy(i2sMultichannelInput = false, adatOutSupported = false, adatInputSupported = false)
+        )
         assertEquals("I2S RX", ctx(c).pinInUseBy(1))
         assertNull(ctx(c).pinInUseBy(2))
         assertEquals("Subwoofer", ctx(c).pinInUseBy(10))

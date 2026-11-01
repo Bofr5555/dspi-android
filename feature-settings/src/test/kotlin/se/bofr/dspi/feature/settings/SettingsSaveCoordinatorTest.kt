@@ -14,6 +14,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.bridge.ConfirmationToken
 import se.bofr.dspi.bridge.DangerousOp
+import se.bofr.dspi.bridge.DangerousOpNotConfirmed
 import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.DspiConstants
@@ -45,18 +46,16 @@ class SettingsSaveCoordinatorTest {
     private val independent = demoDspState().copy(outputConfigMode = GlobalSettingsDraft.OUTPUT_CONFIG_MODE_INDEPENDENT)
 
     @Test
-    fun aPickerAppliesAtOnceAndMarksTheOutputConfigDirty() = runTest {
+    fun aPickerBeginsTheBridgeEditAndAppliesAtOnce() = runTest {
         val r = rig(independent)
         val c = r.coordinator
         val mark = r.core.calls.size
         c.applyHardware(c.hardwareChanges.outputPin(c.deviceSnapshot(), 0, 0))
         runCurrent()
         assertEquals(listOf("setOutputPin(0, 0)"), r.writes(mark))
-        assertTrue(c.outputConfigDirty.value)
-        assertTrue(c.outputDirty())
-        assertEquals(6, c.outputBaseline.outputPins[0])
-        assertEquals(0, c.deviceSnapshot().outputPins[0])
-        assertEquals("Output 1 GPIO set to GPIO 0" to false, c.hardwareStatus.value)
+        assertTrue(r.bridge.outputConfigDirty.value)
+        assertTrue(c.hasPendingChanges())
+        assertEquals("Output 1 reassigned to GPIO 0" to false, c.hardwareStatus.value)
     }
 
     @Test
@@ -76,6 +75,21 @@ class SettingsSaveCoordinatorTest {
     }
 
     @Test
+    fun aDangerousOpNotConfirmedIsRethrownNotReported() = runTest {
+        val r = rig()
+        var caught: Throwable? = null
+        val handler = kotlinx.coroutines.CoroutineExceptionHandler { _, e -> caught = e }
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + StandardTestDispatcher(testScheduler) + handler)
+        val c = SettingsSaveCoordinator(r.bridge, scope)
+        c.applyHardware(
+            HardwareChange("bad", "p", "Bad", "a", "b", apply = { throw DangerousOpNotConfirmed(DangerousOp.HARDWARE_APPLY, "spent") })
+        )
+        runCurrent()
+        assertTrue(caught is DangerousOpNotConfirmed)
+        assertNull(c.hardwareStatus.value)
+    }
+
+    @Test
     fun withPresetModeAppliesButNothingIsPending() = runTest {
         val r = rig()
         val c = r.coordinator
@@ -83,7 +97,18 @@ class SettingsSaveCoordinatorTest {
         c.applyHardware(c.hardwareChanges.mckMultiplier(c.deviceSnapshot(), 1))
         runCurrent()
         assertEquals(listOf("setMckMultiplier(1)"), r.writes(mark))
-        assertFalse(c.outputConfigDirty.value)
+        assertFalse(r.bridge.outputConfigDirty.value)
+        assertFalse(c.hasPendingChanges())
+    }
+
+    @Test
+    fun hardwareUnsavedAloneNeverRaisesTheBar() = runTest {
+        // A pin call outside Settings (no beginOutputEdit) sets hardwareUnsaved only
+        val r = rig(independent)
+        val c = r.coordinator
+        r.bridge.setMckMultiplier(r.bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY), 1)
+        runCurrent()
+        assertTrue(r.bridge.hardwareUnsaved.value)
         assertFalse(c.hasPendingChanges())
     }
 
@@ -92,7 +117,7 @@ class SettingsSaveCoordinatorTest {
         val r = rig(independent)
         val c = r.coordinator
         assertNull(c.applyHardware(c.hardwareChanges.outputPin(c.deviceSnapshot(), 0, 6)))
-        assertFalse(c.outputConfigDirty.value)
+        assertFalse(r.bridge.outputConfigDirty.value)
     }
 
     @Test
@@ -110,7 +135,6 @@ class SettingsSaveCoordinatorTest {
         c.applyHardware(c.hardwareChanges.spdifInputCount(c.deviceSnapshot(), 2))
         runCurrent()
         assertEquals(listOf("setSpdifInputEnabled(3, false)", "setSpdifInputEnabled(2, false)"), r.writes(mark))
-        // ADAT enable listed before its pin still goes after it
         mark = r.core.calls.size
         val dev = c.deviceSnapshot()
         c.applyHardware(listOf(c.hardwareChanges.adatOutEnabled(dev, true), c.hardwareChanges.adatOutPin(dev, 3)))
@@ -119,16 +143,34 @@ class SettingsSaveCoordinatorTest {
     }
 
     @Test
-    fun aRefusalStopsTheActionWithTheMacOsMessage() = runTest {
+    fun aRefusalStopsTheActionAndNamesTheOwner() = runTest {
         val r = rig()
         val c = r.coordinator
         val dev = c.deviceSnapshot()
+        val pins = c.pinContext()
         val mark = r.core.calls.size
-        // Output 2 onto Output 1's pin: the fake refuses with PIN_IN_USE
-        c.applyHardware(listOf(c.hardwareChanges.outputPin(dev, 1, 6), c.hardwareChanges.outputPin(dev, 2, 0)))
+        c.applyHardware(listOf(c.hardwareChanges.outputPin(dev, 1, 6, pins), c.hardwareChanges.outputPin(dev, 2, 0, pins)))
         runCurrent()
         assertEquals(listOf("setOutputPin(1, 6)"), r.writes(mark))
-        assertEquals("GPIO 6 is already in use by another output" to true, c.hardwareStatus.value)
+        assertEquals("GPIO 6 is already assigned to Output 1" to true, c.hardwareStatus.value)
+    }
+
+    @Test
+    fun aSubPinRefusedAsActiveCyclesThePdmOutput() = runTest {
+        val r = rig()
+        val c = r.coordinator
+        val dev = c.deviceSnapshot()
+        // The firmware refuses while the sub plays; macOS assignOutputPin retries around a disable
+        r.core.failNext("setOutputPin", 1) { se.bofr.dspi.core.DspiException.Refused(DspiConstants.PIN_CONFIG_OUTPUT_ACTIVE) }
+        val mark = r.core.calls.size
+        c.applyHardware(c.hardwareChanges.outputPin(dev, dev.pdmIndex, 3))
+        runCurrent()
+        val w = r.writes(mark).filter { it.startsWith("setOutput") }
+        assertEquals("setOutputPin(${dev.pdmIndex}, 3)", w.first())
+        assertTrue(w[1].startsWith("setOutputEnable") && w[1].endsWith("false)"))
+        assertEquals("setOutputPin(${dev.pdmIndex}, 3)", w[2])
+        assertTrue(w[3].startsWith("setOutputEnable") && w[3].endsWith("true)"))
+        assertEquals("Subwoofer reassigned to GPIO 3" to false, c.hardwareStatus.value)
     }
 
     @Test
@@ -139,12 +181,11 @@ class SettingsSaveCoordinatorTest {
         runCurrent()
         c.editGlobal { it.copy(presetMasterVolumeMode = GlobalSettingsDraft.MASTER_VOLUME_MODE_WITH_PRESET) }
         val mark = r.core.calls.size
-        val result = c.save()
+        c.onSave()
         runCurrent()
         assertEquals(listOf("setMasterVolumeMode(1)", "saveOutputConfig"), r.writes(mark))
-        assertTrue(result!!.ok)
-        assertFalse(c.outputConfigDirty.value)
-        assertFalse(c.globalUserEdited.value)
+        assertTrue(c.lastResult.value!!.ok)
+        assertFalse(c.hasPendingChanges())
     }
 
     @Test
@@ -155,13 +196,29 @@ class SettingsSaveCoordinatorTest {
         c.editGlobal { it.copy(presetDefaultSlot = 3) }
         runCurrent()
         val mark = r.core.calls.size
-        c.save()
+        c.onSave()
         runCurrent()
         assertEquals(listOf("setPresetStartup(0, 3)"), r.writes(mark))
     }
 
     @Test
-    fun revertReappliesTheBaselineInTheMacOsOrder() = runTest {
+    fun saveTokensAreMintedOnTheTapAndRevoked() = runTest {
+        val r = rig(independent)
+        val c = r.coordinator
+        c.applyHardware(c.hardwareChanges.mckMultiplier(c.deviceSnapshot(), 1))
+        runCurrent()
+        val t = r.bridge.dangerousOps.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)
+        c.save(t, null)
+        runCurrent()
+        assertFalse(r.bridge.dangerousOps.isValid(t))
+        // A token for something not pending is revoked unused
+        val cs = r.bridge.dangerousOps.confirm(DangerousOp.CS_SAVE)
+        c.save(null, cs)
+        assertFalse(r.bridge.dangerousOps.isValid(cs))
+    }
+
+    @Test
+    fun revertRestoresTheBaselineAndDismissesTheBar() = runTest {
         val r = rig(independent)
         val c = r.coordinator
         c.applyHardware(c.hardwareChanges.mckMultiplier(c.deviceSnapshot(), 1))
@@ -174,15 +231,16 @@ class SettingsSaveCoordinatorTest {
         c.onRevert()
         runCurrent()
         assertEquals(listOf("setOutputType(1, 0)", "setOutputPin(1, 7)", "setMckMultiplier(0)"), r.writes(mark))
-        assertFalse(c.outputConfigDirty.value)
-        assertEquals(c.outputBaseline.outputPins, c.deviceSnapshot().outputPins)
+        assertFalse(r.bridge.outputConfigDirty.value)
+        // Review S1: the bar goes away although the restore ran pin setters
+        assertFalse(c.hasPendingChanges())
     }
 
     @Test
     fun revertOfTheGlobalDraftAloneSendsNothing() = runTest {
         val r = rig()
         val c = r.coordinator
-        c.editGlobal { it.copy(presetStartupMode = 1) }
+        c.editGlobal { it.copy(presetStartupMode = GlobalSettingsDraft.STARTUP_LAST_ACTIVE) }
         val mark = r.core.calls.size
         c.onRevert()
         runCurrent()
@@ -191,27 +249,39 @@ class SettingsSaveCoordinatorTest {
     }
 
     @Test
-    fun aGlobalFieldEditedBackIsNotDirty() = runTest {
+    fun theGlobalDraftIsEditableOffline() = runTest {
         val r = rig()
         val c = r.coordinator
-        c.editGlobal { it.copy(presetStartupMode = 1) }
+        r.bridge.detachDevice(r.core.serial)
+        runCurrent()
+        c.editGlobal { it.copy(presetStartupMode = GlobalSettingsDraft.STARTUP_LAST_ACTIVE) }
         assertTrue(c.globalDirty())
-        c.editGlobal { it.copy(presetStartupMode = 0) }
+        c.onRevert()
+        runCurrent()
         assertFalse(c.globalDirty())
-        assertEquals(null, c.save())
     }
 
     @Test
-    fun anotherDeviceDiscardsPendingStateButARePlugKeepsIt() = runTest {
-        val r = rig(independent)
+    fun aGlobalFieldEditedBackIsNotDirty() = runTest {
+        val r = rig()
+        val c = r.coordinator
+        c.editGlobal { it.copy(presetStartupMode = GlobalSettingsDraft.STARTUP_LAST_ACTIVE) }
+        assertTrue(c.globalDirty())
+        c.editGlobal { it.copy(presetStartupMode = GlobalSettingsDraft.STARTUP_SPECIFIED) }
+        assertFalse(c.globalDirty())
+        assertNull(c.save(null, null))
+    }
+
+    @Test
+    fun anotherDeviceDropsTheGlobalDraftButARePlugKeepsIt() = runTest {
+        val r = rig()
         val c = r.coordinator
         c.noteSelectedDevice(r.core.serial)
-        c.applyHardware(c.hardwareChanges.mckMultiplier(c.deviceSnapshot(), 1))
-        runCurrent()
+        c.editGlobal { it.copy(presetStartupMode = GlobalSettingsDraft.STARTUP_LAST_ACTIVE) }
         c.noteSelectedDevice(r.core.serial)
-        assertTrue(c.outputConfigDirty.value)
+        assertTrue(c.globalUserEdited.value)
         c.noteSelectedDevice("OTHER")
-        assertFalse(c.outputConfigDirty.value)
+        assertFalse(c.globalUserEdited.value)
     }
 
     @Test
@@ -220,13 +290,14 @@ class SettingsSaveCoordinatorTest {
         val c = r.coordinator
         r.bridge.cs.refresh()
         runCurrent()
-        r.bridge.cs.apply("""{"op":"name","index":0,"name":"Vol"}""")
+        c.csOp("""{"op":"name","index":0,"name":"Vol"}""")
         runCurrent()
         assertTrue(c.csDirty())
+        assertFalse(c.csBusy.value)
         c.applyHardware(c.hardwareChanges.mckMultiplier(c.deviceSnapshot(), 1))
         runCurrent()
         val mark = r.core.calls.size
-        c.save()
+        c.onSave()
         runCurrent()
         val w = r.writes(mark)
         assertEquals(listOf("saveOutputConfig"), w.filter { !it.startsWith("cs") })

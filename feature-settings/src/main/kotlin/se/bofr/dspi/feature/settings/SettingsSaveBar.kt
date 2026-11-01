@@ -37,16 +37,15 @@ import androidx.compose.ui.unit.dp
 internal fun SettingsSaveBar(coordinator: SettingsSaveCoordinator) {
     val bridge = coordinator.bridge
     val state by bridge.state.collectAsState()
-    val outputEdited by coordinator.outputConfigDirty.collectAsState()
+    val outputDirty by bridge.outputConfigDirty.collectAsState()
     val edited by coordinator.globalUserEdited.collectAsState()
-    val hwUnsaved by bridge.hardwareUnsaved.collectAsState()
     val csUnsaved by bridge.cs.unsaved.collectAsState()
     val csBusy by coordinator.csBusy.collectAsState()
     val saving by coordinator.saving.collectAsState()
     val result by coordinator.lastResult.collectAsState()
     val connected = bridge.status.collectAsState().value.connected
     @Suppress("UNUSED_EXPRESSION")
-    listOf(outputEdited, edited, hwUnsaved, csUnsaved) // recompose on any of them
+    listOf(outputDirty, edited, csUnsaved) // recompose on any of them
 
     val hasPending = coordinator.hasPendingChanges(state)
     val failures = result?.failures.orEmpty()

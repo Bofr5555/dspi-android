@@ -16,6 +16,7 @@ import se.bofr.dspi.bridge.ConfirmationToken
  * @param dependsOn keys that must be applied first when several calls make up
  *   one user action.
  * @param statusText the failure sentence (macOS status-row wording).
+ * @param successText the success sentence (macOS's where it has one).
  */
 data class HardwareChange(
     val key: String,
@@ -25,7 +26,8 @@ data class HardwareChange(
     val newDisplay: String,
     val apply: suspend (ConfirmationToken) -> Int,
     val dependsOn: List<String> = emptyList(),
-    val statusText: ((Int) -> String)? = null
+    val statusText: ((Int) -> String)? = null,
+    val successText: String? = null
 )
 
 object HardwareChangeOrder {

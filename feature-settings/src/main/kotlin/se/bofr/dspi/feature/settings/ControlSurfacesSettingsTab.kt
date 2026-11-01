@@ -18,10 +18,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DspiBridge
 
 /** Which Control page (macOS `ControlSurfacesSettingsTab.Section`). */
@@ -32,22 +30,12 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
     val connected = bridge.status.collectAsState().value.connected
     val loaded by bridge.cs.loaded.collectAsState()
     val busy by coordinator.csBusy.collectAsState()
-    val scope = rememberCoroutineScope()
     var renaming by remember { mutableStateOf<Int?>(null) }
-    var status by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    val status by coordinator.csStatus.collectAsState()
 
-    /** Run one deferred operation, serialised on the shared status channel. */
+    /** One deferred operation, run app-scoped in the coordinator (E9). */
     fun op(json: String) {
-        coordinator.beginCsOperation()
-        scope.launch {
-            try {
-                val r = CsJson.parseObject(bridge.cs.apply(json))
-                val ok = r?.bool("ok") == true
-                status = if (ok) null else (r?.str("error") ?: bridge.cs.statusMessage(r?.int("status") ?: 0xFF)) to true
-            } finally {
-                coordinator.endCsOperation()
-            }
-        }
+        coordinator.csOp(json)
     }
 
     SettingsForm {

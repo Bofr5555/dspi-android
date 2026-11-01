@@ -81,7 +81,7 @@ fun SettingsView(
     val availability = SettingsAvailability(
         connected = connected,
         platformName = bridge.platformName,
-        inputSourceSupported = OutputConfigSnapshot.from(state, bridge.platformName).inputSourceSupported,
+        inputSourceSupported = coordinator.deviceSnapshot(state).inputSourceSupported,
         controlInterfacesSupported = state.ctrlIfaceSupported,
         controlSurfacesSupported = csSupported,
         csGroupsSupported = cs.groupsSupported,
@@ -148,12 +148,10 @@ private fun SettingsSidebar(
     modifier: Modifier,
     onOpen: (SettingsCategory) -> Unit
 ) {
-    val outputEdited by coordinator.outputConfigDirty.collectAsState()
-    val hwUnsaved by coordinator.bridge.hardwareUnsaved.collectAsState()
+    val outputDirty by coordinator.bridge.outputConfigDirty.collectAsState()
     val state by coordinator.bridge.state.collectAsState()
     val edited by coordinator.globalUserEdited.collectAsState()
     val hardwarePages = setOf(SettingsCategory.OUTPUT_ASSIGNMENT, SettingsCategory.I2S_CONFIG, SettingsCategory.SPDIF_INPUT)
-    val outputDirty = (outputEdited || hwUnsaved) && coordinator.outputDirty(state)
     LazyColumn(modifier) {
         SettingsCategory.groups.forEach { (group, items) ->
             val visible = items.filter { it.isAvailable(availability) }

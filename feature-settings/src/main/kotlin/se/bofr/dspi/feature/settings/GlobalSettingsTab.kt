@@ -71,21 +71,22 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                 ChoiceRow(
                     "Mode",
                     null,
-                    listOf(0 to "Specified Default", 1 to "Last Used"),
-                    draft.presetStartupMode,
-                    enabled = connected
+                    listOf(
+                        GlobalSettingsDraft.STARTUP_SPECIFIED to "Specified Default",
+                        GlobalSettingsDraft.STARTUP_LAST_ACTIVE to "Last Used"
+                    ),
+                    draft.presetStartupMode
                 ) { v ->
                     coordinator.editGlobal { it.copy(presetStartupMode = v) }
                 }
-                if (draft.presetStartupMode == 0) {
+                if (draft.presetStartupMode == GlobalSettingsDraft.STARTUP_SPECIFIED) {
                     ChoiceRow(
                         "Default Preset",
                         null,
                         (0 until 10).map {
                             it to slotLabel(it)
                         },
-                        draft.presetDefaultSlot,
-                        enabled = connected
+                        draft.presetDefaultSlot
                     ) { v ->
                         coordinator.editGlobal { it.copy(presetDefaultSlot = v) }
                     }
@@ -118,8 +119,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                     SwitchRow(
                         "Enable Automatic Mute",
                         "Briefly mute an external DAC or amplifier to suppress loud pops during system state changes.",
-                        m.enabled,
-                        enabled = connected
+                        m.enabled
                     ) { on ->
                         coordinator.editGlobal { d ->
                             var cfg = d.dacHwMuteConfig.copy(enabled = on)
@@ -137,8 +137,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                             "Polarity",
                             null,
                             listOf(true to "Active Low", false to "Active High"),
-                            m.activeLow,
-                            enabled = connected
+                            m.activeLow
                         ) { v ->
                             coordinator.editGlobal { it.copy(dacHwMuteConfig = it.dacHwMuteConfig.copy(activeLow = v)) }
                         }
@@ -149,8 +148,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                             m.pin,
                             VALID_PINS.filter {
                                 pins.pinInUseBy(it, PinConsumer.DacMute) == null
-                            },
-                            enabled = connected
+                            }
                         ) { v ->
                             coordinator.editGlobal { it.copy(dacHwMuteConfig = it.dacHwMuteConfig.copy(pin = v)) }
                         }
@@ -158,8 +156,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                             "Hold Time",
                             "Mute-attack wait before clock-stop",
                             msOptions(listOf(5, 10, 20, 50, 100), m.holdMs),
-                            m.holdMs,
-                            enabled = connected
+                            m.holdMs
                         ) { v ->
                             coordinator.editGlobal { it.copy(dacHwMuteConfig = it.dacHwMuteConfig.copy(holdMs = v)) }
                         }
@@ -167,8 +164,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                             "Release Time",
                             "Wait after un-mute before audio resumes",
                             msOptions(listOf(0, 5, 10, 20, 50, 100), m.releaseMs),
-                            m.releaseMs,
-                            enabled = connected
+                            m.releaseMs
                         ) { v ->
                             coordinator.editGlobal { it.copy(dacHwMuteConfig = it.dacHwMuteConfig.copy(releaseMs = v)) }
                         }
@@ -205,8 +201,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                     "Mode",
                     null,
                     listOf(MASTER_VOLUME_MODE_INDEPENDENT to "Independent", MASTER_VOLUME_MODE_WITH_PRESET to "With Preset"),
-                    draft.presetMasterVolumeMode,
-                    enabled = connected
+                    draft.presetMasterVolumeMode
                 ) { v -> coordinator.editGlobal { it.copy(presetMasterVolumeMode = v) } }
                 Caption(
                     if (draft.presetMasterVolumeMode == MASTER_VOLUME_MODE_INDEPENDENT) {
@@ -224,8 +219,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                     "Mode",
                     null,
                     listOf(OUTPUT_CONFIG_MODE_INDEPENDENT to "Independent", OUTPUT_CONFIG_MODE_WITH_PRESET to "With Preset"),
-                    draft.presetOutputConfigMode,
-                    enabled = connected
+                    draft.presetOutputConfigMode
                 ) { v -> coordinator.editGlobal { it.copy(presetOutputConfigMode = v) } }
                 Caption(
                     if (draft.presetOutputConfigMode == OUTPUT_CONFIG_MODE_INDEPENDENT) {

@@ -69,8 +69,30 @@ fun ControlInterfacesSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCo
     var uartApplying by remember { mutableStateOf(false) }
     var i2cApplying by remember { mutableStateOf(false) }
 
-    // Refresh live status/config in case another host changed it
-    LaunchedEffect(connected) { if (connected) bridge.refreshCtrlIfaces() }
+    // Refresh live status/config in case another host changed it; a drop
+    // mid-apply never answers, so release the Apply buttons
+    LaunchedEffect(connected) {
+        if (connected) {
+            bridge.refreshCtrlIfaces()
+        } else {
+            uartApplying = false
+            i2cApplying = false
+        }
+    }
+    // Drafts belong to the selected device: discard them on a switch (macOS onChange(selectedDevice))
+    val serial = bridge.devices.collectAsState().value.selectedSerial
+    var lastSerial by remember { mutableStateOf(serial) }
+    LaunchedEffect(serial) {
+        if (serial != lastSerial) {
+            lastSerial = serial
+            uartDraft = state.uart
+            i2cDraft = state.i2c
+            uartStatus = null
+            i2cStatus = null
+            uartApplying = false
+            i2cApplying = false
+        }
+    }
     // Re-seed clean drafts when the device's config changes
     LaunchedEffect(state.uart, state.i2c) {
         if (!uartApplying && uartDraft == uartBase) uartDraft = state.uart

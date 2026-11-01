@@ -2,15 +2,16 @@
 // (+ the HardwareSettingsTab / DSPViewModel capability helpers it is read with).
 package se.bofr.dspi.feature.settings
 
+import se.bofr.dspi.bridge.HardwareCaps
 import se.bofr.dspi.core.DspState
 
 /**
  * The device-global hardware configuration (pins, output types, I2S clocks,
  * S/PDIF / I2S / ADAT inputs) as the Settings pages show it.
  *
- * As on macOS, hardware edits apply live to the device's RAM; this snapshot
- * is the baseline [SettingsSaveCoordinator] captures at the first edit since
- * the last clean point and re-applies on Revert (limiters included).
+ * What the hardware pages show and the pin authority decides over; the
+ * revert baseline itself is the bridge's (`beginOutputEdit` /
+ * `revertOutputConfig`, F2).
  *
  * Indices: [outputPins] has `numOutputSlots + 1` live entries (the last is the
  * PDM subwoofer); [spdifRxPins] 4 (input 1..4); [i2sRxPins] 4 pairs.
@@ -40,11 +41,8 @@ data class OutputConfigSnapshot(
     val adatInputPin: Int = PIN_UNSET,
     val adatInputClockMode: Int = 0,
     val inputSource: Int = 0,
-    // Output limiters (macOS `limiterOutputs`), per output index
-    val limiterEnabled: List<Boolean> = emptyList(),
-    val limiterThresholdDb: List<Float> = emptyList(),
-    val limiterReleaseMs: List<Float> = emptyList(),
-    val limiterLinkGroup: List<Int> = emptyList()
+    /** What the firmware supports (`DspiBridge.hardwareCaps`); defaults: an RP2350 on V32. */
+    val caps: HardwareCaps = FULL_CAPS
 ) {
     val isRp2040: Boolean get() = platformName == "RP2040"
     val isRp2350: Boolean get() = platformName == "RP2350"
@@ -59,17 +57,18 @@ data class OutputConfigSnapshot(
     val anySlotIsI2S: Boolean get() = (0 until numOutputSlots).any { outputSlotTypes.getOrElse(it) { 0 } == OUTPUT_TYPE_I2S }
 
     // ── Capabilities (macOS DSPViewModel flags; inferred from the platform, D-SETTINGS-3) ──
+    /** No caps flag for it: STM32 has no input switching (macOS `inputSourceSupported`). */
     val inputSourceSupported: Boolean get() = !isStm32
-    val multiSpdifSupported: Boolean get() = !isStm32
+    val multiSpdifSupported: Boolean get() = caps.multiSpdifSupported
 
     /** S/PDIF inputs the receiver can switch between. */
-    val spdifInputCount: Int get() = if (multiSpdifSupported) 4 else 1
-    val i2sInputSupported: Boolean get() = !isStm32
-    val i2sMaxPairs: Int get() = if (isRp2350) 4 else 1
-    val i2sClockModeSupported: Boolean get() = !isStm32
-    val i2sClockPinModeSupported: Boolean get() = !isStm32
-    val adatSupported: Boolean get() = isRp2350
-    val adatInputSupported: Boolean get() = isRp2350
+    val spdifInputCount: Int get() = if (caps.multiSpdifSupported) caps.spdifInputCount.coerceIn(1, 4) else 1
+    val i2sInputSupported: Boolean get() = caps.i2sInputSupported
+    val i2sMaxPairs: Int get() = if (caps.i2sMultichannelInput) 4 else 1
+    val i2sClockModeSupported: Boolean get() = caps.i2sClockModeSupported
+    val i2sClockPinModeSupported: Boolean get() = caps.i2sClockPinModeSupported
+    val adatSupported: Boolean get() = caps.adatOutSupported
+    val adatInputSupported: Boolean get() = caps.adatInputSupported
 
     /** Pairs whose data pins are live (only those reserve their pins). */
     val i2sActivePairs: Int get() = (i2sInputChannels / 2).coerceIn(1, 4).coerceAtMost(i2sMaxPairs)
@@ -96,6 +95,18 @@ data class OutputConfigSnapshot(
     }
 
     companion object {
+        /** Everything supported (previews, tests). */
+        val FULL_CAPS = HardwareCaps(
+            multiSpdifSupported = true,
+            spdifInputCount = 4,
+            i2sInputSupported = true,
+            i2sMultichannelInput = true,
+            i2sClockModeSupported = true,
+            i2sClockPinModeSupported = true,
+            adatOutSupported = true,
+            adatInputSupported = true,
+            limiterSupported = true
+        )
         const val PIN_UNSET = 0xFF
         const val ADAT_PIN_DEFAULT = 12
         const val OUTPUT_TYPE_SPDIF = 0
@@ -115,7 +126,7 @@ data class OutputConfigSnapshot(
         /** I2S input rates by the core's index. */
         val INPUT_RATE_LABELS = listOf("44.1 kHz", "48 kHz", "96 kHz")
 
-        fun from(s: DspState, platformName: String): OutputConfigSnapshot = OutputConfigSnapshot(
+        fun from(s: DspState, platformName: String, caps: HardwareCaps): OutputConfigSnapshot = OutputConfigSnapshot(
             platformName = platformName,
             numPinOutputs = s.numPinOutputs,
             outputPins = s.outputPins,
@@ -138,10 +149,7 @@ data class OutputConfigSnapshot(
             adatInputPin = s.adatInputPin,
             adatInputClockMode = s.adatInputClockMode,
             inputSource = s.inputSource,
-            limiterEnabled = s.limiterEnabled,
-            limiterThresholdDb = s.limiterThresholdDb,
-            limiterReleaseMs = s.limiterReleaseMs,
-            limiterLinkGroup = s.limiterLinkGroup
+            caps = caps
         )
     }
 }

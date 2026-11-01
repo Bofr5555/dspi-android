@@ -52,11 +52,18 @@ class AppSettingsTest {
 
     @Test
     fun preferencesUseTheMacOsKeyNames() {
-        val names = AppSettingsFields.keyNames
-        assertEquals(names.size, names.toSet().size)
-        assertTrue("rtaDashboardSource" in names)
-        assertTrue("graphGridOpacity" in names)
-        assertTrue("settingsSelectedTab" in names)
+        // Every macOS AppSettings @AppStorage key (DSPi_ConsoleApp.swift) + "settingsSelectedTab" (SettingsView)
+        val macOs = listOf(
+            "showGraphGlow", "graphLineWidth", "graphAnimationSpeed", "showPhase", "phaseUnwrapped",
+            "showFrequencyLabels", "showDBLabels", "showFrequencyReadout", "showLevelReadout", "showFrequencyGrid",
+            "showDBGrid", "graphGridOpacity", "graphDBRange", "graphDBCenter", "graphHeight", "graphMinFreq",
+            "graphMaxFreq", "dashboardCardsPerRow", "popoutGraphFollowsSelection", "showDebugInfo",
+            "rtaDashboardShowGraph", "rtaDashboardShowBars", "rtaChannelShowGraph", "rtaChannelShowBars",
+            "rtaDashboardSource", "rtaDashboardOtherSide", "rtaBarColumns", "rtaBarHeight",
+            "rtaChannelPagesShowSpectrum", "rtaGraphOpacity", "rtaFloorDB", "rtaCeilingDB", "rtaShowPeakHold",
+            "rtaSmoothingOn", "rtaFftOrder", "rtaAvgMs", "rtaPeakDecayDBs", "sidebarVolumeMode", "settingsSelectedTab"
+        )
+        assertEquals(macOs, AppSettingsFields.keyNames)
     }
 
     @Test

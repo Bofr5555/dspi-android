@@ -39,16 +39,19 @@ class HardwareChanges(private val bridge: DspiBridge) {
         oldDisplay = typeName(device.outputSlotTypes.getOrElse(slot) { 0 }),
         newDisplay = typeName(kind),
         apply = { t -> bridge.setOutputType(t, slot, kind).code },
-        statusText = { st ->
-            when (st) {
-                DspiConstants.PIN_CONFIG_OUTPUT_ACTIVE -> "Disable Output ${slot + 1} in the Matrix Mixer before changing its type"
-                DspiConstants.PIN_CONFIG_PIN_IN_USE -> "The I2S clock pins are in use by another function"
-                else -> "Failed to change Output ${slot + 1} to ${typeName(kind)}"
-            }
-        }
+        statusText = { "Failed to change Output ${slot + 1} type" },
+        successText = "Output ${slot + 1} set to ${typeName(kind)}"
     )
 
-    fun outputPin(device: OutputConfigSnapshot, index: Int, pin: Int): HardwareChange {
+    /** The output channel index of the PDM sub (for its enable), -1 if none. */
+    private fun pdmOutputIndex(): Int = (0 until bridge.numOutputChannels).firstOrNull { bridge.isPdmOutput(it) } ?: -1
+
+    /**
+     * macOS `setPinForOutput` → `assignOutputPin`: when the firmware refuses
+     * because the PDM sub is active, disable it, set the pin, re-enable it.
+     * [pins] names the owner of a taken pin.
+     */
+    fun outputPin(device: OutputConfigSnapshot, index: Int, pin: Int, pins: PinContext? = null, failText: String? = null): HardwareChange {
         val name = outputName(device, index)
         return HardwareChange(
             key = "outputs.out$index.pin",
@@ -56,31 +59,43 @@ class HardwareChanges(private val bridge: DspiBridge) {
             fieldLabel = "$name GPIO",
             oldDisplay = gpio(device.outputPins.getOrElse(index) { PIN_UNSET }),
             newDisplay = gpio(pin),
-            apply = { t -> bridge.setOutputPin(t, index, pin).code },
+            apply = { t ->
+                var st = bridge.setOutputPin(t, index, pin).code
+                val pdm = pdmOutputIndex()
+                if (st == DspiConstants.PIN_CONFIG_OUTPUT_ACTIVE && index == device.pdmIndex && pdm >= 0) {
+                    bridge.setOutputEnable(pdm, false)
+                    st = bridge.setOutputPin(t, index, pin).code
+                    bridge.setOutputEnable(pdm, true)
+                }
+                st
+            },
             dependsOn = if (index < device.numOutputSlots) listOf("outputs.slot$index.type") else emptyList(),
             statusText = { st ->
-                when (st) {
+                failText ?: when (st) {
                     DspiConstants.PIN_CONFIG_INVALID_PIN -> "GPIO $pin is not available on this platform"
-                    DspiConstants.PIN_CONFIG_PIN_IN_USE -> "GPIO $pin is already in use by another output"
+                    DspiConstants.PIN_CONFIG_PIN_IN_USE ->
+                        pins?.pinInUseBy(pin, PinConsumer.Output(index))?.let { "GPIO $pin is already assigned to $it" }
+                            ?: "GPIO $pin is already in use by another output"
                     DspiConstants.PIN_CONFIG_INVALID_OUTPUT -> "Invalid output index"
-                    DspiConstants.PIN_CONFIG_OUTPUT_ACTIVE ->
-                        if (index ==
-                            device.pdmIndex
-                        ) {
-                            "PDM output must be disabled before changing its pin"
-                        } else {
-                            "Disable this output in the Matrix Mixer before changing its pin"
-                        }
+                    DspiConstants.PIN_CONFIG_OUTPUT_ACTIVE -> "PDM output must be disabled before changing its pin"
                     else -> "USB communication error"
                 }
-            }
+            },
+            successText = "$name reassigned to GPIO $pin"
         )
     }
 
-    /** macOS "Reset Pins": every output back to its default pin. */
-    fun resetPins(device: OutputConfigSnapshot): List<HardwareChange> =
-        (0 until device.numOutputSlots).map { outputPin(device, it, OutputConfigSnapshot.DEFAULT_DATA_PINS.getOrElse(it) { 6 + it }) } +
-            outputPin(device, device.pdmIndex, OutputConfigSnapshot.DEFAULT_PDM_PIN)
+    /** macOS "Reset Pins" (`resetToDefaults`): every output back to its default pin. */
+    fun resetPins(device: OutputConfigSnapshot): List<HardwareChange> = (0 until device.numOutputSlots).map {
+        outputPin(
+            device,
+            it,
+            OutputConfigSnapshot.DEFAULT_DATA_PINS.getOrElse(it) {
+                6 + it
+            },
+            failText = "Failed to reset Output ${it + 1}"
+        )
+    } + outputPin(device, device.pdmIndex, OutputConfigSnapshot.DEFAULT_PDM_PIN, failText = "Failed to reset Subwoofer")
 
     fun adatOutEnabled(device: OutputConfigSnapshot, enabled: Boolean) = HardwareChange(
         key = "outputs.adat.enable",
@@ -96,7 +111,8 @@ class HardwareChanges(private val bridge: DspiBridge) {
                 DspiConstants.PIN_CONFIG_INVALID_OUTPUT -> "ADAT output isn't supported on this device"
                 else -> if (enabled) "Failed to enable ADAT output" else "Failed to disable ADAT output"
             }
-        }
+        },
+        successText = "ADAT output ${if (enabled) "enabled" else "disabled"}"
     )
 
     fun adatOutPin(device: OutputConfigSnapshot, pin: Int) = HardwareChange(
@@ -107,7 +123,8 @@ class HardwareChanges(private val bridge: DspiBridge) {
         newDisplay = gpio(pin),
         apply = { t -> bridge.setAdatOutPin(t, pin).code },
         dependsOn = if (device.adatEnabled) listOf("outputs.adat.enable") else emptyList(),
-        statusText = { st -> adatPinText(st, pin, "Failed to set ADAT pin") }
+        statusText = { st -> adatPinText(st, pin, "Failed to set ADAT pin") },
+        successText = "ADAT data pin set to GPIO $pin"
     )
 
     private fun adatPinText(st: Int, pin: Int, fallback: String) = when (st) {
@@ -126,6 +143,7 @@ class HardwareChanges(private val bridge: DspiBridge) {
         newDisplay = gpio(pin),
         apply = { t -> bridge.setI2sBckPin(t, OutputConfigSnapshot.I2S_BCK_ROLE_MASTER, pin).code },
         dependsOn = slotTypeKeys(device),
+        successText = "BCK pin set to GPIO $pin, LRCLK = GPIO ${pin + 1}",
         statusText = { st ->
             when (st) {
                 DspiConstants.PIN_CONFIG_OUTPUT_ACTIVE -> "All outputs must be S/PDIF before changing BCK pin"
@@ -179,7 +197,8 @@ class HardwareChanges(private val bridge: DspiBridge) {
         newDisplay = onOff(enabled),
         apply = { t -> bridge.setMckEnabled(t, enabled).code },
         dependsOn = if (enabled) listOf("i2s.mck.pin") else emptyList(),
-        statusText = { if (enabled) "Failed to enable master clock" else "Failed to disable master clock" }
+        statusText = { if (enabled) "Failed to enable master clock" else "Failed to disable master clock" },
+        successText = "Master clock ${if (enabled) "enabled" else "disabled"}"
     )
 
     fun mckPin(device: OutputConfigSnapshot, pin: Int) = HardwareChange(
@@ -206,7 +225,8 @@ class HardwareChanges(private val bridge: DspiBridge) {
         oldDisplay = mckLabel(device.mckMultiplier),
         newDisplay = mckLabel(mult),
         apply = { t -> bridge.setMckMultiplier(t, mult).code },
-        statusText = { "Failed to set MCK multiplier" }
+        statusText = { "Failed to set MCK multiplier" },
+        successText = "MCK multiplier set to ${mckLabel(mult)}"
     )
 
     fun inputRate(device: OutputConfigSnapshot, index: Int) = HardwareChange(
@@ -218,7 +238,9 @@ class HardwareChanges(private val bridge: DspiBridge) {
         apply = { t ->
             bridge.setInputRate(t, index)
             0
-        }
+        },
+        // Fire-and-forget on the bridge: no outcome to report (macOS shows none either)
+        successText = ""
     )
 
     // ── Inputs ──
@@ -232,10 +254,12 @@ class HardwareChanges(private val bridge: DspiBridge) {
         apply = { t ->
             bridge.setI2sClockMode(t, mode)
             0
-        }
+        },
+        // Fire-and-forget on the bridge: no outcome to report (macOS shows none either)
+        successText = ""
     )
 
-    fun spdifRxPin(device: OutputConfigSnapshot, index: Int, pin: Int): HardwareChange {
+    fun spdifRxPin(device: OutputConfigSnapshot, index: Int, pin: Int, pins: PinContext? = null): HardwareChange {
         val label = if (device.spdifEnabledCount > 1 || index > 0) "S/PDIF ${index + 1}" else "S/PDIF RX"
         return HardwareChange(
             key = "inputs.spdif$index.pin",
@@ -247,11 +271,14 @@ class HardwareChanges(private val bridge: DspiBridge) {
             dependsOn = if (index > 0 && device.spdifInputEnabled(index)) listOf("inputs.spdif$index.enable") else emptyList(),
             statusText = { st ->
                 when (st) {
-                    DspiConstants.PIN_CONFIG_PIN_IN_USE -> "GPIO $pin is already in use"
-                    DspiConstants.PIN_CONFIG_INVALID_PIN -> "GPIO $pin isn't available on this device"
-                    else -> "Failed to set $label pin"
+                    DspiConstants.PIN_CONFIG_PIN_IN_USE ->
+                        pins?.pinInUseBy(pin, PinConsumer.SpdifRx(index))?.let { "GPIO $pin is already assigned to $it" }
+                            ?: "GPIO $pin is already in use"
+                    DspiConstants.PIN_CONFIG_INVALID_PIN -> "GPIO $pin is not available on this platform"
+                    else -> "Failed to set S/PDIF ${index + 1} RX pin"
                 }
-            }
+            },
+            successText = "S/PDIF ${index + 1} RX pin set to GPIO $pin"
         )
     }
 

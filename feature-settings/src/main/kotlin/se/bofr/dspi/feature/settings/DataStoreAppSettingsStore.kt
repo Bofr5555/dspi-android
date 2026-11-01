@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private val Context.appSettingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "app_settings")
@@ -25,7 +26,8 @@ private val Context.appSettingsDataStore: DataStore<Preferences> by preferencesD
 /**
  * [AppSettingsStore] over Preferences DataStore. [settings] updates
  * immediately on [update] (UI stays responsive); the changed keys are written
- * in the background, and the stored values are loaded once at start.
+ * in the background. The stored values are loaded once at start; edits made
+ * before that are replayed onto them, not lost.
  */
 class DataStoreAppSettingsStore(
     private val store: DataStore<Preferences>,
@@ -33,23 +35,38 @@ class DataStoreAppSettingsStore(
 ) : AppSettingsStore {
     private val state = MutableStateFlow(AppSettings())
     override val settings: StateFlow<AppSettings> = state.asStateFlow()
-    private var edited = false
+    private val lock = Any()
+    private var loaded = false
+
+    /** Edits made before the stored values arrived; replayed onto them (review S14). */
+    private val early = ArrayList<(AppSettings) -> AppSettings>()
 
     init {
         scope.launch {
-            store.data.collect { prefs ->
-                // The first load wins over defaults; later emissions are our own writes
-                if (!edited) state.value = AppSettingsFields.read(prefs)
+            val stored = AppSettingsFields.read(store.data.first())
+            val merged = synchronized(lock) {
+                loaded = true
+                early.fold(stored) { s, f -> f(s) }.also {
+                    early.clear()
+                    state.value = it
+                }
             }
+            if (merged != stored) store.edit { AppSettingsFields.write(it, stored, merged) }
         }
     }
 
     override fun update(transform: (AppSettings) -> AppSettings) {
-        val old = state.value
-        val new = transform(old)
-        if (new == old) return
-        edited = true
-        state.value = new
+        val (old, new) = synchronized(lock) {
+            val old = state.value
+            val new = transform(old)
+            if (new == old) return
+            state.value = new
+            if (!loaded) {
+                early += transform
+                return
+            }
+            old to new
+        }
         scope.launch { store.edit { AppSettingsFields.write(it, old, new) } }
     }
 

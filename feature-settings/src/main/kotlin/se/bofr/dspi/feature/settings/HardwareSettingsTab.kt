@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import java.util.Locale
 import kotlinx.coroutines.delay
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.InputLockStatus
@@ -40,6 +41,15 @@ fun HardwareSettingsTab(page: HardwarePage, bridge: DspiBridge, coordinator: Set
     val edits = coordinator.hardwareChanges
 
     var confirmClockMode by remember { mutableStateOf<Int?>(null) }
+    var sampleRateHz by remember { mutableStateOf(0) }
+    if (page == HardwarePage.I2S) {
+        LaunchedEffect(connected) {
+            while (connected) {
+                sampleRateHz = bridge.fetchInputRate()
+                delay(2000)
+            }
+        }
+    }
 
     SettingsForm {
         if (!connected) {
@@ -47,7 +57,7 @@ fun HardwareSettingsTab(page: HardwarePage, bridge: DspiBridge, coordinator: Set
         }
         when (page) {
             HardwarePage.OUTPUTS -> outputsPage(device, pins, edits, coordinator, connected)
-            HardwarePage.I2S -> if (!device.isStm32) i2sPage(device, pins, edits, coordinator, connected)
+            HardwarePage.I2S -> if (!device.isStm32) i2sPage(sampleRateHz, device, pins, edits, coordinator, connected)
             HardwarePage.SPDIF -> inputsPage(bridge, device, pins, edits, coordinator, connected) { confirmClockMode = it }
         }
         item { StatusLine(status?.first, status?.second ?: false) }
@@ -102,23 +112,30 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
                     type,
                     enabled = connected
                 ) { coordinator.applyHardware(edits.outputType(device, slot, it)) }
-                PinRow(
-                    "GPIO",
-                    null,
-                    pin,
-                    VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.Output(slot)) == null },
-                    enabled = connected
-                ) { coordinator.applyHardware(edits.outputPin(device, slot, it)) }
+                // STM32 has no assignable pins (macOS hides the picker)
+                if (!device.isStm32) {
+                    PinRow(
+                        "GPIO",
+                        null,
+                        pin,
+                        VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.Output(slot)) == null },
+                        enabled = connected
+                    ) { coordinator.applyHardware(edits.outputPin(device, slot, it, pins)) }
+                }
                 RowDivider()
             }
             val pdm = device.pdmIndex
-            PinRow(
-                "Subwoofer",
-                "PDM",
-                device.outputPins.getOrElse(pdm) { PIN_UNSET },
-                VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.Output(pdm)) == null },
-                enabled = connected
-            ) { coordinator.applyHardware(edits.outputPin(device, pdm, it)) }
+            if (device.isStm32) {
+                SettingRow("Subwoofer", "PDM")
+            } else {
+                PinRow(
+                    "Subwoofer",
+                    "PDM",
+                    device.outputPins.getOrElse(pdm) { PIN_UNSET },
+                    VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.Output(pdm)) == null },
+                    enabled = connected
+                ) { coordinator.applyHardware(edits.outputPin(device, pdm, it, pins)) }
+            }
         }
     }
     if (device.adatSupported) {
@@ -144,10 +161,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.outputsPage(
             }
         }
     }
-    item {
-        SettingsSection(null) {
-            SettingRow("Reset Pins", "Sets every output pin back to its default. Output types are unchanged.", enabled = connected) {
-                OutlinedButton(onClick = { coordinator.applyHardware(edits.resetPins(device)) }, enabled = connected) { Text("Reset") }
+    if (!device.isStm32) {
+        item {
+            SettingsSection(null) {
+                SettingRow("Reset Pins", "Sets every output pin back to its default. Output types are unchanged.", enabled = connected) {
+                    OutlinedButton(
+                        onClick = { coordinator.applyHardware(edits.resetPins(device), "All pins reset to defaults") },
+                        enabled = connected
+                    ) { Text("Reset") }
+                }
             }
         }
     }
@@ -172,6 +194,7 @@ internal fun bckCandidates(pins: PinContext, consumer: PinConsumer, current: Int
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
+    sampleRateHz: Int,
     device: OutputConfigSnapshot,
     pins: PinContext,
     edits: HardwareChanges,
@@ -228,10 +251,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.i2sPage(
                 device.mckValidPins.filter { pins.pinInUseBy(it, PinConsumer.Mck) == null },
                 enabled = connected && !device.mckEnabled && !device.i2sSlaveActive
             ) { coordinator.applyHardware(edits.mckPin(device, it)) }
-            val locked = device.i2sInputRate >= 2
+            // macOS `mck256UnsupportedAtCurrentRate`: the live rate, not the configured one
+            val locked = sampleRateHz >= 96000
+            val rateLabel = if (sampleRateHz == 0) "unknown sample rate" else String.format(Locale.ROOT, "%.1f kHz", sampleRateHz / 1000.0)
             ChoiceRow(
                 "MCK Multiplier",
-                if (locked) "Locked to 128x at 96.0 kHz" else null,
+                if (locked) "Locked to 128x at $rateLabel" else null,
                 listOf(0 to "128x", 1 to "256x"),
                 device.mckMultiplier,
                 enabled = connected && !locked && !device.i2sSlaveActive
@@ -283,7 +308,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.inputsPage(
                         device.spdifRxPins.getOrElse(idx) { PIN_UNSET },
                         VALID_PINS.filter { pins.pinInUseBy(it, PinConsumer.SpdifRx(idx)) == null },
                         enabled = connected
-                    ) { coordinator.applyHardware(edits.spdifRxPin(device, idx, it)) }
+                    ) { coordinator.applyHardware(edits.spdifRxPin(device, idx, it, pins)) }
                 }
                 // Not a pipeline rebuild: live and per preset, as on macOS
                 val lg = bridge.state.collectAsState().value.lgSoundSyncEnabled
@@ -400,7 +425,7 @@ private fun LockStatusRow(bridge: DspiBridge, which: Int, adat: Boolean) {
     var lock by remember { mutableStateOf<InputLockStatus?>(null) }
     LaunchedEffect(which) {
         while (true) {
-            lock = bridge.fetchInputLock(which)
+            if (bridge.status.value.connected) lock = bridge.fetchInputLock(which)
             delay(1000)
         }
     }
@@ -418,8 +443,16 @@ private fun LockStatusRow(bridge: DspiBridge, which: Int, adat: Boolean) {
     }
     val text = names.getOrElse(st?.state ?: 0) { "Inactive" }
     val detail = when {
-        st != null && st.state == 3 && st.detectedRate > 0 -> "Locked to external clock at ${"%.1f".format(st.detectedRate / 1000.0)} kHz."
-        st != null && st.measuredHz > 0 -> "Waiting for external clock (measured ${"%.1f".format(st.measuredHz / 1000.0)} kHz)."
+        st != null && st.state == 3 && st.detectedRate > 0 -> "Locked to external clock at ${String.format(
+            Locale.ROOT,
+            "%.1f",
+            st.detectedRate / 1000.0
+        )} kHz."
+        st != null && st.measuredHz > 0 -> "Waiting for external clock (measured ${String.format(
+            Locale.ROOT,
+            "%.1f",
+            st.measuredHz / 1000.0
+        )} kHz)."
         else -> "Waiting for external clock."
     }
     SettingRow("Lock Status", detail) {

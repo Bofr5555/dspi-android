@@ -61,8 +61,8 @@ fun PinOverviewTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator, onO
         if (conflicts.isNotEmpty()) {
             item {
                 SettingsSection(
-                    "Unsaved Changes Conflict",
-                    footer = "Saving would be refused for these pins.",
+                    "Conflicts",
+                    footer = "These pins are claimed by more than one feature.",
                     footerColor = WarningOrange
                 ) {
                     conflicts.forEach { c ->
