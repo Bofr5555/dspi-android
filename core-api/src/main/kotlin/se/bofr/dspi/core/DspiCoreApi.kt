@@ -68,6 +68,11 @@ interface DspiCoreApi : AutoCloseable {
     @Throws(DspiException::class)
     fun refreshParams()
 
+    /**
+     * Write the whole cached state in one chunked bulk transfer. Like the
+     * core, `Disconnected` also when no image has been read yet (nothing to
+     * apply: call `fetch_all` first).
+     */
     @Throws(DspiException::class)
     fun applyAllParams()
 
@@ -325,7 +330,9 @@ interface DspiCoreApi : AutoCloseable {
     fun factoryReset()
 
     /**
-     * Reboots the device into its USB bootloader (it disappears).
+     * Reboots the device into its USB bootloader (it disappears). Always Ok,
+     * as in the core: the transfer result is ignored because the device
+     * drops off the bus (also Ok without a device).
      */
     @Throws(DspiException::class)
     fun enterBootloader()

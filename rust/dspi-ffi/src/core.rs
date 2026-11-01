@@ -29,14 +29,21 @@
 //! Threads (PLAN §5.4): every call locks the core's mutex, as the C ABI
 //! does. Listener callbacks run on the core's notify/RTA threads (or the
 //! `poll_hotplug` caller) and are invoked through `extern "C"` trampolines
-//! registered with `NotifyHub::set_waker` / `RtaHub::set_waker`; the boxed
-//! Kotlin listeners live in `Listeners`, which outlives every registration
-//! (see `Drop`). A panic or Kotlin exception inside a listener is caught and
-//! logged, never unwound through the core's threads.
+//! registered once, at construction, with `NotifyHub::set_waker` /
+//! `RtaHub::set_waker`; the Kotlin listeners live in `Listeners` (which
+//! outlives every registration, see `Drop`). A trampoline clones the
+//! listener's `Arc` out of its slot and calls it with no lock of ours held,
+//! so a callback may re-register listeners or call into the core (review
+//! F1); `set_*_listener` only swaps the slot and never takes a hub lock.
+//! Clearing a listener (None) waits for its calls in flight on other
+//! threads, so after it returns the old listener is not running. A panic
+//! or Kotlin exception inside a listener is caught and logged, never
+//! unwound through the core's threads.
 
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use dspi_core::usb::UsbError;
 use dspi_core::{filterfile, presetfile};
@@ -59,19 +66,70 @@ pub struct DspiCore {
 
 #[derive(Default)]
 struct Listeners {
-    notify: Mutex<Option<Box<dyn NotifyListener>>>,
-    rta: Mutex<Option<Box<dyn RtaListener>>>,
-    device_events: Mutex<Option<Box<dyn DeviceEvents>>>,
+    notify: Slot<dyn NotifyListener>,
+    rta: Slot<dyn RtaListener>,
+    device_events: Slot<dyn DeviceEvents>,
+}
+
+/// One registered listener plus a count of its calls in flight.
+struct Slot<T: ?Sized> {
+    current: Mutex<Option<Arc<T>>>,
+    busy: Mutex<usize>,
+    idle: Condvar,
+}
+
+impl<T: ?Sized> Default for Slot<T> {
+    fn default() -> Self {
+        Self { current: Mutex::new(None), busy: Mutex::new(0), idle: Condvar::new() }
+    }
+}
+
+thread_local! {
+    /// This thread is inside a listener call (do not wait for ourselves).
+    static IN_CALLBACK: Cell<bool> = const { Cell::new(false) };
+}
+
+impl<T: ?Sized> Slot<T> {
+    /// Replace the listener. Clearing it waits until no call of it is in
+    /// flight on another thread (a listener clearing itself does not wait).
+    fn set(&self, listener: Option<Box<T>>) {
+        let clearing = listener.is_none();
+        *lock(&self.current) = listener.map(Arc::from);
+        if clearing && !IN_CALLBACK.with(Cell::get) {
+            let mut busy = lock(&self.busy);
+            while *busy > 0 {
+                busy = self.idle.wait(busy).unwrap_or_else(|p| p.into_inner());
+            }
+        }
+    }
+
+    /// Call `f` on the current listener, holding no lock during the call.
+    fn call(&self, f: impl FnOnce(&T)) {
+        let cb = {
+            let cur = lock(&self.current);
+            let cb = cur.clone();
+            if cb.is_some() {
+                *lock(&self.busy) += 1; // counted while `current` is held: `set` sees it
+            }
+            cb
+        };
+        let Some(cb) = cb else { return };
+        let outer = IN_CALLBACK.with(|c| c.replace(true));
+        guarded(|| f(&cb));
+        IN_CALLBACK.with(|c| c.set(outer));
+        drop(cb);
+        let mut busy = lock(&self.busy);
+        *busy -= 1;
+        if *busy == 0 {
+            self.idle.notify_all();
+        }
+    }
 }
 
 impl DspiCore {
     fn core(&self) -> MutexGuard<'_, dspi_core::DspiCore> {
         // A poisoned lock means a panic inside the core; keep serving the state.
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
-    }
-
-    fn listeners_ptr(&self) -> *mut c_void {
-        &*self.listeners as *const Listeners as *mut c_void
     }
 }
 
@@ -106,9 +164,7 @@ extern "C" fn notify_trampoline(user_data: *mut c_void) {
     // SAFETY: `user_data` is `DspiCore::listeners`, alive until `Drop`
     // re-registers the waker (which waits for this call to return).
     let l = unsafe { &*(user_data as *const Listeners) };
-    if let Some(cb) = lock(&l.notify).as_ref() {
-        guarded(|| cb.on_notifications());
-    }
+    l.notify.call(|cb| cb.on_notifications());
 }
 
 extern "C" fn rta_trampoline(user_data: *mut c_void) {
@@ -117,9 +173,7 @@ extern "C" fn rta_trampoline(user_data: *mut c_void) {
     }
     // SAFETY: as in `notify_trampoline`.
     let l = unsafe { &*(user_data as *const Listeners) };
-    if let Some(cb) = lock(&l.rta).as_ref() {
-        guarded(|| cb.on_frame());
-    }
+    l.rta.call(|cb| cb.on_frame());
 }
 
 extern "C" fn noop_trampoline(_: *mut c_void) {}
@@ -156,7 +210,13 @@ impl DspiCore {
         // /dev/bus/usb), so turn discovery off before any context exists.
         #[cfg(target_os = "android")]
         let _ = disable_discovery_once();
-        Arc::new(Self { inner: Mutex::new(dspi_core::DspiCore::new()), listeners: Box::default() })
+        let core = dspi_core::DspiCore::new();
+        let listeners: Box<Listeners> = Box::default();
+        // Register the trampolines once; listeners come and go in their slots.
+        let ptr = &*listeners as *const Listeners as *mut c_void;
+        core.device_manager().notify_hub().set_waker(notify_trampoline, ptr);
+        core.device_manager().rta_hub().set_waker(Some(rta_trampoline), ptr);
+        Arc::new(Self { inner: Mutex::new(core), listeners })
     }
 
     // ═══ Android additions ═══════════════════════════════════════════
@@ -227,6 +287,9 @@ impl DspiCore {
         Ok(self.core().refresh_params()?)
     }
 
+    /// Write the whole cached state in one chunked bulk transfer. Like the
+    /// core, `Disconnected` also when no image has been read yet (nothing to
+    /// apply: call `fetch_all` first).
     pub fn apply_all_params(&self) -> Result<()> {
         Ok(self.core().apply_all_params()?)
     }
@@ -525,7 +588,9 @@ impl DspiCore {
         status(self.core().factory_reset()?)
     }
 
-    /// Reboots the device into its USB bootloader (it disappears).
+    /// Reboots the device into its USB bootloader (it disappears). Always Ok,
+    /// as in the core: the transfer result is ignored because the device
+    /// drops off the bus (also Ok without a device).
     pub fn enter_bootloader(&self) -> Result<()> {
         Ok(self.core().enter_bootloader()?)
     }
@@ -549,21 +614,24 @@ impl DspiCore {
 
     /// Register (Some) or clear (None) the arrival/departure listener.
     pub fn set_hotplug_callback(&self, listener: Option<Box<dyn DeviceEvents>>) {
-        *lock(&self.listeners.device_events) = listener;
+        self.listeners.device_events.set(listener);
     }
 
     /// libusb poll (~500 ms on desktop). No-op on Android.
     pub fn poll_hotplug(&self) {
+        // Android: libusb cannot enumerate (discovery is off); arrivals and
+        // departures come from USB broadcasts in :usb instead.
+        if cfg!(target_os = "android") {
+            return;
+        }
         // Like dspi_poll_hotplug, but the listener runs after the core lock
-        // is released, so a listener that (wrongly) calls back cannot deadlock.
+        // is released, so a listener that calls back cannot deadlock.
         let (arrivals, departures) = self.core().device_manager_mut().poll_changes();
-        if let Some(l) = lock(&self.listeners.device_events).as_ref() {
-            for serial in arrivals {
-                guarded(|| l.on_arrived(serial));
-            }
-            for serial in departures {
-                guarded(|| l.on_departed(serial));
-            }
+        for serial in arrivals {
+            self.listeners.device_events.call(|l| l.on_arrived(serial));
+        }
+        for serial in departures {
+            self.listeners.device_events.call(|l| l.on_departed(serial));
         }
     }
 
@@ -738,12 +806,9 @@ impl DspiCore {
 
     /// Register (Some) or clear (None) the wake-up listener of the notify thread.
     pub fn set_notify_listener(&self, listener: Option<Box<dyn NotifyListener>>) {
-        let hub = self.core().device_manager().notify_hub();
-        let registered = listener.is_some();
-        *lock(&self.listeners.notify) = listener;
-        if registered {
-            hub.set_waker(notify_trampoline, self.listeners_ptr());
-        }
+        // The trampoline is registered with the hub in `new`; no core or hub
+        // lock is taken here (a callback may call this).
+        self.listeners.notify.set(listener);
     }
 
     /// Apply queued notifications to the state; returns what changed.
@@ -756,18 +821,8 @@ impl DspiCore {
     /// Register (Some) or clear (None) the analyser wake-up listener. Once it
     /// returns after None, no call is in progress.
     pub fn rta_set_listener(&self, listener: Option<Box<dyn RtaListener>>) {
-        let hub = self.core().device_manager().rta_hub();
-        match listener {
-            Some(l) => {
-                *lock(&self.listeners.rta) = Some(l);
-                hub.set_waker(Some(rta_trampoline), self.listeners_ptr());
-            }
-            None => {
-                // Waits for a callback in progress (it runs under the hub's waker lock).
-                hub.set_waker(None, std::ptr::null_mut());
-                *lock(&self.listeners.rta) = None;
-            }
-        }
+        // As `set_notify_listener`; None waits for calls in flight elsewhere.
+        self.listeners.rta.set(listener);
     }
 
     /// Probe and start polling (compatible firmware only); stops on disconnect.
@@ -947,5 +1002,146 @@ impl DspiCore {
     /// What differs from the active preset, one sentence each.
     pub fn preset_changes(&self) -> Vec<String> {
         self.core().preset_changes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Listener re-entrancy (review F1). The hubs only fire with a device,
+    //! so these call the trampolines directly, as the hub threads would.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::sync::Weak;
+    use std::time::Duration;
+
+    use super::*;
+
+    fn fire_notify(core: &DspiCore) {
+        notify_trampoline(&*core.listeners as *const Listeners as *mut c_void);
+    }
+
+    fn fire_rta(core: &DspiCore) {
+        rta_trampoline(&*core.listeners as *const Listeners as *mut c_void);
+    }
+
+    struct Count(Arc<AtomicUsize>);
+    impl NotifyListener for Count {
+        fn on_notifications(&self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// On its first call, replaces itself and clears the RTA listener.
+    struct Reregister {
+        core: Weak<DspiCore>,
+        hits: Arc<AtomicUsize>,
+    }
+    impl NotifyListener for Reregister {
+        fn on_notifications(&self) {
+            let core = self.core.upgrade().unwrap();
+            core.set_notify_listener(Some(Box::new(Count(self.hits.clone()))));
+            core.rta_set_listener(None);
+            core.set_hotplug_callback(None);
+        }
+    }
+
+    #[test]
+    fn a_callback_can_reregister_listeners() {
+        let core = DspiCore::new();
+        let hits = Arc::new(AtomicUsize::new(0));
+        core.set_notify_listener(Some(Box::new(Reregister { core: Arc::downgrade(&core), hits: hits.clone() })));
+        let (tx, rx) = mpsc::channel();
+        let c = core.clone();
+        std::thread::spawn(move || {
+            fire_notify(&c); // Reregister swaps itself for Count
+            fire_notify(&c); // Count
+            tx.send(()).unwrap();
+        });
+        rx.recv_timeout(Duration::from_secs(5)).expect("deadlock: callback re-registering a listener");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    /// Calls into the core from the callback, signalling when it is inside.
+    struct CallsCore {
+        core: Weak<DspiCore>,
+        inside: Mutex<Option<mpsc::Sender<()>>>,
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+    impl RtaListener for CallsCore {
+        fn on_frame(&self) {
+            if let Some(tx) = lock(&self.inside).take() {
+                tx.send(()).unwrap();
+            }
+            // Wait while the test thread registers/clears other listeners.
+            let _ = lock(&self.release).recv_timeout(Duration::from_secs(5));
+            let core = self.core.upgrade().unwrap();
+            let _ = core.get_state();
+            let _ = core.process_notifications();
+            let _ = core.rta_get_snapshot();
+        }
+    }
+
+    #[test]
+    fn a_callback_can_call_the_core_while_listeners_change() {
+        let core = DspiCore::new();
+        let (inside_tx, inside_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        core.rta_set_listener(Some(Box::new(CallsCore {
+            core: Arc::downgrade(&core),
+            inside: Mutex::new(Some(inside_tx)),
+            release: Mutex::new(release_rx),
+        })));
+        let (done_tx, done_rx) = mpsc::channel();
+        let c = core.clone();
+        let worker = std::thread::spawn(move || {
+            fire_rta(&c);
+            done_tx.send(()).unwrap();
+        });
+        inside_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        // The callback is in flight: registering other listeners and holding
+        // the core lock elsewhere must not block on it.
+        core.set_notify_listener(Some(Box::new(Count(Arc::new(AtomicUsize::new(0))))));
+        core.set_notify_listener(None);
+        let _ = core.get_state();
+        release_tx.send(()).unwrap();
+        // Clearing the RTA listener waits for the call in flight, which
+        // itself calls the core: both must finish.
+        core.rta_set_listener(None);
+        done_rx.recv_timeout(Duration::from_secs(5)).expect("deadlock: callback calling the core");
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn clearing_waits_for_the_call_in_flight() {
+        struct Slow(Arc<AtomicUsize>);
+        impl RtaListener for Slow {
+            fn on_frame(&self) {
+                std::thread::sleep(Duration::from_millis(200));
+                self.0.store(1, Ordering::SeqCst);
+            }
+        }
+        let core = DspiCore::new();
+        let done = Arc::new(AtomicUsize::new(0));
+        core.rta_set_listener(Some(Box::new(Slow(done.clone()))));
+        let c = core.clone();
+        let t = std::thread::spawn(move || fire_rta(&c));
+        std::thread::sleep(Duration::from_millis(50));
+        core.rta_set_listener(None);
+        assert_eq!(done.load(Ordering::SeqCst), 1, "rta_set_listener(None) returned while a call was running");
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn a_panicking_listener_is_contained() {
+        struct Boom;
+        impl NotifyListener for Boom {
+            fn on_notifications(&self) {
+                panic!("listener failure");
+            }
+        }
+        let core = DspiCore::new();
+        core.set_notify_listener(Some(Box::new(Boom)));
+        fire_notify(&core);
+        core.set_notify_listener(None); // busy count went back to 0
     }
 }

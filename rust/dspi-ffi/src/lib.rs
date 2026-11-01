@@ -17,6 +17,7 @@ mod callbacks;
 mod convert;
 mod core;
 mod error;
+#[cfg(not(target_os = "android"))]
 pub mod fixture;
 mod records;
 
