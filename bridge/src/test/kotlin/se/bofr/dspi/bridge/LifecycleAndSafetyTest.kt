@@ -54,45 +54,80 @@ class LifecycleAndSafetyTest {
         assertEquals(n0, core.callCount("fetchStatus"))
     }
 
-    // ── DangerousOps ──
+    // ── DangerousOps (D1/D2/D5) ──
 
     @Test
-    fun flashWritesWithoutATokenDoNothing() = runTest {
+    fun gatedMembersThrowWithoutAValidTokenAndSendNothing() = runTest {
         val core = FakeDspiCore()
         val b = newBridge(core)
         attach(b, core)
-        val events = collectEvents(b)
-        assertEquals(PresetStatus.NO_REPLY, b.savePreset(3))
-        assertEquals(PresetStatus.NO_REPLY, b.deletePreset(1))
-        assertEquals(PresetStatus.NO_REPLY, b.copyPreset(0, 3))
-        assertEquals(PresetStatus.NO_REPLY, b.saveMasterVolume())
-        assertEquals(PresetStatus.NO_REPLY, b.saveOutputConfig())
-        assertEquals(PresetStatus.NO_REPLY, b.loadPreset(1))
-        assertEquals(FlashStatus.ERR_WRITE, b.saveParams())
-        assertEquals(FlashStatus.ERR_WRITE, b.loadParams())
-        assertEquals(FlashStatus.ERR_WRITE, b.factoryReset())
-        assertEquals(PinConfigStatus.NO_REPLY, b.setOutputPin(0, 20))
-        assertEquals(PinConfigStatus.NO_REPLY, b.setMckPin(20))
-        assertEquals(255, b.testDacMute())
-        b.enterBootloader()
+        val ops = b.dangerousOps
+        val other = ops.confirm(DangerousOp.SAVE_PARAMS) // valid, but for another op
+        val calls: List<Pair<String, suspend () -> Unit>> =
+            listOf(
+                "savePreset" to { b.savePreset(other, 3) },
+                "deletePreset" to { b.deletePreset(other, 1) },
+                "copyPreset" to { b.copyPreset(other, 0, 3) },
+                "saveMasterVolume" to { b.saveMasterVolume(other) },
+                "saveOutputConfig" to { b.saveOutputConfig(other) },
+                "factoryReset" to { b.factoryReset(other) },
+                "enterBootloader" to { b.enterBootloader(other) },
+                "setOutputPin" to { b.setOutputPin(other, 0, 20) },
+                "setMckPin" to { b.setMckPin(other, 20) },
+                "setInputSource" to { b.setInputSource(other, 2) },
+                "setInputRate" to { b.setInputRate(other, 2) },
+                "setI2sClockMode" to { b.setI2sClockMode(other, 1) },
+                "csSave" to { b.cs.save(other) },
+                "configImport" to { b.configFiles.importConfiguration(other, "{}", volumes = true, hardware = true) }
+            )
+        for ((name, call) in calls) {
+            val e = runCatching { call() }.exceptionOrNull()
+            assertTrue("$name: $e", e is DangerousOpNotConfirmed)
+        }
+        runCurrent()
+        assertTrue(b.connected)
+        for (m in listOf("savePreset", "deletePreset", "copyPreset", "saveMasterVolume", "saveOutputConfig", "factoryReset")) {
+            assertEquals(m, 0, core.callCount(m))
+        }
+        for (m in listOf(
+            "enterBootloader",
+            "setOutputPin",
+            "setMckPin",
+            "setInputSource",
+            "setInputRate",
+            "setI2sClockMode",
+            "configImport"
+        )) {
+            assertEquals(m, 0, core.callCount(m))
+        }
+        assertEquals(0, core.calls.count { it.startsWith("csApply") && it.contains("save") })
+        assertTrue(ops.isValid(other)) // a refusal does not spend the caller's token
+    }
+
+    @Test
+    fun ungatedOperationsRunWithoutAToken() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        attach(b, core)
+        assertEquals(PresetStatus.OK, b.loadPreset(1))
+        assertEquals(FlashStatus.OK, b.loadParams())
         b.clearClips()
         b.stats.resetWatermarks()
         b.siggen.identify(0)
-        assertFalse(b.siggen.start())
-        assertTrue(b.cs.apply("""{"op":"save"}""").contains("\"ok\":false"))
-        assertTrue(b.configFiles.importConfiguration("{}", volumes = true, hardware = true).contains("\"ok\":false"))
         runCurrent()
-        assertTrue(b.connected)
-        val gated =
-            listOf(
-                "savePreset", "deletePreset", "copyPreset", "saveMasterVolume", "saveOutputConfig", "loadPreset",
-                "saveParams", "loadParams", "factoryReset", "setOutputPin", "setMckPin", "testDacMute",
-                "enterBootloader", "resetBufferStats", "siggenControl", "csApply", "configImport"
-            )
-        for (m in gated) assertEquals(m, 0, core.callCount(m))
-        assertEquals(0, core.callCount("clearClips")) // no clip: not even the poll's read-then-clear ran
-        val refused = events.filterIsInstance<BridgeEvent.CommandFailed>().map { (it.error as DangerousOpNotConfirmed).op }.toSet()
-        assertEquals(18, refused.size)
+        assertTrue(b.siggen.start())
+        assertEquals(0, b.cs.revert())
+        assertTrue(b.cs.apply("""{"op":"macroFire","index":0}""").contains("\"ok\":true"))
+        runCurrent()
+        for (m in listOf(
+            "loadPreset",
+            "loadParams",
+            "clearClips",
+            "resetBufferStats",
+            "siggenControl"
+        )) {
+            assertTrue(m, core.callCount(m) > 0)
+        }
     }
 
     @Test
@@ -102,11 +137,16 @@ class LifecycleAndSafetyTest {
         attach(b, core)
         val ops = b.dangerousOps
         val t = ops.confirm(DangerousOp.SAVE_PRESET)
-        assertEquals(PresetStatus.NO_REPLY, ops.deletePreset(t, 1)) // wrong operation: refused and dropped
-        assertEquals(PresetStatus.NO_REPLY, ops.savePreset(t, 3)) // dropped by the misuse
-        val t2 = ops.confirm(DangerousOp.SAVE_PRESET)
-        assertEquals(PresetStatus.OK, ops.savePreset(t2, 3))
-        assertEquals(PresetStatus.NO_REPLY, ops.savePreset(t2, 3)) // used up
+        assertTrue(runCatching { b.deletePreset(t, 1) }.exceptionOrNull() is DangerousOpNotConfirmed)
+        assertEquals(PresetStatus.OK, b.savePreset(t, 3))
+        assertFalse(ops.isValid(t))
+        assertTrue(runCatching { b.savePreset(t, 3) }.exceptionOrNull() is DangerousOpNotConfirmed) // spent
+        val r = ops.confirm(DangerousOp.SAVE_PRESET)
+        ops.revoke(r)
+        assertTrue(runCatching { b.savePreset(r, 3) }.exceptionOrNull() is DangerousOpNotConfirmed) // revoked
+        // A token of another bridge (same op, same id) is not valid here
+        val foreign = newBridge(FakeDspiCore()).dangerousOps.confirm(DangerousOp.SAVE_PRESET)
+        assertTrue(runCatching { b.savePreset(foreign, 3) }.exceptionOrNull() is DangerousOpNotConfirmed)
         assertEquals(1, core.callCount("savePreset"))
         assertEquals(0, core.callCount("deletePreset"))
     }
@@ -118,40 +158,31 @@ class LifecycleAndSafetyTest {
         attach(b, core)
         val ops = b.dangerousOps
         val t = ops.confirm(DangerousOp.FACTORY_RESET)
-        assertTrue(ops.isArmed(DangerousOp.FACTORY_RESET))
-        advanceTimeBy(DangerousOps.DEFAULT_TTL_MS + 1)
-        assertEquals(FlashStatus.ERR_WRITE, ops.factoryReset(t))
+        assertTrue(ops.isValid(t))
+        advanceTimeBy(ops.ttlMs + 1)
+        assertFalse(ops.isValid(t))
+        assertTrue(runCatching { b.factoryReset(t) }.exceptionOrNull() is DangerousOpNotConfirmed)
         assertEquals(0, core.callCount("factoryReset"))
     }
 
     @Test
-    fun theContractMembersRunAfterAConfirmation() = runTest {
+    fun oneHardwareApplyTokenCoversAWholeSettingsSave() = runTest {
         val core = FakeDspiCore()
         val b = newBridge(core)
         attach(b, core)
-        b.dangerousOps.confirm(DangerousOp.COPY_PRESET)
-        assertEquals(PresetStatus.OK, b.copyPreset(0, 5))
-        assertTrue(b.isPresetOccupied(5))
-        b.dangerousOps.confirm(DangerousOp.SIGGEN_START)
-        assertTrue(b.siggen.start())
+        val ops = b.dangerousOps
+        val t = ops.confirm(DangerousOp.HARDWARE_APPLY)
+        assertEquals(PinConfigStatus.SUCCESS, b.setOutputPin(t, 0, 20))
+        advanceTimeBy(ops.ttlMs - 1) // each use renews it
+        assertEquals(PinConfigStatus.SUCCESS, b.setMckPin(t, 21))
+        b.setInputSource(t, 2)
         runCurrent()
-        assertEquals(1, b.siggen.status.value?.state)
-        b.siggen.stop() // never gated
-        runCurrent()
-        assertEquals(0, b.siggen.status.value?.state)
+        assertEquals(2, b.inputSource)
+        ops.revoke(t) // the Save sequence is done
+        assertTrue(runCatching { b.setMckPin(t, 22) }.exceptionOrNull() is DangerousOpNotConfirmed)
     }
 
-    @Test
-    fun everyListedOperationCarriesItsOpcodes() {
-        val flash = DangerousOp.entries.filter { it.writesFlash }.flatMap { it.opcodes }.toSet()
-        assertTrue(flash.containsAll(listOf(0x51, 0x52, 0x53, 0x90, 0x92, 0x9D, 0xD6, 0xA3, 0xA1, 0xF0)))
-        val all = DangerousOp.entries.flatMap { it.opcodes }.toSet()
-        // DESIGN §4.5 rule 1 (incl. the undocumented ones the core can issue)
-        assertTrue(all.containsAll(listOf(0x7C, 0x83, 0x91, 0xB1, 0xC0, 0xC2, 0xC4, 0xC6, 0xC8, 0xE4, 0xEC, 0xF1)))
-        assertTrue(all.containsAll(listOf(0x68, 0x6A, 0x6C, 0x8F, 0x9E, 0xA6, 0xCA, 0xCC, 0xE9, 0xF3, 0xFE, 0x25)))
-    }
-
-    // ── Retry policy ──
+    // ── Retry policy (DESIGN §4.5 rule 4, commands.md §1.3) ──
 
     @Test
     fun idempotentGetsAreRetriedAfterAFlashWrite() = runTest {
@@ -159,8 +190,7 @@ class LifecycleAndSafetyTest {
         val b = newBridge(core)
         attach(b, core)
         b.setUiVisible(false)
-        val ops = b.dangerousOps
-        assertEquals(PresetStatus.OK, ops.savePreset(ops.confirm(DangerousOp.SAVE_PRESET), 2))
+        assertEquals(PresetStatus.OK, b.savePreset(b.dangerousOps.confirm(DangerousOp.SAVE_PRESET), 2))
         core.failNext("fetchInputRate", 3)
         assertEquals(48_000, b.fetchInputRate()) // 3 failures, retried 150 ms apart
         assertEquals(4, core.callCount("fetchInputRate"))
@@ -174,15 +204,61 @@ class LifecycleAndSafetyTest {
         val core = FakeDspiCore()
         val b = newBridge(core)
         attach(b, core)
+        b.setUiVisible(false)
+        advanceTimeBy(DspiBridgeImpl.FLASH_BLACKOUT_MS + 1) // past the connect-time load
         core.failNext("fetchInputRate", 1)
         assertEquals(0, b.fetchInputRate())
         assertEquals(1, core.callCount("fetchInputRate"))
-        val ops = b.dangerousOps
-        ops.saveParams(ops.confirm(DangerousOp.SAVE_PARAMS))
+        b.saveParams(b.dangerousOps.confirm(DangerousOp.SAVE_PARAMS))
         advanceTimeBy(DspiBridgeImpl.FLASH_BLACKOUT_MS + 1)
         core.failNext("fetchInputRate", 1)
         assertEquals(0, b.fetchInputRate())
         assertEquals(2, core.callCount("fetchInputRate"))
+    }
+
+    /** Every busy-window op of commands.md §1.3 and every D3 directory/config write arms the window; plain SETs don't. */
+    @Test
+    fun theBlackoutIsArmedByTheDeferredAndFlashOpsOnly() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        attach(b, core)
+        b.setUiVisible(false)
+        val ops = b.dangerousOps
+        suspend fun armed(): Boolean {
+            core.failNext("fetchInputRate", 1)
+            val ok = b.fetchInputRate() == 48_000
+            advanceTimeBy(DspiBridgeImpl.FLASH_BLACKOUT_MS + 1)
+            return ok
+        }
+        advanceTimeBy(DspiBridgeImpl.FLASH_BLACKOUT_MS + 1)
+        val arming: List<Pair<String, suspend () -> Unit>> =
+            listOf(
+                "loadPreset" to { b.loadPreset(1) },
+                "loadParams" to { b.loadParams() },
+                "savePreset" to { b.savePreset(ops.confirm(DangerousOp.SAVE_PRESET), 2) },
+                "deletePreset" to { b.deletePreset(ops.confirm(DangerousOp.DELETE_PRESET), 2) },
+                "factoryReset" to { b.factoryReset(ops.confirm(DangerousOp.FACTORY_RESET)) },
+                "saveMasterVolume" to { b.saveMasterVolume(ops.confirm(DangerousOp.SAVE_MASTER_VOLUME)) },
+                "setOutputType" to { b.setOutputType(ops.confirm(DangerousOp.HARDWARE_APPLY), 0, 1) },
+                "setOutputPin" to { b.setOutputPin(ops.confirm(DangerousOp.HARDWARE_APPLY), 0, 20) },
+                "setInputSource" to { b.setInputSource(ops.confirm(DangerousOp.HARDWARE_APPLY), 1).also { runCurrent() } },
+                "cs.save" to { b.cs.save(ops.confirm(DangerousOp.CS_SAVE)) },
+                "configImport" to { b.configFiles.importConfiguration(ops.confirm(DangerousOp.CONFIG_IMPORT), "{}", false, false) },
+                "setPresetName" to { b.setPresetName(1, "x").also { runCurrent() } },
+                "setPresetStartup" to { b.setPresetStartup(0, 1).also { runCurrent() } },
+                "setOutputConfigMode" to { b.setOutputConfigMode(1).also { runCurrent() } },
+                "setMasterVolumeMode" to { b.setMasterVolumeMode(1).also { runCurrent() } },
+                "setDacMute" to { b.setDacMute(false, true, 11, 5, 0).also { runCurrent() } },
+                "setUart" to { b.setUart(false, 16, 17, false, 115200).also { runCurrent() } }
+            )
+        for ((name, op) in arming) {
+            op()
+            assertTrue("$name arms the blackout", armed())
+        }
+        b.setBypass(true)
+        b.setMasterVolume(-3f)
+        runCurrent()
+        assertFalse("plain SETs do not arm it", armed())
     }
 
     @Test
@@ -191,14 +267,14 @@ class LifecycleAndSafetyTest {
         val b = newBridge(core)
         attach(b, core)
         val ops = b.dangerousOps
-        ops.saveParams(ops.confirm(DangerousOp.SAVE_PARAMS))
+        b.saveParams(ops.confirm(DangerousOp.SAVE_PARAMS))
         core.failNext("setUserVolume", 2) { DspiException.Transfer("stall") }
         b.setUserVolume(-3f)
         runCurrent()
         advanceTimeBy(1_000)
         assertEquals(1, core.callCount("setUserVolume"))
         core.failNext("savePreset", 1)
-        assertEquals(PresetStatus.NO_REPLY, ops.savePreset(ops.confirm(DangerousOp.SAVE_PRESET), 1))
+        assertEquals(PresetStatus.NO_REPLY, b.savePreset(ops.confirm(DangerousOp.SAVE_PRESET), 1))
         assertEquals(1, core.callCount("savePreset"))
     }
 
@@ -208,8 +284,7 @@ class LifecycleAndSafetyTest {
         val b = newBridge(core)
         attach(b, core)
         advanceTimeBy(61)
-        val ops = b.dangerousOps
-        ops.savePreset(ops.confirm(DangerousOp.SAVE_PRESET), 1)
+        b.savePreset(b.dangerousOps.confirm(DangerousOp.SAVE_PRESET), 1)
         core.failNext("fetchStatus", 2)
         advanceTimeBy(61 + 300)
         assertTrue(b.connected)

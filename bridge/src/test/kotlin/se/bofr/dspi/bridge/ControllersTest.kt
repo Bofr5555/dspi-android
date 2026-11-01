@@ -1,11 +1,13 @@
 package se.bofr.dspi.bridge
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiConstants
@@ -59,7 +61,6 @@ class ControllersTest {
         g.cycleOutput(2)
         g.cycleOutput(2)
         assertEquals(0b100, g.draft.value!!.invertMask and 0b100)
-        b.dangerousOps.confirm(DangerousOp.SIGGEN_START)
         assertTrue(g.start())
         runCurrent()
         val sets = core.callCount("siggenSetConfig")
@@ -130,9 +131,8 @@ class ControllersTest {
         assertFalse(b.cs.unsaved.value)
         assertTrue(b.cs.apply("""{"op":"binding","index":0}""").contains("\"ok\":true"))
         assertTrue(b.cs.unsaved.value)
-        assertEquals(255, b.cs.save()) // not confirmed
-        b.dangerousOps.confirm(DangerousOp.CS_SAVE)
-        assertEquals(0, b.cs.save())
+        assertThrows(DangerousOpNotConfirmed::class.java) { runBlocking { b.cs.apply("""{"op":"save"}""") } }
+        assertEquals(0, b.cs.save(b.dangerousOps.confirm(DangerousOp.CS_SAVE)))
         assertFalse(b.cs.unsaved.value)
         assertEquals("", b.cs.statusMessage(0))
         assertEquals("Invalid slot", b.cs.statusMessage(0x10))
@@ -152,7 +152,7 @@ class ControllersTest {
         b.setBypass(true)
         runCurrent()
         val ops = b.dangerousOps
-        val r = ops.importConfiguration(ops.confirm(DangerousOp.CONFIG_IMPORT), doc, volumes = false, hardware = false)
+        val r = b.configFiles.importConfiguration(ops.confirm(DangerousOp.CONFIG_IMPORT), doc, volumes = false, hardware = false)
         assertTrue(r, r.contains("\"ok\":true"))
         assertEquals(0b1, b.inputLinks)
         assertFalse(b.bypass)

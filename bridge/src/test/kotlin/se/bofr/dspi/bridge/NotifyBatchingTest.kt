@@ -113,4 +113,34 @@ class NotifyBatchingTest {
         assertTrue(BridgeEvent.CsNotified(aux = true, learn = false) in events)
         assertEquals(rev, b.stateRevision.value) // no NOTIFY_STATE: no stateChanged
     }
+
+    /** Review B1: a wake that lands while a drain is in flight is not lost. */
+    @Test
+    fun aWakeDuringADrainIsDrainedAfterIt() = runTest {
+        var inject = false
+        lateinit var self: FakeDspiCore
+        val core =
+            object : FakeDspiCore() {
+                override fun processNotifications(): se.bofr.dspi.core.NotifyResult {
+                    val r = super.processNotifications()
+                    if (inject) {
+                        inject = false
+                        // The knob's last step arrives right after the core drained
+                        self.simulateUserVolume(-33f)
+                    }
+                    return r
+                }
+            }
+        self = core
+        val b = newBridge(core)
+        b.setUiVisible(false)
+        attach(b, core)
+        advanceTimeBy(100)
+        inject = true
+        core.simulateUserVolume(-30f)
+        advanceTimeBy(100)
+        runCurrent()
+        assertEquals(-33f, b.userVolumeDB)
+        assertTrue(core.callCount("processNotifications") >= 2)
+    }
 }

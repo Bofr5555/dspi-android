@@ -86,7 +86,7 @@ class DspiBridgeImplTest {
         assertEquals(0.08f, b.peakLevel(2)) // output 1 = wire 8
         assertEquals(0.02f, b.peakLevel(11)) // input 3 = wire 2
         assertEquals(0.01f, b.peakLevel(1))
-        assertEquals(22, b.cpu0 - b.cpu0 % 22) // demo CPU load polled
+        assertTrue(b.cpu0 in 22..24) // the fake's CPU load, polled
         core.simulateClip(9) // wire 9 = output 2 = app id 3
         advanceTimeBy(60)
         assertTrue(b.isClipping(3))
@@ -193,7 +193,7 @@ class DspiBridgeImplTest {
         b.setChannelName(2, "Bass")
         b.setPresetName(1, "Night")
         b.setPresetStartup(1, 1)
-        b.setInputSource(2)
+        b.setInputSource(b.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY), 2)
         b.setLevellerEnabled(true)
         b.setLevellerSpeed(2)
         b.setLevellerMaxGain(9f)
@@ -408,7 +408,8 @@ class DspiBridgeImplTest {
         // Restored on the next attach
         b.detachDevice(core.serial)
         runCurrent()
-        assertEquals(0, b.inputLinks.let { if (b.connected) it else 0 })
+        assertFalse(b.connected)
+        b.restoreInputLinks(0) // nothing selected: not saved, so the store keeps 0b10
         attach(b, core)
         assertEquals(0b10, b.inputLinks)
     }
@@ -428,17 +429,17 @@ class DspiBridgeImplTest {
         assertEquals(listOf("Master EQ bypass: off → on", "Woofer L gain: 0.0 dB → -1.0 dB"), b.presetChanges())
         // Saving to the active slot is the new baseline
         val ops = b.dangerousOps
-        assertEquals(se.bofr.dspi.core.PresetStatus.OK, ops.savePreset(ops.confirm(DangerousOp.SAVE_PRESET), 0))
+        assertEquals(se.bofr.dspi.core.PresetStatus.OK, b.savePreset(ops.confirm(DangerousOp.SAVE_PRESET), 0))
         assertFalse(b.presetDirty.value)
         b.setBypass(false)
         runCurrent()
         assertTrue(b.presetDirty.value)
         // Revert to saved
-        assertEquals(se.bofr.dspi.core.FlashStatus.OK, ops.loadParams(ops.confirm(DangerousOp.LOAD_PARAMS)))
+        assertEquals(se.bofr.dspi.core.FlashStatus.OK, b.loadParams())
         assertFalse(b.presetDirty.value)
         assertTrue(b.bypass)
         // Loading another preset
-        assertEquals(se.bofr.dspi.core.PresetStatus.OK, ops.loadPreset(ops.confirm(DangerousOp.LOAD_PRESET), 1))
+        assertEquals(se.bofr.dspi.core.PresetStatus.OK, b.loadPreset(1))
         assertEquals(1, b.activePresetSlot)
         assertFalse(b.presetDirty.value)
     }
@@ -449,14 +450,14 @@ class DspiBridgeImplTest {
         val b = newBridge(core)
         attach(b, core)
         val ops = b.dangerousOps
-        assertEquals(se.bofr.dspi.core.PinConfigStatus.SUCCESS, ops.setOutputPin(ops.confirm(DangerousOp.OUTPUT_PIN), 0, 20))
+        assertEquals(se.bofr.dspi.core.PinConfigStatus.SUCCESS, b.setOutputPin(ops.confirm(DangerousOp.HARDWARE_APPLY), 0, 20))
         assertEquals(20, b.outputPin(0))
         assertTrue(b.hardwareUnsaved.value)
         assertEquals(
             se.bofr.dspi.core.PinConfigStatus.PIN_IN_USE,
-            ops.setOutputPin(ops.confirm(DangerousOp.OUTPUT_PIN), 1, 20)
+            b.setOutputPin(ops.confirm(DangerousOp.HARDWARE_APPLY), 1, 20)
         )
-        assertEquals(se.bofr.dspi.core.PresetStatus.OK, ops.saveOutputConfig(ops.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)))
+        assertEquals(se.bofr.dspi.core.PresetStatus.OK, b.saveOutputConfig(ops.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)))
         assertFalse(b.hardwareUnsaved.value)
     }
 
@@ -468,7 +469,7 @@ class DspiBridgeImplTest {
         val b = newBridge(core)
         attach(b, core)
         val events = collectEvents(b)
-        b.dangerousOps.enterBootloader(b.dangerousOps.confirm(DangerousOp.ENTER_BOOTLOADER))
+        b.enterBootloader(b.dangerousOps.confirm(DangerousOp.ENTER_BOOTLOADER))
         runCurrent()
         assertFalse(b.connected)
         assertEquals("", b.selectedSerial)
@@ -540,5 +541,71 @@ class DspiBridgeImplTest {
         runCurrent()
         assertTrue(events.any { it is BridgeEvent.CommandFailed && it.command == "setBypass" })
         assertNotEquals(null, b.state.value)
+    }
+
+    @Test
+    fun limiterReductionIsPartOfTheStatus() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        attach(b, core)
+        b.setLimiterEnabled(0, true)
+        runCurrent()
+        val seen = mutableSetOf<List<Float>>()
+        repeat(40) {
+            advanceTimeBy(60)
+            seen += b.status.value.limiterReduction
+        }
+        // The fake's meter moves while the peaks don't: the status still changes (D4, review B4)
+        assertTrue("seen $seen", seen.size > 2)
+        assertEquals(b.status.value.limiterReduction[0], b.limiterReduction(0))
+        b.disableAllLimiters()
+        runCurrent()
+        advanceTimeBy(61)
+        assertTrue(b.status.value.limiterReduction.isEmpty())
+        assertEquals(0f, b.limiterReduction(0))
+    }
+
+    @Test
+    fun aLiveBandDragMovesTheCachedCurveWithoutStateChanged() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        attach(b, core)
+        val rev = b.stateRevision.value
+        val mrev = b.magnitudesRevision.value
+        val before = b.magnitudeCurve(11)[140]
+        b.sendBandLive(11, 5, FilterParams(DspiConstants.FILTER_PEAKING, false, b.curveFrequencies[140].toFloat(), 1f, 9f, 0.707f))
+        runCurrent()
+        assertEquals(rev, b.stateRevision.value)
+        assertEquals(mrev, b.magnitudesRevision.value)
+        assertEquals(before + 9.0, b.magnitudeCurve(11)[140], 0.2) // review B6
+        assertEquals(9f, b.filterGain(11, 5))
+    }
+
+    @Test
+    fun limitsComeFromTheCore() = runTest {
+        val core =
+            object : FakeDspiCore() {
+                override fun preampMaxDb() = 12.5f
+
+                override fun maxDelayMs() = 10f
+            }
+        val b = newBridge(core)
+        attach(b, core)
+        assertEquals(12.5f, b.preampMaxDB) // review B8
+        assertEquals(10f, b.maxDelayMs)
+    }
+
+    @Test
+    fun unlinkingStillRedrawsTheCurves() = runTest {
+        val core = FakeDspiCore()
+        val b = newBridge(core)
+        attach(b, core)
+        advanceTimeBy(61)
+        b.setInputLinked(0, true, -1)
+        runCurrent()
+        val mrev = b.magnitudesRevision.value
+        b.setInputLinked(0, false, -1)
+        runCurrent()
+        assertTrue(b.magnitudesRevision.value > mrev) // Qt always emits magnitudesChanged (review B9b)
     }
 }

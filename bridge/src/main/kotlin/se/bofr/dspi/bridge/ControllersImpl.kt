@@ -424,12 +424,8 @@ class SiggenControllerImpl internal constructor(private val bridge: DspiBridgeIm
         refreshStatus()
     }
 
-    /** Gated: [DangerousOp.SIGGEN_START] (audible). False if refused or not confirmed. */
+    /** Ungated (D1). False if the device refused the signal. */
     override suspend fun start(): Boolean {
-        if (!bridge.dangerousOps.consume(DangerousOp.SIGGEN_START)) {
-            bridge.emit(BridgeEvent.CommandFailed("siggen.start", DangerousOpNotConfirmed(DangerousOp.SIGGEN_START)))
-            return false
-        }
         if (!supported) return false
         applyJob?.cancel()
         val c = normalised(d)
@@ -463,12 +459,8 @@ class SiggenControllerImpl internal constructor(private val bridge: DspiBridgeIm
         }
     }
 
-    /** Channel ID on one output, leaving the draft alone. Gated: [DangerousOp.SIGGEN_START]. */
+    /** Channel ID on one output, leaving the draft alone. Ungated (D1). */
     override fun identify(output: Int) {
-        if (!bridge.dangerousOps.consume(DangerousOp.SIGGEN_START)) {
-            bridge.emit(BridgeEvent.CommandFailed("siggen.identify", DangerousOpNotConfirmed(DangerousOp.SIGGEN_START)))
-            return
-        }
         if (!supported || output !in 0..15) return
         val mask = (1 shl output) and usableMask()
         if (mask == 0) return
@@ -627,12 +619,8 @@ class StatsControllerImpl internal constructor(private val bridge: DspiBridgeImp
         _buffers.value = b
     }
 
-    /** Gated: [DangerousOp.RESET_BUFFER_STATS] (0xB1 is an IN request the firmware acts on). */
+    /** Ungated (D1). */
     override fun resetWatermarks() {
-        if (!bridge.dangerousOps.consume(DangerousOp.RESET_BUFFER_STATS)) {
-            bridge.emit(BridgeEvent.CommandFailed("stats.resetWatermarks", DangerousOpNotConfirmed(DangerousOp.RESET_BUFFER_STATS)))
-            return
-        }
         bridge.scope.launch(bridge.main) {
             if (serial.isNotEmpty()) bridge.onFfi { runCatching { bridge.core.resetBufferStats() } }
             pollFast()
@@ -726,13 +714,19 @@ class CsControllerImpl internal constructor(private val bridge: DspiBridgeImpl) 
         _unsaved.value = m?.obj("status")?.bool("dirty") == true
     }
 
-    /** One operation `{op, index, ...}`; the gated ones ([DangerousOps.csOpOf]) need a token. */
+    /**
+     * One operation `{op, index, ...}`. `{op: "save"}` is the gated flash
+     * write: it goes through [save] only and throws here. `revert`,
+     * `learnArm`, `macroFire` are ungated (D1).
+     */
     override suspend fun apply(opJson: String): String {
-        val gated = DangerousOps.csOpOf(opJson)
-        if (gated != null && !bridge.dangerousOps.consume(gated)) {
-            bridge.emit(BridgeEvent.CommandFailed("cs.apply", DangerousOpNotConfirmed(gated)))
-            return """{"ok":false,"status":255,"error":"not confirmed"}"""
-        }
+        if (isSave(opJson)) throw DangerousOpNotConfirmed(DangerousOp.CS_SAVE, "control-surface save goes through save(token)")
+        return run(opJson)
+    }
+
+    private fun isSave(opJson: String) = Json.parseObject(opJson)?.str("op") == "save"
+
+    private suspend fun run(opJson: String): String {
         if (!bridge.connected) return """{"ok":false,"status":255}"""
         val r = bridge.onFfi { runCatching { bridge.core.csApply(opJson) }.getOrDefault("""{"ok":false,"status":255}""") }
         reload()
@@ -758,15 +752,21 @@ class CsControllerImpl internal constructor(private val bridge: DspiBridgeImpl) 
 
     /** An aux level while its slider is dragged: sent, the model isn't refreshed until the release commits with [apply]. */
     override fun sendOnly(opJson: String) {
-        if (DangerousOps.csOpOf(opJson) != null || !bridge.connected) return
+        if (isSave(opJson)) throw DangerousOpNotConfirmed(DangerousOp.CS_SAVE, "control-surface save goes through save(token)")
+        if (!bridge.connected) return
         bridge.scope.launch(bridge.ffi) { runCatching { bridge.core.csApply(opJson) } }
     }
 
-    /** Write the live configuration to flash (gated: [DangerousOp.CS_SAVE]); the device's status code, 0 = done. */
-    override suspend fun save(): Int = Json.parseObject(apply("""{"op":"save"}"""))?.int("status") ?: 0xFF
+    /** GATED [DangerousOp.CS_SAVE]: write the live configuration to flash (0x9D); the device's status code, 0 = done. */
+    override suspend fun save(token: ConfirmationToken): Int {
+        bridge.requireToken(token, DangerousOp.CS_SAVE)
+        val r = run("""{"op":"save"}""")
+        bridge.onFfi { bridge.flashWritten() }
+        return Json.parseObject(r)?.int("status") ?: 0xFF
+    }
 
-    /** Reload the saved configuration (gated: [DangerousOp.CS_REVERT]). */
-    override suspend fun revert(): Int = Json.parseObject(apply("""{"op":"revert"}"""))?.int("status") ?: 0xFF
+    /** Reload the saved configuration. Ungated (D1). */
+    override suspend fun revert(): Int = Json.parseObject(run("""{"op":"revert"}"""))?.int("status") ?: 0xFF
 
     /** A PIN_CONFIG_* / CS status code as the macOS Console words it ("" = done). */
     override fun statusMessage(code: Int): String = when (code) {
@@ -906,15 +906,19 @@ class ConfigFilesImpl internal constructor(private val bridge: DspiBridgeImpl) :
         return Json.write(m)
     }
 
-    /** Gated: [DangerousOp.CONFIG_IMPORT] (bulk write + pin writes). {ok, error, lines, clean, links, hardwareWritten}. */
-    override suspend fun importConfiguration(text: String, volumes: Boolean, hardware: Boolean): String {
-        if (!bridge.dangerousOps.consume(DangerousOp.CONFIG_IMPORT)) {
-            bridge.emit(BridgeEvent.CommandFailed("configFiles.importConfiguration", DangerousOpNotConfirmed(DangerousOp.CONFIG_IMPORT)))
-            return """{"ok":false,"error":"Not confirmed."}"""
-        }
+    /** GATED [DangerousOp.CONFIG_IMPORT] (bulk write + pin writes; arms the retry blackout). */
+    override suspend fun importConfiguration(token: ConfirmationToken, text: String, volumes: Boolean, hardware: Boolean): String {
+        bridge.requireToken(token, DangerousOp.CONFIG_IMPORT)
         if (!bridge.connected) return """{"ok":false,"error":"No device connected."}"""
         val options = (if (volumes) 1L else 0L) or (if (hardware) 2L else 0L)
-        val r = bridge.onFfi { bridge.core.configImport(text, options) }
+        val r =
+            bridge.onFfi {
+                try {
+                    bridge.core.configImport(text, options)
+                } finally {
+                    bridge.flashWritten()
+                }
+            }
         val m = Json.parseObject(r)
         if (m?.bool("ok") == true) {
             m.long("links")?.let { bridge.restoreInputLinks(it.toInt()) }
