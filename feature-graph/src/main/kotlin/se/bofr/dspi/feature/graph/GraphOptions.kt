@@ -246,7 +246,8 @@ private fun SpectrumChannelSection(bridge: DspiBridge, spectrum: SpectrumSelecti
     // device-derived reads (channels, names, colours) are keyed on stateRevision read HERE.
     val stateRev by bridge.stateRevision.collectAsStateWithLifecycle()
     val selection = spectrum.value
-    val channels = remember(stateRev, selection.tap) { bridge.rta.availableChannels(selection.tap) }
+    val liveInputs = bridge.observeLiveInputs()
+    val channels = remember(stateRev, liveInputs, selection.tap) { bridge.rta.availableChannels(selection.tap) }
     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

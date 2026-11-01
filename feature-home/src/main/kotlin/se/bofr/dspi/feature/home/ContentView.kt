@@ -432,9 +432,11 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: App
 @Composable
 private fun SourceRow(bridge: DspiBridge, connected: Boolean) {
     val c = DspiTheme.colors
+    // Observed HERE: called with unchanged args, this row is skipped when the parent recomposes (H1).
+    val s = bridge.observeState()
     val sources = bridge.inputSources
     // macOS hides the picker when the firmware reports no usable source.
-    val current = sources.firstOrNull { it.id == bridge.inputSource } ?: return
+    val current = sources.firstOrNull { it.id == s.inputSource } ?: return
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Source", style = DspiType.caption2, color = c.secondaryLabel)
         Spacer(Modifier.weight(1f))

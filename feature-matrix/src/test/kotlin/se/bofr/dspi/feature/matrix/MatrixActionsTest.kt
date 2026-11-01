@@ -74,13 +74,29 @@ class MatrixActionsTest {
     @Test
     fun toggleRouteKeepsGainAndPolarity() = runTest {
         val r = rig()
-        r.actions.toggleRoute(1, 4, MatrixRoute(false, -3f, true))
+        r.bridge.setMatrixRoute(1, 4, false, -3f, true)
         runCurrent()
-        assertEquals(listOf("setMatrixRoute(1, 4, true, -3.0, true)"), r.calls("setMatrixRoute"))
+        r.actions.toggleRoute(1, 4)
+        runCurrent()
+        assertEquals("setMatrixRoute(1, 4, true, -3.0, true)", r.calls("setMatrixRoute").last())
         assertTrue(r.bridge.matrixRouting(1, 4))
-        r.actions.toggleInvert(1, 4, MatrixRoute(true, -3f, true))
+        r.actions.toggleInvert(1, 4)
         runCurrent()
         assertFalse(r.bridge.matrixInvert(1, 4))
+    }
+
+    /** Audit T2: connect then INV before the first write is published keeps both. */
+    @Test
+    fun connectThenInvertInOneFrameKeepsBoth() = runTest {
+        val r = rig()
+        r.bridge.setMatrixRoute(1, 4, false, -3f, false)
+        runCurrent()
+        r.actions.toggleRoute(1, 4)
+        r.actions.toggleInvert(1, 4)
+        runCurrent()
+        assertTrue(r.bridge.matrixRouting(1, 4))
+        assertTrue(r.bridge.matrixInvert(1, 4))
+        assertEquals(-3f, r.bridge.matrixGain(1, 4), 1e-6f)
     }
 
     @Test

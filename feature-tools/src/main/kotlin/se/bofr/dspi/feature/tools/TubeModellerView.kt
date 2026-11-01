@@ -59,6 +59,7 @@ import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.sin
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.bridge.MaskField
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_ASYM_MAX
 import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_ASYM_MIN
@@ -189,6 +190,8 @@ fun TubeModellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val connected = status.connected
     val tube = TubeParameters.from(st)
     val outputCount = st.numOutputChannels
+    // Names are plain getters: read here, where `st` is observed, not inside the skippable column lambdas (audit T3).
+    val outputNames = (0 until outputCount).map { bridge.channelName(2 + it) }
     val supported = ToolFirmware.supportsTube(st.formatVersion)
     val appSettings = LocalAppSettings.current
     // Basic shows the tube and the two controls most people need; remembered across launches (@AppStorage "tubeModellerAdvanced").
@@ -246,9 +249,9 @@ fun TubeModellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
             ChannelChips(
                 count = outputCount,
                 isOn = { ToolMasks.isOn(tube.outputMask, it) },
-                names = (0 until outputCount).map { bridge.channelName(2 + it) },
+                names = outputNames,
                 enabled = connected,
-                onToggle = { setParam(DspiConstants.TUBE_PARAM_MASK, ToolMasks.toggled(tube.outputMask, it).toFloat()) }
+                onToggle = { bridge.toggleMaskBit(MaskField.TUBE_OUTPUTS, it, TubeParameters.TUBE_DEFAULT_OUTPUT_MASK) }
             )
         }
     }

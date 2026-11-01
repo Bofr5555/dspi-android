@@ -219,3 +219,14 @@ data class HardwareCaps(
      */
     val lgSoundSyncSupported: Boolean = false
 )
+
+/** The bit masks [DspiBridge.toggleMaskBit] flips one bit of (tool output chips). */
+enum class MaskField {
+    LOUDNESS_OUTPUTS,
+    CROSSFEED_PAIRS,
+    PSYBASS_OUTPUTS,
+    LEVELLER_DETECTOR,
+    LEVELLER_APPLY,
+    SUBHARM_OUTPUTS,
+    TUBE_OUTPUTS
+}

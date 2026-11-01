@@ -62,7 +62,8 @@ fun GraphScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> 
     val follows = settings.popoutGraphFollowsSelection
     var picked by rememberSaveable { mutableStateOf(-1) }
     var menuOpen by remember { mutableStateOf(false) }
-    val choices = remember(stateRev) { editableChannels(bridge) }
+    val liveInputs = bridge.observeLiveInputs()
+    val choices = remember(stateRev, liveInputs) { editableChannels(bridge) }
     if (picked >= 0 && picked !in choices) picked = -1
     val edited = if (follows) selected?.takeIf { it in choices } ?: -1 else picked
     Column(modifier.fillMaxSize().background(Color(0xFF1A1A1C)).padding(8.dp)) {

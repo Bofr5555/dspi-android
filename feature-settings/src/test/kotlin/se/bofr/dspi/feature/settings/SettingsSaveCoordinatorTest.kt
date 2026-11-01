@@ -120,6 +120,18 @@ class SettingsSaveCoordinatorTest {
         assertFalse(r.bridge.outputConfigDirty.value)
     }
 
+    /** Audit S3: a second pick made before the first applied diffs against the first's result. */
+    @Test
+    fun aSecondPickBeforeTheFirstLandedEndsOnTheSecond() = runTest {
+        val r = rig()
+        val c = r.coordinator
+        assertEquals(1, c.deviceSnapshot().spdifEnabledCount)
+        c.applyHardwareLatest { d, _ -> c.hardwareChanges.spdifInputCount(d, 3) }
+        c.applyHardwareLatest { d, _ -> c.hardwareChanges.spdifInputCount(d, 2) } // same frame: the page still shows 1
+        runCurrent()
+        assertEquals(2, c.deviceSnapshot().spdifEnabledCount)
+    }
+
     @Test
     fun oneActionWithSeveralCallsIsOrderedSafely() = runTest {
         val r = rig()

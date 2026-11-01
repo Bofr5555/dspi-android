@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import se.bofr.dspi.core.DspState
+import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.FilterParams
 import se.bofr.dspi.core.FlashStatus
 import se.bofr.dspi.core.PinConfigStatus
@@ -428,6 +429,35 @@ interface DspiBridge {
 
     fun setCrossfeedOutputPairMask(mask: Int)
 
+    /**
+     * Flip one [bit] of an output/pair mask ([field]) against the LATEST
+     * state, not a value the caller read while composing: two chip taps
+     * landing before the first write is published both take effect
+     * (reviews/stale-state-audit.md T1). [whenUnreported] is the mask to
+     * start from when the device reports none (a parameter list too short).
+     * The default reads the getters (for doubles); DspiBridgeImpl does the
+     * read-modify-write on its serialized FFI thread from the core's state.
+     */
+    fun toggleMaskBit(field: MaskField, bit: Int, whenUnreported: Int = 0) {
+        if (bit !in 0 until 32) return
+        val flip = 1 shl bit
+        fun param(list: List<Float>, id: Int) = list.getOrNull(id)?.toInt() ?: whenUnreported
+        when (field) {
+            MaskField.LOUDNESS_OUTPUTS -> setLoudnessOutputMask(loudnessOutputMask xor flip)
+            MaskField.CROSSFEED_PAIRS -> setCrossfeedOutputPairMask(crossfeedOutputPairMask xor flip)
+            MaskField.PSYBASS_OUTPUTS -> setPsybassOutputMask(psybassOutputMask xor flip)
+            MaskField.LEVELLER_DETECTOR -> setLevellerMasks(levellerDetectorMask xor flip, levellerApplyMask)
+            MaskField.LEVELLER_APPLY -> setLevellerMasks(levellerDetectorMask, levellerApplyMask xor flip)
+            MaskField.SUBHARM_OUTPUTS ->
+                setSubharmParam(
+                    DspiConstants.SUBHARM_PARAM_MASK,
+                    (param(subharmParams, DspiConstants.SUBHARM_PARAM_MASK) xor flip).toFloat()
+                )
+            MaskField.TUBE_OUTPUTS ->
+                setTubeParam(DspiConstants.TUBE_PARAM_MASK, (param(tubeParams, DspiConstants.TUBE_PARAM_MASK) xor flip).toFloat())
+        }
+    }
+
     // ═══ Setters — matrix / outputs ════════════════════════════════════
 
     /**
@@ -436,6 +466,18 @@ interface DspiBridge {
      * commit with a final `sendOnly = false`), like the other `sendOnly` setters.
      */
     fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean, sendOnly: Boolean = false)
+
+    /**
+     * Toggle a crosspoint's connection ([polarity] false) or its polarity
+     * ([polarity] true), keeping the other two fields, against the LATEST
+     * state (reviews/stale-state-audit.md T2: connect then INV in quick
+     * succession must not resend the old connection). Default: the getters.
+     */
+    fun toggleMatrixRoute(input: Int, output: Int, polarity: Boolean) {
+        val on = matrixRouting(input, output)
+        val inv = matrixInvert(input, output)
+        setMatrixRoute(input, output, if (polarity) on else !on, matrixGain(input, output), if (polarity) !inv else inv)
+    }
 
     /** Returns the resulting state (the firmware may refuse a PDM/Core 1 conflict). */
     suspend fun setOutputEnable(output: Int, enabled: Boolean): Boolean

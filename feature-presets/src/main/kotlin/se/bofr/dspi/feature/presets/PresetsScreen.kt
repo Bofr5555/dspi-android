@@ -179,7 +179,16 @@ fun PresetsView(
                         defaultSlot = state.presetDefaultSlot,
                         onSelect = controller.presetMenu::selectPreset
                     )
-                    PresetMenuSection(controller.presetMenu, connected, occupied(active), state.presetOccupied != 0, active, labels)
+                    PresetMenuSection(
+                        controller.presetMenu,
+                        connected,
+                        occupied(active),
+                        state.presetOccupied != 0,
+                        active,
+                        labels,
+                        // From the observed state, not the plain-getter isActiveDefault (audit P1)
+                        isActiveDefault = state.presetStartupMode == PRESET_STARTUP_SPECIFIED && state.presetDefaultSlot == active
+                    )
                 }
             }
             val otherPane: @Composable (Modifier) -> Unit = { m ->
@@ -322,7 +331,8 @@ private fun PresetMenuSection(
     isCurrentOccupied: Boolean,
     anySlotOccupied: Boolean,
     activeSlot: Int,
-    slotLabels: List<String>
+    slotLabels: List<String>,
+    isActiveDefault: Boolean
 ) {
     var copyMenuOpen by remember { mutableStateOf(false) }
 
@@ -332,7 +342,7 @@ private fun PresetMenuSection(
     SectionHeader("Preset Menu")
     MenuRow("Save", enabled = connected, onClick = actions::saveActivePreset)
     MenuRow("Rename…", enabled = connected, onClick = actions::renameActivePreset)
-    MenuRow("Set as Default", enabled = connected && !actions.isActiveDefault, onClick = actions::setActiveAsDefault)
+    MenuRow("Set as Default", enabled = connected && !isActiveDefault, onClick = actions::setActiveAsDefault)
     Box {
         MenuRow("Copy to…", enabled = connected, detail = "›") { copyMenuOpen = true }
         DropdownMenu(expanded = copyMenuOpen, onDismissRequest = { copyMenuOpen = false }) {

@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.bridge.MaskField
 import se.bofr.dspi.ui.Caption
 import se.bofr.dspi.ui.ChannelChips
 import se.bofr.dspi.ui.ParameterRow
@@ -61,10 +62,10 @@ fun VolumeLevellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                         )
                     }
                     MaskRow("Detector", "sets the shared gain", channelCount, leveller.detectorMask, names, connected) { ch ->
-                        bridge.setLevellerMasks(ToolMasks.toggled(leveller.detectorMask, ch), leveller.applyMask)
+                        bridge.toggleMaskBit(MaskField.LEVELLER_DETECTOR, ch)
                     }
                     MaskRow("Apply", "receives the gain", channelCount, leveller.applyMask, names, connected) { ch ->
-                        bridge.setLevellerMasks(leveller.detectorMask, ToolMasks.toggled(leveller.applyMask, ch))
+                        bridge.toggleMaskBit(MaskField.LEVELLER_APPLY, ch)
                     }
                     HorizontalDivider()
                 }

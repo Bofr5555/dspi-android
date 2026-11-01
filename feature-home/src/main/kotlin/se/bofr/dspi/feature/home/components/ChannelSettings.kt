@@ -263,6 +263,8 @@ private fun InputRoutingRow(
     inverts: List<List<Boolean>>
 ) {
     val c = DspiTheme.colors
+    // Names are plain getters: observe here, the list params may be the same instances (H3).
+    bridge.observeState()
     val connected = routing.getOrNull(input)?.getOrNull(output) ?: false
     val inverted = inverts.getOrNull(input)?.getOrNull(output) ?: false
     val liveGain = gains.getOrNull(input)?.getOrNull(output) ?: 0f

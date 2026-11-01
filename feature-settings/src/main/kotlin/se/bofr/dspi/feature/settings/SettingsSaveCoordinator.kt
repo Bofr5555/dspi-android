@@ -5,6 +5,7 @@
 // sequences and the hardware controls' apply (E1b gating, E9 scope).
 package se.bofr.dspi.feature.settings
 
+import androidx.compose.runtime.mutableStateOf
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import se.bofr.dspi.bridge.ConfirmationToken
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DangerousOpNotConfirmed
@@ -48,9 +51,20 @@ class SettingsSaveCoordinator(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 ) {
     // ── Category B: global parameters ──
-    private val storedDraft = MutableStateFlow(GlobalSettingsDraft.from(bridge.state.value))
+    // Snapshot state, not a StateFlow: globalDraft()/globalDirty()/pendingSummary() are read during
+    // composition (Global tab, save bar, sidebar dot) and must recompose on EVERY edit, not only the
+    // first one that flips globalUserEdited (reviews/stale-state-audit.md S2).
+    private val storedDraft = mutableStateOf(GlobalSettingsDraft.from(bridge.state.value))
     private val _globalUserEdited = MutableStateFlow(false)
     val globalUserEdited: StateFlow<Boolean> = _globalUserEdited.asStateFlow()
+
+    // The same flag as snapshot state, for the composition-time readers below (S2).
+    private val userEdited = mutableStateOf(false)
+
+    private fun setUserEdited(on: Boolean) {
+        userEdited.value = on
+        _globalUserEdited.value = on
+    }
 
     val hardwareChanges = HardwareChanges(bridge)
 
@@ -85,10 +99,10 @@ class SettingsSaveCoordinator(
 
     /** The Global page's values: the device's until the user edits. */
     fun globalDraft(state: DspState = bridge.state.value): GlobalSettingsDraft =
-        if (_globalUserEdited.value) storedDraft.value else GlobalSettingsDraft.from(state)
+        if (userEdited.value) storedDraft.value else GlobalSettingsDraft.from(state)
 
     fun globalDirty(state: DspState = bridge.state.value): Boolean =
-        _globalUserEdited.value && storedDraft.value != GlobalSettingsDraft.from(state)
+        userEdited.value && storedDraft.value != GlobalSettingsDraft.from(state)
 
     /** macOS `outputDirty`: the bridge's `outputConfigDirty` only (never `hardwareUnsaved`, review S1). */
     fun outputDirty(): Boolean = bridge.outputConfigDirty.value
@@ -118,36 +132,59 @@ class SettingsSaveCoordinator(
      * (macOS's own where it has one). Main thread.
      */
     fun applyHardware(changes: List<HardwareChange>, successText: String? = null): Job? {
-        val todo = HardwareChangeOrder.topoSort(changes.filter { it.oldDisplay != it.newDisplay })
-        if (todo.isEmpty()) return null
+        if (changes.none { it.oldDisplay != it.newDisplay }) return null
+        return launchHardware(successText) { changes }
+    }
+
+    /**
+     * As [applyHardware], but [build] runs once every earlier hardware sequence
+     * has finished, against the device's LATEST config and pins — not the
+     * snapshot the page was composed with — so a second pick made before the
+     * first one landed diffs against what the first one did
+     * (reviews/stale-state-audit.md S3: S/PDIF 1 -> 3 -> 2 must end on 2).
+     */
+    fun applyHardwareLatest(successText: String? = null, build: (OutputConfigSnapshot, PinContext) -> List<HardwareChange>): Job =
+        launchHardware(successText) {
+            val state = bridge.state.value
+            build(deviceSnapshot(state), pinContext(state))
+        }
+
+    /** Hardware sequences run one at a time, in tap order. */
+    private val hardwareLock = Mutex()
+
+    private fun launchHardware(successText: String?, build: () -> List<HardwareChange>): Job {
         val token = bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY)
-        bridge.beginOutputEdit()
         // macOS transport.generation: a re-plug, even of the same unit, aborts the sequence
         val generation = bridge.deviceGeneration.value
         return scope.launch {
             try {
-                for (c in todo) {
-                    if (bridge.deviceGeneration.value != generation) return@launch
-                    val st = try {
-                        c.apply(token)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: DangerousOpNotConfirmed) {
-                        // A programming error: never turned into a status line (review S6)
-                        throw e
-                    } catch (e: Exception) {
-                        -1
+                hardwareLock.withLock {
+                    val todo = HardwareChangeOrder.topoSort(build().filter { it.oldDisplay != it.newDisplay })
+                    if (todo.isEmpty()) return@launch
+                    bridge.beginOutputEdit()
+                    for (c in todo) {
+                        if (bridge.deviceGeneration.value != generation) return@launch
+                        val st = try {
+                            c.apply(token)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: DangerousOpNotConfirmed) {
+                            // A programming error: never turned into a status line (review S6)
+                            throw e
+                        } catch (e: Exception) {
+                            -1
+                        }
+                        if (st != 0) {
+                            _hardwareStatus.value = (c.statusText?.invoke(st) ?: "Failed to set ${c.fieldLabel}") to true
+                            return@launch
+                        }
                     }
-                    if (st != 0) {
-                        _hardwareStatus.value = (c.statusText?.invoke(st) ?: "Failed to set ${c.fieldLabel}") to true
-                        return@launch
-                    }
+                    val one = todo.singleOrNull()
+                    val text =
+                        successText ?: one?.successText
+                            ?: if (one != null) "${one.fieldLabel} set to ${one.newDisplay}" else "${todo.size} changes applied"
+                    _hardwareStatus.value = if (text.isEmpty()) null else text to false
                 }
-                val one = todo.singleOrNull()
-                val text =
-                    successText ?: one?.successText
-                        ?: if (one != null) "${one.fieldLabel} set to ${one.newDisplay}" else "${todo.size} changes applied"
-                _hardwareStatus.value = if (text.isEmpty()) null else text to false
             } finally {
                 bridge.dangerousOps.revoke(token)
             }
@@ -161,7 +198,7 @@ class SettingsSaveCoordinator(
     /** Edit a global field; marks the draft user-edited (macOS `draftBinding`). Works offline. */
     fun editGlobal(transform: (GlobalSettingsDraft) -> GlobalSettingsDraft) {
         storedDraft.value = transform(globalDraft())
-        _globalUserEdited.value = true
+        setUserEdited(true)
         _lastResult.value = null
     }
 
@@ -249,7 +286,7 @@ class SettingsSaveCoordinator(
                     val st = bridge.cs.save(csToken!!)
                     if (st != 0) messages += "Control surfaces: ${bridge.cs.statusMessage(st)}"
                 }
-                if (stillCurrent()) _globalUserEdited.value = false
+                if (stillCurrent()) setUserEdited(false)
                 return SaveResult(messages).also { _lastResult.value = it }
             } finally {
                 if (doCs) endCsOperation()
@@ -268,7 +305,7 @@ class SettingsSaveCoordinator(
      */
     suspend fun revert(token: ConfirmationToken?) {
         try {
-            if (globalDirty()) _globalUserEdited.value = false
+            if (globalDirty()) setUserEdited(false)
             _lastResult.value = null
             if (csDirty()) revertControlSurfaces()
             if (token != null && outputDirty()) bridge.revertOutputConfig(token)
@@ -328,7 +365,7 @@ class SettingsSaveCoordinator(
         val last = lastDeviceSerial
         lastDeviceSerial = serial
         if (last != null && last != serial) {
-            _globalUserEdited.value = false
+            setUserEdited(false)
             _lastResult.value = null
             _hardwareStatus.value = null
             _csStatus.value = null

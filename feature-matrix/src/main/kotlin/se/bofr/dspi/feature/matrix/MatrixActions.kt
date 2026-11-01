@@ -48,13 +48,15 @@ class MatrixActions(
 
     // ═══ Crosspoints (matrix*Binding setters) ═══
 
-    /** matrixRoutingBinding set: toggle the connection, keep gain and polarity. */
-    fun toggleRoute(row: Int, col: Int, route: MatrixRoute) =
-        bridge.setMatrixRoute(row, col, !route.isConnected, route.gain, route.isInverted)
+    /**
+     * matrixRoutingBinding set: toggle the connection, keep gain and polarity —
+     * of the device's latest state, not the composed route, so a connect
+     * followed at once by INV keeps the connection (reviews/stale-state-audit.md T2).
+     */
+    fun toggleRoute(row: Int, col: Int) = bridge.toggleMatrixRoute(row, col, polarity = false)
 
-    /** matrixInvertBinding set. */
-    fun toggleInvert(row: Int, col: Int, route: MatrixRoute) =
-        bridge.setMatrixRoute(row, col, route.isConnected, route.gain, !route.isInverted)
+    /** matrixInvertBinding set (atomic as [toggleRoute]). */
+    fun toggleInvert(row: Int, col: Int) = bridge.toggleMatrixRoute(row, col, polarity = true)
 
     /**
      * matrixGainBinding during a drag: throttled `setMatrixRoute(sendOnly = true)`;

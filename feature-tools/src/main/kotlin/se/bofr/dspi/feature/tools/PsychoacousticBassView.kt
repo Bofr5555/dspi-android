@@ -22,6 +22,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.bridge.MaskField
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.ui.Caption
 import se.bofr.dspi.ui.ChannelChips
@@ -51,6 +52,8 @@ fun PsychoacousticBassView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val connected = status.connected
     val psybass = PsybassParameters.from(st)
     val outputCount = st.numOutputChannels
+    // Names are plain getters: read here, where `st` is observed, not inside the skippable column lambdas (audit T3).
+    val outputNames = (0 until outputCount).map { bridge.channelName(2 + it) }
     val supported = ToolFirmware.supportsPsybass(st.formatVersion)
     val graphLive = rememberGraphLive<PsybassGraphKey>(Triple(psybass.cutoffHz, psybass.harmonicsDB, psybass.originalDB))
 
@@ -160,9 +163,9 @@ fun PsychoacousticBassView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                     ChannelChips(
                         count = outputCount,
                         isOn = { ToolMasks.isOn(psybass.outputMask, it) },
-                        names = (0 until outputCount).map { bridge.channelName(2 + it) },
+                        names = outputNames,
                         enabled = connected,
-                        onToggle = { bridge.setPsybassOutputMask(ToolMasks.toggled(psybass.outputMask, it)) }
+                        onToggle = { bridge.toggleMaskBit(MaskField.PSYBASS_OUTPUTS, it) }
                     )
                     HorizontalDivider()
                     SectionLabel("SHAPING")

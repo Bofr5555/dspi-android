@@ -42,6 +42,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.bridge.MaskField
 import se.bofr.dspi.ui.Caption
 import se.bofr.dspi.ui.ChannelChips
 import se.bofr.dspi.ui.MacColors
@@ -95,6 +96,8 @@ fun CrossfeedView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val graphLive = rememberGraphLive<CrossfeedGraphKey>(crossfeed.freq to crossfeed.feed)
 
     fun pairChannelName(p: Int, right: Boolean): String = bridge.channelName(2 + 2 * p + if (right) 1 else 0)
+    // Names are plain getters: read here, where `st` is observed, not inside the skippable column lambdas (audit T3).
+    val pairNames = (0 until pairCount).map { "${pairChannelName(it, false)} / ${pairChannelName(it, true)}" }
 
     ToolScaffold(header = {
         ToolHeader(
@@ -200,9 +203,9 @@ fun CrossfeedView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                     ChannelChips(
                         count = pairCount,
                         isOn = { ToolMasks.isOn(crossfeed.outputMask, it) },
-                        names = (0 until pairCount).map { "${pairChannelName(it, false)} / ${pairChannelName(it, true)}" },
+                        names = pairNames,
                         enabled = connected,
-                        onToggle = { bridge.setCrossfeedOutputPairMask(ToolMasks.toggled(crossfeed.outputMask, it)) }
+                        onToggle = { bridge.toggleMaskBit(MaskField.CROSSFEED_PAIRS, it) }
                     )
                 }
             })
