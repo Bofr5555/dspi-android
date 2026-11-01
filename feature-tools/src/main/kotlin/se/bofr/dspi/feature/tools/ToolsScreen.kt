@@ -4,6 +4,7 @@
 // Spectrum Analyser, Stats, Interrupt Monitor) navigate to their routes.
 package se.bofr.dspi.feature.tools
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -64,15 +65,14 @@ enum class ToolRoute(val route: String, val title: String, val subtitle: String)
 
 /**
  * Entry point of :feature-tools (route [DspiRoutes.TOOLS]). The signature is
- * the contract with :app — keep it.
+ * the contract with :app — keep it. System back closes an open tool first.
  */
 @Composable
 fun ToolsScreen(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
     var current by rememberSaveable { mutableStateOf<String?>(null) }
     val tool = ToolRoute.of(current)
-    // System back while a tool is open: BackHandler needs androidx.activity:activity-compose
-    // on this module's classpath (requested from the coordinator, see UPSTREAM-DEVIATIONS
-    // "TOOLS"); until then the "‹ Tools" button closes the tool.
+    // System back while a tool is open closes the tool first (macOS: closing its window).
+    BackHandler(enabled = tool != null) { current = null }
 
     if (tool != null) {
         Column(modifier.fillMaxSize()) {
@@ -109,11 +109,22 @@ private fun ToolList(bridge: DspiBridge, onOpen: (ToolRoute) -> Unit, onNavigate
             ListRow(t.title, t.subtitle, t.isOn(st)) { onOpen(t) }
             HorizontalDivider()
         }
-        ListRow("Signal Generator, Spectrum Analyser, Statistics, Interrupt Monitor", "Measurement and diagnostics", null) {
-            onNavigate(DspiRoutes.ANALYSIS)
+        // The macOS menu titles (incl. "Stats for nerbs"); all four live in :feature-analysis.
+        ANALYSIS_ITEMS.forEachIndexed { i, (title, subtitle) ->
+            ListRow(title, subtitle, null) { onNavigate(DspiRoutes.ANALYSIS) }
+            if (i < ANALYSIS_ITEMS.lastIndex) HorizontalDivider()
         }
     }
 }
+
+/** The diagnostic entries of the macOS Tools menu, in menu order. */
+internal val ANALYSIS_ITEMS =
+    listOf(
+        "Signal Generator" to "Test tones, sweeps and noise",
+        "Spectrum Analyser" to "Real-time spectrum of inputs and outputs",
+        "Stats for nerbs" to "System statistics",
+        "Interrupt Monitor" to "Interrupt and buffer timing"
+    )
 
 @Composable
 private fun ListRow(title: String, subtitle: String, on: Boolean?, onClick: () -> Unit) {

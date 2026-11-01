@@ -83,6 +83,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import se.bofr.dspi.bridge.Throttle
 
 // ═══ Colours (macOS system colours, dark appearance) ═══════════════════
@@ -100,6 +103,21 @@ internal fun accentColor(): Color = MaterialTheme.colorScheme.primary
 
 @Composable
 internal fun secondaryColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant
+
+// ═══ Visibility ════════════════════════════════════════════════════════
+
+/**
+ * True while the hosting lifecycle is at least STARTED: the tool views' own
+ * device polls (upmix telemetry, subharm meter) run only then, as macOS stops
+ * them when the window closes and the bridge stops its status poll at
+ * `setUiVisible(false)`. (ANALYSIS has the same helper; :ui-common
+ * consolidation candidate, decision E6.)
+ */
+@Composable
+internal fun rememberWhileVisible(): Boolean {
+    val state by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    return state.isAtLeast(Lifecycle.State.STARTED)
+}
 
 // ═══ GraphLive ══════════════════════════════════════════════════════════
 

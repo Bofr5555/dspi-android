@@ -336,8 +336,9 @@ ranges, defaults, presets and starting points are the macOS ones.
 5. **Firmware gates** use `DspState.formatVersion` with the macOS thresholds
    (loudness mask V19, crossfeed pair mask V20, psybass V23, subharm V29/V30,
    tube V31, limiter V32, upmixer V26 + RP2350). The limiter screen shows an
-   upgrade note below V32 (macOS hides the cell instead; the route can still
-   be reached here).
+   upgrade note below V32 (macOS hides the cell instead). HOME's
+   `OutputLimiterCell` should be hidden below V32 as on macOS, so the note is
+   only a fallback, never the normal path.
 6. **Icons.** SF Symbols are not available: headers have no symbol except
    the Tube Modeller (`TubeIcon`, ported) and the Output Limiter
    (`LimiterIcon`, ported). The "unsupported" note uses a Unicode warning sign.
@@ -355,16 +356,22 @@ ranges, defaults, presets and starting points are the macOS ones.
    view is up, extended (V30) and the effect is on.
 10. **Upmixer telemetry** is polled every 60 ms while the view is up (macOS
     ~16 Hz shared timer; Linux 100 ms).
-11. **System back** inside an open tool currently leaves the Tools route
-    (the in-screen "‹ Tools" button closes the tool). `BackHandler` needs
-    `androidx.activity:activity-compose` on `:feature-tools`; adding it pulls
-    `androidx.core:core:1.13.0` and `compose.runtime:1.7.1` module metadata
-    that `gradle/verification-metadata.xml` does not cover — coordinator
-    change requested.
-12. **Limiter link-group ganging** is not mirrored locally. macOS mirrors the
-    firmware's ganging (`LimiterGang`, ported and tested in ToolParameters.kt)
-    because writes are never echoed; the core does not, so a peer output in
-    the same group shows its stale values until the next bulk read. Also the
-    macOS `SettingsSaveCoordinator.beginOutputEdit()` (limiter edits mark the
-    output configuration unsaved in independent mode) has no bridge hook.
-    Both are bridge change requests; the UI calls the plain setters.
+11. **System back** inside an open tool closes the tool (`BackHandler`,
+    activity-compose approved in decision E3), then leaves the Tools route.
+12. **Limiter link groups and output-config dirty tracking are the bridge's**
+    (contract TOOLS C/D, decision F2). The published state mirrors the
+    firmware's ganging, so the view shows peers' values directly
+    (`LimiterGang` is kept in ToolParameters.kt only as the tested oracle).
+    Every committed limiter change (enable, threshold, release, link group,
+    Copy to all outputs, Link all stereo pairs, Unlink all, Switch every
+    limiter off) runs through `edit { bridge.beginOutputEdit(); … }` as
+    macOS `OutputLimiterSettings.edit`; live drag values (`sendOnly`) do not,
+    as macOS `sendLimiterParamToDevice`. No deviation remains here.
+13. **Polling is lifecycle-aware.** Upmixer telemetry and the subharm meter
+    poll only while the view is composed and the app is at least STARTED
+    (macOS: while the window is open; the bridge's status poll likewise stops
+    at `setUiVisible(false)`). The subharm headroom is re-read only after a
+    committed change (keyed on `stateRevision`), never per drag tick.
+14. **Tools list** lists the four diagnostics with their macOS menu titles
+    (Signal Generator, Spectrum Analyser, "Stats for nerbs", Interrupt
+    Monitor); each opens the ANALYSIS route, which picks the sub-view.

@@ -51,9 +51,11 @@ fun UpmixerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val supported = ToolFirmware.supportsUpmixer(st.formatVersion, st.platformId)
 
     var telemetry by remember { mutableStateOf<UpmixStatus?>(null) }
-    LaunchedEffect(supported, connected) {
+    // Polled only while this view is up and the app is in the foreground.
+    val visible = rememberWhileVisible()
+    LaunchedEffect(supported, connected, visible) {
         telemetry = null
-        while (isActive && supported && connected) {
+        while (isActive && supported && connected && visible) {
             telemetry = bridge.fetchUpmixStatus()
             delay(UPMIX_STATUS_POLL_MS)
         }

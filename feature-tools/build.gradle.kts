@@ -12,6 +12,8 @@ android {
 dependencies {
     implementation(project(":bridge"))
     implementation(project(":ui-common"))
+    // BackHandler for the internal tool sub-routes (decision E3).
+    implementation(libs.androidx.activity.compose)
     // @Previews (src/debug only) run against FakeDspiCore; never in release.
     debugImplementation(project(":fake-core"))
     testImplementation(project(":fake-core"))

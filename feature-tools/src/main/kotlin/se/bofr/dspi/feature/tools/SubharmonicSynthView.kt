@@ -108,15 +108,20 @@ fun SubharmonicSynthView(bridge: DspiBridge, modifier: Modifier = Modifier) {
         rememberGraphLive<SubharmGraphKey>(listOf(subharm.lowDB, subharm.highDB, subharm.topDB, subharm.boostDB, subharm.ceilingDB))
 
     // Worst-case gain, re-read after every change (and on open).
+    // Keyed on the committed parameters only (stateRevision bumps on emitting
+    // changes, never on a sendOnly drag tick), so a drag costs no extra reads.
+    val revision by bridge.stateRevision.collectAsState()
+    val committed = remember(revision) { bridge.state.value.subharm }
     var headroomDB by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(supported, connected, st.subharm) {
+    LaunchedEffect(supported, connected, committed) {
         if (supported && connected) headroomDB = bridge.fetchSubharmHeadroom() ?: 0f
     }
     // The live sub meter, 10 Hz while something can be metered.
     var meter by remember { mutableStateOf(emptyList<Float>()) }
-    LaunchedEffect(extended, connected, subharm.enabled) {
+    val visible = rememberWhileVisible()
+    LaunchedEffect(extended, connected, subharm.enabled, visible) {
         meter = emptyList()
-        while (isActive && extended && connected && subharm.enabled) {
+        while (isActive && extended && connected && subharm.enabled && visible) {
             meter = bridge.fetchSubharmMeter()
             delay(100)
         }

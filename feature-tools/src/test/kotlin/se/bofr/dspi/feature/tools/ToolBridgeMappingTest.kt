@@ -12,6 +12,7 @@ import org.junit.Test
 import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.fake.FakeDspiCore
+import se.bofr.dspi.fake.demoDspState
 
 /**
  * The setter paths the tool views use, against the bridge over FakeDspiCore
@@ -140,5 +141,43 @@ class ToolBridgeMappingTest {
         assertEquals(0x04, lv.detectorMask)
         assertEquals(0x04, lv.applyMask)
         assertEquals(0x0003, LoudnessParameters.from(b.state.value).outputMask)
+    }
+
+    @Test
+    fun committedLimiterEditsMarkTheOutputConfigUnsavedInIndependentMode() = runTest {
+        val core = FakeDspiCore(demoDspState().copy(outputConfigMode = 0))
+        val b = bridge(core)
+        assertFalse(b.outputConfigDirty.value)
+        // A live drag value does not start an output edit (macOS sendLimiterParamToDevice).
+        b.setLimiterThreshold(0, -3f, sendOnly = true)
+        runCurrent()
+        assertFalse(b.outputConfigDirty.value)
+        // The commit goes through the view's edit { beginOutputEdit(); ... }.
+        edit(b) { b.setLimiterThreshold(0, -3f) }
+        runCurrent()
+        assertTrue(b.outputConfigDirty.value)
+        assertEquals(-3f, LimiterParameters.from(b.state.value).outputs[0].thresholdDB)
+    }
+
+    @Test
+    fun limiterEditsInPresetModeStayClean() = runTest {
+        val b = bridge(FakeDspiCore(demoDspState().copy(outputConfigMode = 1)))
+        edit(b) { b.setLimiterEnabled(0, true) }
+        runCurrent()
+        assertFalse(b.outputConfigDirty.value)
+    }
+
+    @Test
+    fun thePublishedStateMirrorsLinkGroupGanging() = runTest {
+        val b = bridge()
+        edit(b) { b.linkAllLimiterPairs() }
+        runCurrent()
+        val before = LimiterParameters.from(b.state.value).outputs
+        edit(b) { b.setLimiterThreshold(1, -9f) }
+        runCurrent()
+        val after = LimiterParameters.from(b.state.value).outputs
+        val oracle = LimiterGang.edit(1, before, 9) { it.copy(thresholdDB = -9f) }
+        assertEquals(oracle.take(9).map { it.thresholdDB }, after.take(9).map { it.thresholdDB })
+        assertEquals(-9f, after[0].thresholdDB)
     }
 }

@@ -65,7 +65,7 @@ fun OutputLimiterView(bridge: DspiBridge, out: Int, onNavigate: (String) -> Unit
             subtitle = if (present) outputName(out) else "Output ${out + 1}",
             isOn = s.enabled,
             switchEnabled = connected && supported && present,
-            onToggle = { bridge.setLimiterEnabled(out, it) },
+            onToggle = { on -> edit(bridge) { bridge.setLimiterEnabled(out, on) } },
             icon = {
                 LimiterIcon(
                     color = if (limiting) {
@@ -131,7 +131,7 @@ private fun LimiterSettings(
             help = "The limiter runs after every gain stage, so this is the absolute level leaving the device. The -1 dBFS default " +
                 "leaves room for the small overshoot a DAC can produce between samples.",
             live = { bridge.setLimiterThreshold(out, it, sendOnly = true) },
-            set = { bridge.setLimiterThreshold(out, it.coerceIn(LimiterParameters.THRESHOLD_RANGE)) }
+            set = { v -> edit(bridge) { bridge.setLimiterThreshold(out, v.coerceIn(LimiterParameters.THRESHOLD_RANGE)) } }
         )
         ParameterRow(
             title = "Release",
@@ -146,7 +146,7 @@ private fun LimiterSettings(
                 "material; long ones are smoother but hold the level down for longer after a peak. Attack is fixed at 16 samples " +
                 "and always completes before the peak arrives.",
             live = { bridge.setLimiterRelease(out, it, sendOnly = true) },
-            set = { bridge.setLimiterRelease(out, it.coerceIn(LimiterParameters.RELEASE_RANGE)) }
+            set = { v -> edit(bridge) { bridge.setLimiterRelease(out, v.coerceIn(LimiterParameters.RELEASE_RANGE)) } }
         )
         HelpTip(
             "Outputs in the same group act as one limiter: they share on/off, threshold and release, so changing one changes them " +
@@ -160,7 +160,7 @@ private fun LimiterSettings(
                     (0..LimiterParameters.LIMITER_LINK_GROUP_MAX).toList(),
                     s.linkGroup,
                     enabled,
-                    { bridge.setLimiterLinkGroup(out, it) }
+                    { g -> edit(bridge) { bridge.setLimiterLinkGroup(out, g) } }
                 )
                 Caption(LimiterParameters.linkSummary(out, s.linkGroup, limiter.outputs, outputCount, outputName))
             }
@@ -168,21 +168,35 @@ private fun LimiterSettings(
         HorizontalDivider()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             HelpTip("Give every output this output's threshold, release and on/off state. Link groups are left as they are.") {
-                OutlinedButton(onClick = { bridge.copyLimiterToAll(out) }, enabled = enabled) { Text("Copy to all outputs") }
+                OutlinedButton(onClick = {
+                    edit(bridge) { bridge.copyLimiterToAll(out) }
+                }, enabled = enabled) { Text("Copy to all outputs") }
             }
             Spacer(Modifier.weight(1f))
             ToolMenu(
                 "All outputs",
                 enabled,
                 listOf(
-                    "Link all stereo pairs" to { bridge.linkAllLimiterPairs() },
-                    "Unlink all outputs" to { bridge.unlinkAllLimiters() },
-                    "Switch every limiter off" to { bridge.disableAllLimiters() }
+                    "Link all stereo pairs" to { edit(bridge) { bridge.linkAllLimiterPairs() } },
+                    "Unlink all outputs" to { edit(bridge) { bridge.unlinkAllLimiters() } },
+                    "Switch every limiter off" to { edit(bridge) { bridge.disableAllLimiters() } }
                 ),
                 dividerBefore = setOf(2)
             )
         }
     }
+}
+
+/**
+ * OutputLimiterSettings `edit`: every committed change goes through here. In
+ * independent mode the limiter is part of the output configuration, so the
+ * edit marks it unsaved (and captures the revert baseline) before it lands —
+ * `SettingsSaveCoordinator.shared.beginOutputEdit()` on macOS. Live drag
+ * values (`sendOnly`) do not, as on macOS.
+ */
+internal inline fun edit(bridge: DspiBridge, change: () -> Unit) {
+    bridge.beginOutputEdit()
+    change()
 }
 
 /**

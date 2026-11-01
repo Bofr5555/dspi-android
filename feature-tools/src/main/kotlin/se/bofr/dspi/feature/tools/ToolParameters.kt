@@ -565,7 +565,10 @@ data class LimiterOutputSettings(
 )
 
 /**
- * `LimiterGang`: the firmware's link-group ganging (limiter.c). Outputs
+ * `LimiterGang`: the firmware's link-group ganging (limiter.c). The bridge's
+ * published state now mirrors the ganging (contract TOOLS C), so the views do
+ * not use this; it stays as the tested oracle of the macOS semantics
+ * (ToolParametersTest, ToolBridgeMappingTest). Outputs
  * sharing a non-zero group share enable, threshold and release. Each function
  * works on the first `count` entries.
  */
