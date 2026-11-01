@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Referenced by the app's USB_DEVICE_ATTACHED intent filter (implicit
+     permission + auto-launch). Decimal ids, as Android requires. -->
+<resources>
+    <!-- DSPi, current firmware: VID 0x2E8B PID 0xFEAA -->
+    <usb-device vendor-id="11915" product-id="65194" />
+    <!-- DSPi, legacy VID 0x2E8A (pre-May-2026 firmware): connects with a banner -->
+    <usb-device vendor-id="11914" product-id="65194" />
+    <!-- RP2040 / RP2350 BOOTSEL (firmware installer, PICOBOOT interface) -->
+    <usb-device vendor-id="11914" product-id="3" />
+    <usb-device vendor-id="11914" product-id="15" />
+</resources>
