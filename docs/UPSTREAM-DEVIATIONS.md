@@ -305,3 +305,55 @@ the macOS alerts and mint in their confirm handler. No added dialogs.
    Android, so `presetFailureText` never says "locked".
 9. **Rename** limits the field to 31 characters (README; macOS truncates in
    firmware).
+
+
+## GRAPH
+
+Reference: macOS `GraphView.swift`, `GraphSpectrumOverlay.swift`,
+`PeqGraph*.swift`, `PeqBandHUD.swift` @ b5fdeac; the editor logic is the
+Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
+
+1. **Touch.** The mouse/keyboard gestures are mapped onto touch as in
+   PORT-MAP "Touch gestures": long-press for right-click, long-press on empty
+   graph adds **Add Band…** to the graph menu (macOS: Cmd-click), pinch or
+   two-finger vertical drag for the wheel's Q, pinch over empty graph zooms
+   the dB range (macOS: scroll over the left-edge labels only). Bigger hit
+   targets for a finger (24 dp dots, 14 dp curve). No touch equivalent for
+   Cmd/Shift-click selection or the Shift/Option/Control drag modifiers
+   (hardware keyboard only). Editor additions for touch: per-instance hit
+   radius and `abandonPress()`.
+2. **Chip text entry** opens a dialog on a tap (macOS: in-place field on a
+   double-click), so the phone keyboard has room. The gear is always shown
+   (macOS: on hover).
+3. **Rendering.** Compose Canvas instead of Metal/Win2D: band lobes are a
+   vertical gradient per band instead of the per-pixel `pow(t, 1.5)` fade;
+   the curve glow is two wide translucent strokes instead of a blur. Curve
+   animation is a tween of the Graphing animation speed (macOS: spring).
+4. **Spectrum overlay.** Bands + bins blend, bin smoothing, peak contour and
+   the left-edge fade are ported; the per-channel time smoothing between
+   device frames (`RtaBarSmoother`, the Smoothing setting) and the
+   Catmull-Rom column sampling of the band picture (linear here) are not yet.
+   The "Following another console" row does not exist (no Link hub).
+5. **Not offered in the gear panel:** RTA Bars (the bar strip belongs with
+   ANALYSIS's bar renderer) and Pop Out Graph (the full-screen route is
+   `GraphScreen`, reached through app navigation).
+6. **GraphScreen** (pop-out) picks its edited channel from a menu instead of
+   following the main window's selection; "Follow Channel Selection" is not
+   offered.
+7. **Level offset.** The edited curve and the dots include the bridge's
+   `channelGainOffset`, which is the output gain for outputs (macOS) and also
+   the input preamp for inputs (bridge contract, BRIDGE §2).
+8. **Filter types and bypass** are not gated by firmware feature flags: the
+   core only talks V32 firmware, which has every PEQ type and per-band bypass
+   (macOS checks `firmwareSupports*`). The Linkwitz Transform is shown but
+   not created or dragged on the graph, as upstream.
+9. **Preferences.** The graph's AppSettings keys live in `GraphSettings`
+   behind `LocalGraphSettings` (in memory by default) until :app/SETTINGS
+   provide DataStore; the band selection is shared with HOME's band list via
+   `LocalPeqGraphSelection` (`PeqGraphSelection.live` replaces the macOS
+   `PeqLiveReadouts`).
+10. **GraphView(channels, editable).** With `editable` and one channel, that
+    channel is the page's selected channel and the visible set is drawn too
+    (others dashed), as on a macOS channel page; without `editable`, a
+    non-empty `channels` draws just those.
+

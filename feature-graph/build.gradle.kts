@@ -12,6 +12,8 @@ android {
 dependencies {
     implementation(project(":bridge"))
     implementation(project(":ui-common"))
+    // @Previews (src/debug only) run against FakeDspiCore; release builds never see it.
+    debugImplementation(project(":fake-core"))
     testImplementation(project(":fake-core"))
     testImplementation(libs.kotlinx.coroutines.test)
 }
