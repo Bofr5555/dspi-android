@@ -204,7 +204,8 @@ fun <T> PopUpButton(
     enabled: Boolean = true,
     showsChevron: Boolean = true,
     onLongClick: (() -> Unit)? = null,
-    textStyle: androidx.compose.ui.text.TextStyle = DspiType.body
+    textStyle: androidx.compose.ui.text.TextStyle = DspiType.body,
+    dimWhenDisabled: Boolean = true
 ) {
     val c = DspiTheme.colors
     var open by remember { mutableStateOf(false) }
@@ -216,7 +217,7 @@ fun <T> PopUpButton(
                     enabled = enabled || onLongClick != null,
                     onClick = { if (enabled) open = true },
                     onLongClick = onLongClick
-                ).alpha(if (enabled) 1f else 0.4f)
+                ).alpha(if (enabled || !dimWhenDisabled) 1f else 0.4f)
                 .heightIn(min = 32.dp)
                 .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
