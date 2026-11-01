@@ -1,0 +1,15 @@
+Build plumbing (Wave 0): let dspi-ffi link dspi-core as a Rust library.
+Upstream crate-type is cdylib+staticlib only (for the Qt C ABI), which
+cargo cannot use as a dependency. Upstreamable as-is.
+
+--- a/core/Cargo.toml
++++ b/core/Cargo.toml
+@@ -4,7 +4,7 @@
+ edition = "2021"
+ 
+ [lib]
+-crate-type = ["cdylib", "staticlib"]
++crate-type = ["rlib", "cdylib", "staticlib"]
+ 
+ [dependencies]
+ rusb = "0.9"

@@ -1,0 +1,26 @@
+[package]
+name = "dspi-ffi"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+description = "UniFFI glue exposing the DSPi-Console-Linux core (dspi-core) to Kotlin"
+
+[lib]
+# cdylib: libdspi_ffi.so for Android (and host, for bindgen library mode).
+# lib: Rust tests.
+crate-type = ["cdylib", "lib"]
+name = "dspi_ffi"
+
+[dependencies]
+uniffi = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+# The official core, staged + patched by tools/stage-core.sh.
+dspi-core = { path = "../.staged/dspi-core/core" }
+# Same version the core uses; `vendored` builds libusb from source so the
+# Android targets (bionic) and the host need no system libusb. Feature
+# unification turns it on for the core's rusb as well.
+rusb = { version = "0.9.4", features = ["vendored"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15.1"

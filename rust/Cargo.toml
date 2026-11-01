@@ -1,0 +1,23 @@
+# Rust workspace for the Android glue. The core itself is NOT a member: it is
+# the staged, patched copy of the DSPi-Console-Linux submodule
+# (tools/stage-core.sh -> rust/.staged/dspi-core/core), used as a path dependency.
+[workspace]
+resolver = "2"
+members = ["dspi-ffi", "uniffi-bindgen"]
+exclude = [".staged"]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+# Pinned: bump deliberately (UniFFI's Kotlin output changes between minors).
+uniffi = "=0.29.5"
+thiserror = "2"
+log = "0.4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "debuginfo"
