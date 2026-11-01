@@ -120,15 +120,29 @@ object BundledFirmware {
         FirmwareImage.bundled(chip, names(context)) { name -> context.assets.open("$ASSET_DIR/$name").use { it.readBytes() } }
 }
 
-/** A user-chosen `.uf2`, read whole (bounded by [Uf2.MAX_FILE_SIZE]) and checked before it is offered. */
+/** A user-chosen `.uf2`, read whole (bounded by [MAX_LOCAL_FILE_SIZE]) and checked before it is offered. */
 object LocalFirmware {
+    /**
+     * Largest local file read into memory. DSPi UF2s are ~0.6 MB; 8 MB is a
+     * 4 MB flash image with headroom, and keeps a mis-picked file from costing
+     * the heap the parser's theoretical 64 MB limit would.
+     */
+    const val MAX_LOCAL_FILE_SIZE = 8 * 1024 * 1024
+
     fun read(context: Context, uri: Uri): FirmwareImage {
         val resolver = context.applicationContext.contentResolver
-        val name = runCatching {
-            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-                if (it.moveToFirst()) it.getString(0) else null
+        var name = "firmware.uf2"
+        var size = -1L
+        runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use {
+                if (it.moveToFirst()) {
+                    if (!it.isNull(0)) name = it.getString(0)
+                    if (!it.isNull(1)) size = it.getLong(1)
+                }
             }
-        }.getOrNull() ?: "firmware.uf2"
+        }
+        // Refuse a mis-picked large file before reading any of it.
+        if (size > MAX_LOCAL_FILE_SIZE) throw Uf2FormatException("the file is too large to be firmware")
         val bytes = resolver.openInputStream(uri)?.use { input ->
             val buf = java.io.ByteArrayOutputStream()
             val chunk = ByteArray(64 * 1024)
@@ -136,7 +150,7 @@ object LocalFirmware {
                 val n = input.read(chunk)
                 if (n < 0) break
                 buf.write(chunk, 0, n)
-                if (buf.size() > Uf2.MAX_FILE_SIZE) throw Uf2FormatException("the file is too large to be firmware")
+                if (buf.size() > MAX_LOCAL_FILE_SIZE) throw Uf2FormatException("the file is too large to be firmware")
             }
             buf.toByteArray()
         } ?: throw IOException("could not read $name")

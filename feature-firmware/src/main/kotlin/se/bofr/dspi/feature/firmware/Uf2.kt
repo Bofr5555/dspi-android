@@ -18,7 +18,8 @@ class Uf2FormatException(message: String) : Exception(message)
 data class Uf2Block(
     val flags: Int,
     val targetAddr: Long,
-    val payloadSize: Int,
+    /** Raw u32 as in the file. */
+    val payloadSize: Long,
     val blockNo: Int,
     val numBlocks: Int,
     /** familyID when [FLAG_FAMILY_ID_PRESENT] is set, otherwise the file-size field. */
@@ -110,7 +111,7 @@ class Uf2Image private constructor(
                     skippedE10 = true
                     continue
                 }
-                if (block.payloadSize != Uf2.PAGE_SIZE) {
+                if (block.payloadSize != Uf2.PAGE_SIZE.toLong()) {
                     throw Uf2FormatException("block ${i + 1} carries ${block.payloadSize} bytes; the boot ROM takes ${Uf2.PAGE_SIZE}")
                 }
                 if (!familyKnown) {
@@ -219,7 +220,7 @@ object Uf2 {
         return Uf2Block(
             flags = u32(8).toInt(),
             targetAddr = u32(12),
-            payloadSize = if (payload > 476) Int.MAX_VALUE else payload.toInt(),
+            payloadSize = payload,
             blockNo = u32(20).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             numBlocks = u32(24).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
             fileSizeOrFamily = u32(28),
@@ -240,7 +241,7 @@ object Uf2 {
         } else {
             true
         }
-        return block.payloadSize == PAGE_SIZE &&
+        return block.payloadSize == PAGE_SIZE.toLong() &&
             (block.flags and FLAG_EXTENSION_TAGS_PRESENT.inv()) == FLAG_FAMILY_ID_PRESENT &&
             block.numBlocks == 2 &&
             block.blockNo == 0 &&

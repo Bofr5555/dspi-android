@@ -347,27 +347,39 @@ Reference: DSPi-Console (macOS) v1.1.6-beta5 `FirmwareUpdateView.swift`,
    the file unchanged.
 5. **Owner requirements: local .uf2 first class, confirmation, no nagging.**
    The screen offers "Official release <version>" (bundled) or "A .uf2 file on
-   this phone" side by side. A local image carries no expected version: the
-   install is verified when the device comes back, whatever it reports. The
-   macOS one-click "Update Firmware" opens a confirmation (the gated
-   ENTER_BOOTLOADER token is minted in its OK) that shows the running version
-   and what will be installed, and, for the official release, warns that it
-   replaces a custom build (e.g. the 1.20 V core-voltage build) and may bring
-   back instability on marginal parts. It is shown also when the board is
-   already in BOOTSEL. "Enter bootloader mode without installing" is confirmed
-   too (ENTER_BOOTLOADER). Nothing installs or prompts on its own.
-6. **Lifetime.** macOS gives each window open a fresh installer. Here too,
-   except that an install in progress (permission dialog, write, verify)
-   outlives leaving the screen and is shown again on return; leaving never
-   cancels a write.
+   this phone" side by side. A local file is read only up to 8 MB (DSPi UF2s
+   are ~0.6 MB). A local image carries no expected version: the install is
+   verified when the device comes back, whatever it reports, and the success
+   card then says "The device is back, running firmware X." (no
+   "confirmed"). The macOS one-click "Update Firmware" opens a confirmation
+   (owner requirement; the gated ENTER_BOOTLOADER token is minted in its OK)
+   that shows the running version and what will be installed, and, for the
+   official release, warns that it replaces a custom build (e.g. the 1.20 V
+   core-voltage build) and may bring back instability on marginal parts. It is
+   shown also when the board is already in BOOTSEL. This dialog is the one
+   E1 exception, approved by the coordinator. "Enter bootloader mode without
+   installing" acts on the tap with no alert, as macOS does (E1): the tap
+   mints the token. Nothing installs or prompts on its own.
+6. **Lifetime (E9).** macOS gives each window open a fresh installer. Here
+   the session (installer, locator, chosen file and drive, commitment, the
+   open confirmation) lives in the route's ViewModel, so a rotation keeps
+   everything, including an armed "Looking for the board". Device work runs
+   on the session's app-scoped coroutine scope: an install in progress
+   (permission dialog, write, verify) outlives leaving the screen and is shown
+   again on return; leaving never cancels a write.
 7. **Device lock.** macOS takes the DSPi Link device lock before the reboot
    (`deviceLocked`); there is no Link hub on Android, so that error is not
    ported.
 8. **Export Configuration...** navigates to PRESETS (which owns configuration
-   export) instead of opening a save panel.
+   export) instead of opening a save panel. Follow-up for PRESETS/coordinator:
+   a route argument that opens the export directly; today the user lands on
+   the preset list.
 9. **Wording** "Click"/"your computer"/"macOS" → "Tap"/"your phone"/"Android".
    The writing card's note says the board "restarts itself and disappears"
    on the PICOBOOT path (no drive to disappear). SF Symbols are text glyphs.
 10. **Expected version.** `FirmwareVersion.expected` is the tracked Console
     release (`CONSOLE_VERSION = "1.1.6-beta5"`), not the Android app's version.
-
+11. **Shared locator.** `FirmwareUpdateView` takes an optional
+    `bootloaderLocator` (default: its own `AndroidBootloaderLocator`) so
+    :app can pass one shared instance. The screen starts it on open and stops
+    it when the visit ends, as macOS polls only while a flashing UI is open.

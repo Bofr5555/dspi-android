@@ -3,15 +3,16 @@
 // strip, status card, BOOTSEL / manual bootloader hints, button row) and
 // UpdateStep. The window controller becomes the `firmware` route; the
 // mismatch banner is HOME's (compat banner).
-// Android deviations (UPSTREAM-DEVIATIONS "FIRMWARE"): the update and
-// "Enter bootloader mode without installing" are confirmed in a dialog (the
-// ENTER_BOOTLOADER token is minted in its OK handler) that shows the running
-// version and warns that an official release replaces a custom build; a local
+// Android deviations (UPSTREAM-DEVIATIONS "FIRMWARE"): the update is
+// confirmed in a dialog (owner requirement; the ENTER_BOOTLOADER token is
+// minted in its OK handler) that shows the running version and warns that an
+// official release replaces a custom build, while "Enter bootloader mode
+// without installing" acts on the tap as on macOS (E1); the session lives in
+// a ViewModel (E9, FirmwareUpdateViewModel.kt); a local
 // .uf2 is a first-class source; the write path is PICOBOOT with the board's
 // drive (SAF) as the fallback; "Export Configuration..." opens PRESETS.
 package se.bofr.dspi.feature.firmware
 
-import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,13 +36,9 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,41 +47,45 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.DspiRoutes
-import se.bofr.dspi.usb.AndroidBootloaderLocator
+import se.bofr.dspi.usb.BootloaderLocator
 
 /**
  * Entry point of :feature-firmware (route [DspiRoutes.FIRMWARE]).
- * The signature is the contract with :app — keep it.
+ * The signature is the contract with :app — keep it. [bootloaderLocator] lets
+ * :app share one `BootloaderLocator`; by default the screen makes its own.
  *
  * Installs firmware onto the connected device, or onto a board already in
  * BOOTSEL. The user confirms once; everything after is the installer's state
- * machine, including the reboot into BOOTSEL. Never auto-updates.
+ * machine, including the reboot into BOOTSEL. Never auto-updates. The
+ * session lives in a ViewModel (E9), so a rotation keeps the chosen file,
+ * drive, commitment and any install in progress.
  */
 @Composable
-fun FirmwareUpdateView(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun FirmwareUpdateView(
+    bridge: DspiBridge,
+    onNavigate: (String) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    bootloaderLocator: BootloaderLocator? = null
+) {
     val context = LocalContext.current
-    val session = remember(bridge) { FirmwareInstallSession.obtain(context, bridge) }
-    DisposableEffect(session) {
-        session.attach()
-        onDispose { session.detach() }
-    }
+    val vm: FirmwareUpdateViewModel =
+        viewModel(factory = FirmwareUpdateViewModel.factory(context.applicationContext, bridge, bootloaderLocator))
+    val session = vm.session
     FirmwareUpdateView(
         model = session.model,
         device = rememberDeviceInfo(bridge),
         enterBootloader = { op ->
-            // Minted here, in the confirmation's OK handler (main thread).
+            // Minted on the user's explicit action (Update dialog OK, or the
+            // bootloader-only link as macOS acts on its click; E1), main thread.
             if (bridge.connected) bridge.enterBootloader(bridge.dangerousOps.confirm(op))
         },
+        onFilePicked = session::readLocalFile,
+        onDrivePicked = session::useDrive,
         onNavigate = onNavigate,
         onBack = onBack,
         modifier = modifier
@@ -122,13 +123,12 @@ enum class UpdateStep(val label: String) {
     }
 }
 
-/** Which confirmation is up. */
-private enum class PendingConfirmation { UPDATE, BOOTLOADER_ONLY }
-
 /**
  * The screen over an injectable [model] (previews and tests drive it with
- * fakes). [enterBootloader] is called from a confirmation's OK handler with
- * [DangerousOp.ENTER_BOOTLOADER].
+ * fakes). [enterBootloader] is called with [DangerousOp.ENTER_BOOTLOADER] from
+ * the Update confirmation's OK or the bootloader-only link's tap. Picked
+ * documents go to [onFilePicked] / [onDrivePicked], which run on the
+ * session's (app) scope.
  */
 @Composable
 fun FirmwareUpdateView(
@@ -137,24 +137,18 @@ fun FirmwareUpdateView(
     enterBootloader: (DangerousOp) -> Unit,
     onNavigate: (String) -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onFilePicked: (Uri) -> Unit = {},
+    onDrivePicked: (Uri) -> Unit = {}
 ) {
     val state by model.installer.state.collectAsState()
     LaunchedEffect(state) { model.observe(state) }
-    var pending by remember { mutableStateOf<PendingConfirmation?>(null) }
 
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) scope.launch { readLocalFile(context, uri, model) }
+        if (uri != null) onFilePicked(uri)
     }
     val pickDrive = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
-        if (uri != null) {
-            scope.launch {
-                val volume = withContext(Dispatchers.IO) { runCatching { SafUf2Volume(context, uri) }.getOrNull() }
-                if (volume != null) model.useDrive(volume)
-            }
-        }
+        if (uri != null) onDrivePicked(uri)
     }
 
     val primaryTitle = primaryTitle(model, device)
@@ -173,7 +167,10 @@ fun FirmwareUpdateView(
                 StatusCard(model, state, device, primaryTitle, onChooseDrive = { pickDrive.launch(null) })
                 when {
                     showBootselHint(model, state, device) -> BootselHint()
-                    showManualBootloaderHint(model, state, device) -> ManualBootloaderHint { pending = PendingConfirmation.BOOTLOADER_ONLY }
+                    showManualBootloaderHint(model, state, device) -> ManualBootloaderHint {
+                        // macOS acts on the link click, no alert (E1): the tap mints the token.
+                        enterBootloader(DangerousOp.ENTER_BOOTLOADER)
+                    }
                 }
                 WriteMethodPicker(model, onChooseDrive = { pickDrive.launch(null) })
             }
@@ -184,40 +181,19 @@ fun FirmwareUpdateView(
             state,
             device,
             primaryTitle,
-            onStart = { pending = PendingConfirmation.UPDATE },
+            onStart = { model.confirmingUpdate = true },
             onNavigate = onNavigate,
             onClose = onBack,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
         )
     }
 
-    when (pending) {
-        PendingConfirmation.UPDATE -> UpdateConfirmation(model, device, primaryTitle, onDismiss = { pending = null }) {
-            pending = null
+    if (model.confirmingUpdate) {
+        UpdateConfirmation(model, device, primaryTitle, onDismiss = { model.confirmingUpdate = false }) {
+            model.confirmingUpdate = false
             model.start(device.connected) { enterBootloader(DangerousOp.ENTER_BOOTLOADER) }
         }
-        PendingConfirmation.BOOTLOADER_ONLY -> BootloaderOnlyConfirmation(onDismiss = { pending = null }) {
-            pending = null
-            enterBootloader(DangerousOp.ENTER_BOOTLOADER)
-        }
-        null -> Unit
     }
-}
-
-private suspend fun readLocalFile(context: Context, uri: Uri, model: FirmwareUpdateModel) {
-    val result = withContext(Dispatchers.IO) { runCatching { LocalFirmware.read(context, uri) } }
-    result.fold(
-        onSuccess = { model.chooseLocal(it) },
-        onFailure = { e ->
-            model.localFileRefused(
-                if (e is Uf2FormatException) {
-                    "This is not a firmware file the board can take: ${e.message}."
-                } else {
-                    "The file could not be read."
-                }
-            )
-        }
-    )
 }
 
 internal fun primaryTitle(model: FirmwareUpdateModel, device: FirmwareDeviceInfo): String = when {
@@ -426,7 +402,12 @@ private fun StatusCard(
             InstallIcon.SEAL,
             Green,
             "Update complete",
-            "The device is back and confirmed running firmware ${state.version}.",
+            if (model.source is FirmwareSource.Local) {
+                // Nothing to compare a local file's version with.
+                "The device is back, running firmware ${state.version}."
+            } else {
+                "The device is back and confirmed running firmware ${state.version}."
+            },
             iconSize = 36.dp
         )
         is FirmwareInstallState.Failed -> InstallFailureCard(state.error)
@@ -550,80 +531,4 @@ internal fun confirmationText(model: FirmwareUpdateModel, device: FirmwareDevice
         ""
     }
     return replaces + restart + downgrade
-}
-
-@Composable
-private fun BootloaderOnlyConfirmation(onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Enter Bootloader Mode") },
-        text = {
-            Text(
-                "The board restarts as a bootloader drive without DSPi writing anything. Audio stops until the board is " +
-                    "restarted or firmware is installed. You can then install a .uf2 file of your own from this screen.",
-                fontSize = 14.sp
-            )
-        },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Enter Bootloader Mode") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-// MARK: Session
-
-/**
- * Owns the installer, its locator and the view state for one Firmware Update
- * visit. macOS gives every window open fresh content; so does this, except
- * that an install in progress outlives leaving the screen (an Android route
- * can be popped mid-write and the write must not be cancelled) and is shown
- * again on return.
- */
-internal class FirmwareInstallSession private constructor(context: Context, val bridge: DspiBridge) {
-    private val appContext = context.applicationContext
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val usbLocator = AndroidBootloaderLocator(appContext, scope)
-    private val locating = UsbBootloaderLocating(usbLocator, scope, { usbLocator.start(appContext) }, { usbLocator.stop(appContext) })
-    private val picoboot = PicobootFirmwareWriter(
-        LocatorBoardPermissions(usbLocator),
-        AndroidPicobootTransport.factory(appContext, usbLocator)
-    )
-    private val bundled: (BootloaderBoard.Chip) -> FirmwareImage = { BundledFirmware.image(appContext, it) }
-
-    val model = FirmwareUpdateModel(
-        installer = FirmwareInstaller(locating, BridgeFirmwareVerifier(bridge), picoboot, bundled, scope),
-        bundled = bundled,
-        picobootWriter = picoboot
-    )
-
-    private var attached = false
-
-    fun attach() {
-        attached = true
-        model.installer.beginWatching()
-    }
-
-    fun detach() {
-        attached = false
-        if (!model.installer.isBusy) return close()
-        scope.launch {
-            model.installer.state.first { s -> s is FirmwareInstallState.Verified || s is FirmwareInstallState.Failed }
-            if (!attached) close()
-        }
-    }
-
-    private fun close() {
-        model.installer.stopWatching()
-        scope.cancel()
-        if (current === this) current = null
-    }
-
-    companion object {
-        private var current: FirmwareInstallSession? = null
-
-        /** The running install's session when there is one, else a fresh one. */
-        fun obtain(context: Context, bridge: DspiBridge): FirmwareInstallSession {
-            current?.let { if (it.bridge === bridge && it.model.installer.isBusy) return it }
-            return FirmwareInstallSession(context, bridge).also { current = it }
-        }
-    }
 }

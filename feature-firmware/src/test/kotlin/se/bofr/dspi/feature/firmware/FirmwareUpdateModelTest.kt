@@ -100,6 +100,30 @@ class FirmwareUpdateModelTest {
         }
     }
 
+    /** Review #3: after committing, a drive pick only applies while the installer waits for it. */
+    @Test fun drivePickAfterCommitOnlyWhileWaitingForTheDrive() = runTest {
+        val m = model(FakeBootloaderLocator(listOf(board)))
+        m.installer.beginWatching()
+        m.start(deviceConnected = false) {}
+        advanceUntilIdle()
+        assertTrue(m.installer.state.value is FirmwareInstallState.Verified)
+        val dir = kotlin.io.path.createTempDirectory().toFile()
+        try {
+            assertFalse(m.useDrive(DirVolume(dir)))
+            assertFalse(m.useDrive)
+            assertEquals(null, m.driveVolume)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun theUpdateConfirmationIsModelState() = runTest {
+        val m = model()
+        assertFalse(m.confirmingUpdate)
+        m.confirmingUpdate = true
+        assertTrue(m.confirmingUpdate)
+    }
+
     @Test fun observeRemembersTheChip() = runTest {
         val m = model()
         m.observe(FirmwareInstallState.WaitingForPermission(BootloaderBoard.Chip.RP2040))

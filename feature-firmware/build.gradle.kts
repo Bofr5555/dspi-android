@@ -15,6 +15,8 @@ dependencies {
     implementation(project(":usb"))
     // Catalog library :app already uses (no new artifacts): SAF pickers (.uf2 file, the board's drive).
     implementation(libs.androidx.activity.compose)
+    // E9: the install session lives in the route's ViewModel (catalog, used by :app / PRESETS).
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     // @Previews (src/debug) run against FakeDspiCore, as PACKAGES.md asks; never in release.
     debugImplementation(project(":fake-core"))
     testImplementation(project(":fake-core"))

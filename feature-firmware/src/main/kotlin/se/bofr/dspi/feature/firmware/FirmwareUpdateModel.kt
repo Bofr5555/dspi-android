@@ -32,6 +32,9 @@ class FirmwareUpdateModel(
     var rebootRequested by mutableStateOf(false)
         private set
 
+    /** The Update confirmation is open (kept here so it survives rotation, E9). */
+    var confirmingUpdate by mutableStateOf(false)
+
     /** Chip of the board most recently seen, so the writing card can name it. */
     var lastSeenChip by mutableStateOf<BootloaderBoard.Chip?>(null)
 
@@ -79,9 +82,15 @@ class FirmwareUpdateModel(
         apply(source, false, driveVolume)
     }
 
-    /** Write through the board's drive; [volume] is the drive just picked (allowed after committing: it is how a committed install proceeds). */
-    fun useDrive(volume: Uf2Volume? = null) {
-        apply(source, true, volume ?: driveVolume)
+    /**
+     * Write through the board's drive; [volume] is the drive just picked.
+     * Before committing, any time; after committing only while the installer
+     * waits for the drive (`WaitingForVolume`, the card's "Choose Drive..."),
+     * which is how a committed drive install proceeds. Returns whether it applied.
+     */
+    fun useDrive(volume: Uf2Volume? = null): Boolean {
+        if (confirmed && installer.state.value !is FirmwareInstallState.WaitingForVolume) return false
+        return apply(source, true, volume ?: driveVolume)
     }
 
     /** Hands the setup to the installer; nothing changes while it is installing. */

@@ -452,5 +452,6 @@ class FirmwareInstallerTest {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 private fun TestScope.launchCollect(installer: FirmwareInstaller, into: MutableList<FirmwareInstallState>) =
     backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { installer.state.collect { into += it } }

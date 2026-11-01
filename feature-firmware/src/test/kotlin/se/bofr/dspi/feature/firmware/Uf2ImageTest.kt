@@ -60,6 +60,8 @@ class Uf2ImageTest {
 
     @Test fun refusesWrongPayloadSize() {
         refuses(TestUf2.block(0x1000_0000L, 0, 1, payloadSize = 476, payload = ByteArray(256)), "carries 476 bytes")
+        // An impossible size is printed as it is in the file, not clamped.
+        refuses(TestUf2.block(0x1000_0000L, 0, 1, payloadSize = 1000, payload = ByteArray(256)), "carries 1000 bytes")
     }
 
     @Test fun refusesMixedFamilies() {
