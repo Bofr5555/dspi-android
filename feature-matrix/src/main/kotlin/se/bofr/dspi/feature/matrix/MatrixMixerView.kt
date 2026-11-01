@@ -73,7 +73,13 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.ChannelPalette
+import se.bofr.dspi.ui.CompactDelayField
+import se.bofr.dspi.ui.CompactGainField
 import se.bofr.dspi.ui.DspiRoutes
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.PowerGlyph
+import se.bofr.dspi.ui.SpeakerGlyph
 import se.bofr.dspi.ui.state.LocalAppState
 
 /** Tablet threshold: below this the grid becomes one page per output. */
@@ -237,8 +243,8 @@ internal fun enableHelp(o: MatrixOutputControls): String = when {
 }
 
 private fun enableColor(o: MatrixOutputControls, secondary: Color): Color = when {
-    o.enabled -> MatrixBlue
-    o.wouldConflict -> MatrixOrange.copy(alpha = 0.4f)
+    o.enabled -> MacColors.blue
+    o.wouldConflict -> MacColors.orange.copy(alpha = 0.4f)
     else -> secondary.copy(alpha = 0.3f)
 }
 
@@ -263,7 +269,7 @@ private fun MuteButton(ui: MatrixUi, idx: Int, modifier: Modifier = Modifier) {
                 ui.actions.setOutputMute(idx, !o.muted)
             }),
         contentAlignment = Alignment.Center
-    ) { SpeakerGlyph(o.muted, if (o.muted) MatrixRed else secondaryColor.copy(alpha = 0.4f), size = 16.dp) }
+    ) { SpeakerGlyph(o.muted, if (o.muted) MacColors.red else secondaryColor.copy(alpha = 0.4f), size = 16.dp) }
 }
 
 @Composable
@@ -309,7 +315,7 @@ private fun Crosspoint(ui: MatrixUi, row: MatrixInput, out: MatrixOutput, modifi
         gain = route.gain,
         isInverted = route.isInverted,
         // .saturation(enabled ? 1 : 0)
-        inputColor = if (enabled) parseHexColor(row.color) else Color.Gray,
+        inputColor = if (enabled) ChannelPalette.fromHex(row.color) else Color.Gray,
         onToggleConnected = { ui.actions.toggleRoute(row.index, out.index, route) },
         onGainLive = { ui.actions.matrixGainLive(row.index, out.index, route, it) },
         onGainCommit = { ui.actions.matrixGainCommit(row.index, out.index, route, it) },
@@ -321,7 +327,7 @@ private fun Crosspoint(ui: MatrixUi, row: MatrixInput, out: MatrixOutput, modifi
 
 /** macOS: orange rings in the PDM column where enabling PDM would conflict. */
 private fun conflictOutline(s: MatrixMixerState, outIndex: Int): Color? =
-    if (outIndex == s.pdmOutputIndex && s.output(s.pdmOutputIndex).wouldConflict) MatrixOrange else null
+    if (outIndex == s.pdmOutputIndex && s.output(s.pdmOutputIndex).wouldConflict) MacColors.orange else null
 
 @Composable
 private fun RenameDialog(initial: String, onDismiss: () -> Unit, onCommit: (String) -> Unit) {
@@ -432,7 +438,12 @@ private fun GridColumnHeader(ui: MatrixUi, out: MatrixOutput) {
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(3.dp))
-            Text(out.descriptor, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = parseHexColor(out.color).copy(alpha = 0.8f))
+            Text(
+                out.descriptor,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = ChannelPalette.fromHex(out.color).copy(alpha = 0.8f)
+            )
         }
         OutputHeaderMenu(ui, out.index, menu) { menu = false }
     }
@@ -450,7 +461,7 @@ private fun GridInputLabel(ui: MatrixUi, row: MatrixInput) {
             row.name,
             fontSize = 12.sp,
             fontWeight = if (ui.state.is8ch) FontWeight.SemiBold else FontWeight.Medium,
-            color = parseHexColor(row.color),
+            color = ChannelPalette.fromHex(row.color),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
@@ -499,7 +510,7 @@ private fun MatrixPages(ui: MatrixUi) {
                     text = {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(out.name, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 96.dp))
-                            Text(out.descriptor, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = parseHexColor(out.color))
+                            Text(out.descriptor, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = ChannelPalette.fromHex(out.color))
                         }
                     }
                 )
@@ -522,7 +533,12 @@ private fun OutputPage(ui: MatrixUi, out: MatrixOutput) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).combinedClickable(onClick = {}, onLongClick = { menu = true })) {
                 Text(out.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(out.descriptor, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = parseHexColor(out.color).copy(alpha = 0.8f))
+                Text(
+                    out.descriptor,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ChannelPalette.fromHex(out.color).copy(alpha = 0.8f)
+                )
             }
             Box {
                 TextButton(onClick = { menu = true }) { Text("•••") }
@@ -559,12 +575,12 @@ private fun PhoneRouteRow(ui: MatrixUi, row: MatrixInput, out: MatrixOutput) {
     Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ColorDot(parseHexColor(row.color))
+                ColorDot(ChannelPalette.fromHex(row.color))
                 Spacer(Modifier.width(8.dp))
                 Text(
                     row.name,
                     fontWeight = FontWeight.Medium,
-                    color = parseHexColor(row.color),
+                    color = ChannelPalette.fromHex(row.color),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -592,7 +608,7 @@ private fun PhoneRouteRow(ui: MatrixUi, row: MatrixInput, out: MatrixOutput) {
             }
             MatrixConnectToggle(
                 route.isConnected,
-                if (enabled) parseHexColor(row.color) else Color.Gray,
+                if (enabled) ChannelPalette.fromHex(row.color) else Color.Gray,
                 conflictOutline(s, out.index),
                 true
             ) { ui.actions.toggleRoute(row.index, out.index, route) }

@@ -59,6 +59,8 @@ import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.SiggenCaps
 import se.bofr.dspi.core.SiggenConfig
 import se.bofr.dspi.core.SiggenStatus
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.WhileVisible
 
 /** Everything the Signal Generator draws (the Swift view's `vm.*` reads). */
 data class TestSignalsUiState(

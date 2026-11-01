@@ -75,22 +75,13 @@ import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.RtaCapsInfo
 import se.bofr.dspi.core.RtaSnapshot
 import se.bofr.dspi.ui.ChannelPalette
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.WhileVisible
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
 
 /** Subscription ids for the bridge's RtaController (views share one analyser). */
 private val rtaSubscriptionIds = AtomicInteger(0x5A_0000)
-
-/** "#RRGGBB" from the bridge's channel palette. */
-internal fun parseHexColor(hex: String): Color? {
-    val h = hex.removePrefix("#")
-    val v = h.toLongOrNull(16) ?: return null
-    return when (h.length) {
-        6 -> Color(0xFF000000 or v)
-        8 -> Color(v)
-        else -> null
-    }
-}
 
 /** What the analyser page shows, apart from the frames themselves. */
 data class SpectrumUiState(
@@ -185,7 +176,7 @@ fun SpectrumAnalyserView(bridge: DspiBridge, modifier: Modifier = Modifier, stor
         channelName = { tap, ch -> bridge.channelName(rta.appChannel(tap, ch)).ifEmpty { "Ch ${ch + 1}" } },
         channelColor = { tap, ch ->
             val app = rta.appChannel(tap, ch)
-            parseHexColor(bridge.channelColor(app)) ?: ChannelPalette.color(app)
+            ChannelPalette.fromHex(bridge.channelColor(app), ChannelPalette.color(app, bridge.numOutputChannels))
         },
         onSide = { tap ->
             // Swift switchRtaSide: the stored form, so a channel disabled for now is still remembered

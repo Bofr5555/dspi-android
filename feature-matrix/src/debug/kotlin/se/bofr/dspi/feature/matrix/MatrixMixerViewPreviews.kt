@@ -12,6 +12,8 @@ import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.fake.FakeDspiCore
+import se.bofr.dspi.ui.CompactDelayField
+import se.bofr.dspi.ui.CompactGainField
 import se.bofr.dspi.ui.DspiTheme
 
 /** The V32 fixture (RP2350, 8 in / 9 out) with a few routes and a PDM/EQ-worker conflict to show. */

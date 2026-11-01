@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.Throttle
+import se.bofr.dspi.ui.roundOutputDelay
+import se.bofr.dspi.ui.roundOutputGain
 
 /**
  * The matrix screen's controller: what the UI does to the device, plus the

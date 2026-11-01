@@ -95,7 +95,7 @@ private fun SpectrumPreview(mode: RtaDisplayMode, channels: List<Int>) {
             channelName = { t, ch -> d.bridge.channelName(d.bridge.rta.appChannel(t, ch)) },
             channelColor = { t, ch ->
                 val app = d.bridge.rta.appChannel(t, ch)
-                parseHexColor(d.bridge.channelColor(app)) ?: ChannelPalette.color(app)
+                ChannelPalette.fromHex(d.bridge.channelColor(app), ChannelPalette.color(app, d.bridge.numOutputChannels))
             },
             onSide = {},
             onToggle = {},

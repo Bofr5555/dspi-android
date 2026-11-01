@@ -1,4 +1,4 @@
-package se.bofr.dspi.feature.matrix
+package se.bofr.dspi.ui
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

@@ -46,15 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-/** The macOS system colours the analysis views use. */
-internal object MacColors {
-    val green = Color(0xFF32D74B)
-    val yellow = Color(0xFFFFD60A)
-    val orange = Color(0xFFFF9F0A)
-    val red = Color(0xFFFF453A)
-    val gray = Color(0xFF8E8E93)
-}
+import se.bofr.dspi.ui.MacColors
 
 internal fun StateDot.color(): Color = when (this) {
     StateDot.GRAY -> MacColors.gray
