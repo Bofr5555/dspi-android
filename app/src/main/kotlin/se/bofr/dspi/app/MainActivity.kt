@@ -50,7 +50,8 @@ class MainActivity : ComponentActivity() {
                         strip = connectionStrip(mode, usbState, demoAvailable),
                         onEnterDemo = { modes.enterDemo() },
                         onExitDemo = { modes.exitDemo() },
-                        onRequestPermission = { app.session.requestPermission(this) }
+                        onRequestPermission = { app.session.requestPermission(this) },
+                        bootloaderLocator = app.bootloaderLocator
                     )
                 }
             }

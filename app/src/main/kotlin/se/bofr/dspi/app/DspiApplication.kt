@@ -11,7 +11,9 @@ import se.bofr.dspi.ffi.FfiDspiCore
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.DataStoreAppSettingsStore
 import se.bofr.dspi.ui.state.AppState
+import se.bofr.dspi.usb.AndroidBootloaderLocator
 import se.bofr.dspi.usb.AndroidUsbSession
+import se.bofr.dspi.usb.BootloaderLocator
 import se.bofr.dspi.usb.UiVisibilityTracker
 import se.bofr.dspi.usb.UsbSession
 
@@ -57,6 +59,13 @@ class DspiApplication : Application() {
 
     /** The main window's selection (macOS activeEqChannel / isOverviewMode). */
     val appState = AppState()
+
+    /**
+     * The one bootloader locator (macOS `BootloaderLocator`), shared by every
+     * FirmwareUpdateView visit; the view starts it on open and stops it when
+     * the visit ends. Created on first use.
+     */
+    val bootloaderLocator: BootloaderLocator by lazy { AndroidBootloaderLocator(this, appScope) }
 
     override fun onCreate() {
         super.onCreate()
