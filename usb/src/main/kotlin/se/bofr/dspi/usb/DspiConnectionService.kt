@@ -51,9 +51,11 @@ class DspiConnectionService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         val controls = ConnectionServiceLink.controls
-        // startForeground first, always: a service started with
-        // startForegroundService() that stops without it crashes the app.
-        if (!foreground && !goForeground(controls?.current() ?: NotificationModel())) {
+        // startForeground first, on EVERY start command: each
+        // startForegroundService() (the session re-issues one whenever a UI
+        // becomes visible) must be answered, and a service that stops without it
+        // crashes the app. On a running service this just refreshes the notification.
+        if (!goForeground(controls?.current() ?: NotificationModel())) {
             stopSelf()
             return START_NOT_STICKY
         }

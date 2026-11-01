@@ -25,37 +25,39 @@ class AndroidUsbHost(
 
     override fun devices(): List<UsbDeviceRef> = deviceMap().values.map { it.toRef() }
 
-    override fun hasPermission(device: UsbDeviceRef): Boolean = find(device)?.let { manager.hasPermission(it) } ?: false
+    // Every UsbManager call is a binder call that may throw (service died,
+    // OEM SecurityException): none of them may escape into the session loop.
 
-    override fun requestPermission(device: UsbDeviceRef) {
-        val d = find(device) ?: return
+    override fun hasPermission(device: UsbDeviceRef): Boolean = guarded("hasPermission", false) {
+        find(device)?.let { manager.hasPermission(it) } ?: false
+    }
+
+    override fun requestPermission(device: UsbDeviceRef) = guarded("requestPermission", Unit) {
+        val d = find(device) ?: return@guarded
         manager.requestPermission(d, UsbBroadcasts.permissionPendingIntent(appContext, permissionAction))
     }
 
     override fun serial(device: UsbDeviceRef): String? {
         val d = find(device) ?: return null
-        if (!manager.hasPermission(d)) return null
-        return try {
-            d.serialNumber
-        } catch (_: SecurityException) {
-            null
-        }
+        return guarded("serial", null) { if (manager.hasPermission(d)) d.serialNumber else null }
     }
 
     override fun open(device: UsbDeviceRef): UsbLink? {
         val d = find(device) ?: return null
         val intf = vendorInterfaceOf(d) ?: return null
-        val conn = try {
-            manager.openDevice(d)
-        } catch (e: SecurityException) {
-            Log.w(TAG, "openDevice: $e")
-            null
-        } ?: return null
+        val conn = guarded("openDevice", null) { manager.openDevice(d) } ?: return null
         return AndroidUsbLink(conn, intf)
     }
 
     /** The platform object, for clients that must talk to the device themselves (FIRMWARE's PICOBOOT). */
     fun usbDevice(device: UsbDeviceRef): UsbDevice? = find(device)
+
+    private inline fun <T> guarded(what: String, fallback: T, block: () -> T): T = try {
+        block()
+    } catch (e: RuntimeException) {
+        Log.w(TAG, "$what: $e")
+        fallback
+    }
 
     private fun deviceMap(): Map<String, UsbDevice> = try {
         manager.deviceList ?: emptyMap()
@@ -88,18 +90,33 @@ private class AndroidUsbLink(private val conn: UsbDeviceConnection, private val 
 
     override fun claimVendorInterface(): Boolean {
         check(intf.id == UsbIds.VENDOR_INTERFACE)
-        claimed = conn.claimInterface(intf, false)
+        claimed = try {
+            conn.claimInterface(intf, false)
+        } catch (e: RuntimeException) {
+            Log.w("DspiUsb", "claimInterface: $e")
+            false
+        }
         return claimed
     }
 
     override fun releaseVendorInterface() {
         if (claimed) {
-            conn.releaseInterface(intf)
             claimed = false
+            try {
+                conn.releaseInterface(intf)
+            } catch (e: RuntimeException) {
+                Log.w("DspiUsb", "releaseInterface: $e")
+            }
         }
     }
 
-    override fun close() = conn.close()
+    override fun close() {
+        try {
+            conn.close()
+        } catch (e: RuntimeException) {
+            Log.w("DspiUsb", "close: $e")
+        }
+    }
 }
 
 fun UsbDevice.toRef() = UsbDeviceRef(deviceName, vendorId, productId)

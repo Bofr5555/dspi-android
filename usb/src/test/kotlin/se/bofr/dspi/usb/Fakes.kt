@@ -24,6 +24,12 @@ class FakeUsbHost(private val log: CallLog) : UsbHost {
     /** Number of upcoming claims that fail. */
     var failClaims = 0
     var nextFd = 40
+
+    /** Make hasPermission() throw (binder failure) this many times. */
+    var hasPermissionThrows = 0
+
+    /** Links created from now on throw from close(). */
+    var linkCloseThrows = false
     val links = mutableListOf<FakeLink>()
 
     fun plug(
@@ -50,7 +56,13 @@ class FakeUsbHost(private val log: CallLog) : UsbHost {
 
     override fun devices() = attached.map { it.ref }
 
-    override fun hasPermission(device: UsbDeviceRef) = dev(device)?.permission ?: false
+    override fun hasPermission(device: UsbDeviceRef): Boolean {
+        if (hasPermissionThrows > 0) {
+            hasPermissionThrows--
+            throw IllegalStateException("binder died")
+        }
+        return dev(device)?.permission ?: false
+    }
 
     override fun requestPermission(device: UsbDeviceRef) {
         log.add("requestPermission(${device.deviceName})")
@@ -66,13 +78,19 @@ class FakeUsbHost(private val log: CallLog) : UsbHost {
             failOpens--
             return null
         }
-        val link = FakeLink(nextFd++, d.serial, log, claimOk = failClaims-- <= 0)
+        val link = FakeLink(nextFd++, d.serial, log, claimOk = failClaims-- <= 0, closeThrows = linkCloseThrows)
         links += link
         return link
     }
 }
 
-class FakeLink(override val fd: Int, override val serial: String?, private val log: CallLog, private val claimOk: Boolean) : UsbLink {
+class FakeLink(
+    override val fd: Int,
+    override val serial: String?,
+    private val log: CallLog,
+    private val claimOk: Boolean,
+    private val closeThrows: Boolean = false
+) : UsbLink {
     var claimed = false
     var closed = false
 
@@ -90,6 +108,7 @@ class FakeLink(override val fd: Int, override val serial: String?, private val l
     override fun close() {
         log.add("close(fd=$fd)")
         closed = true
+        if (closeThrows) throw IllegalStateException("close failed")
     }
 }
 
@@ -106,9 +125,12 @@ class FakeCore(private val log: CallLog) : CoreLink {
         return result
     }
 
+    var detachThrows = false
+
     override suspend fun detach(serial: String) {
         log.add("core.detach($serial)")
         detachGate?.await()
+        if (detachThrows) throw IllegalStateException("core detach failed")
     }
 }
 

@@ -13,10 +13,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -31,7 +33,10 @@ import kotlinx.coroutines.withContext
  * - teardown order: [CoreLink.detach] → release interface 2 → [UsbLink.close]
  *   → service stop (PLAN §5.2), run to the end even under cancellation;
  * - the service is wanted exactly while a device is [UsbSessionState.Open]
- *   (a refused start is retried when a UI becomes visible);
+ *   (the start is re-issued whenever a UI becomes visible, which recovers a
+ *   refused one);
+ * - an exception from one event is logged and the loop goes on; if the loop
+ *   ends (scope cancelled) an open device is still torn down;
  * - a denial is remembered per device until an explicit [requestPermission]
  *   or the device detaches; permission dialogs only appear while a UI is
  *   visible (otherwise they are queued: `PermissionPending(dialogShown = false)`).
@@ -78,7 +83,6 @@ class UsbSessionEngine(
     private val events = Channel<Event>(Channel.UNLIMITED)
     private var loop: Job? = null
     private var opened: Opened? = null
-    private var serviceRunning = false
     private var uiVisible = false
 
     /** Serial of the last unit we had open: preferred on re-attach (core keeps selected_serial). */
@@ -103,15 +107,29 @@ class UsbSessionEngine(
     fun start() {
         if (isStarted) return
         val job = scope.launch {
-            for (e in events) {
-                if (e is Event.Close) {
+            try {
+                for (e in events) {
                     try {
                         handle(e)
+                    } catch (c: CancellationException) {
+                        // Only our own cancellation ends the loop; a foreign one
+                        // (e.g. from the bridge's scope) is just a failed event.
+                        if (!currentCoroutineContext().isActive) throw c
+                        log("event $e cancelled: $c")
+                    } catch (t: Throwable) {
+                        // One bad event (a UsbManager RuntimeException, a throwing
+                        // close()) must not kill the loop and strand an open fd.
+                        log("event $e failed: $t")
                     } finally {
-                        e.done.complete(Unit)
+                        if (e is Event.Close) e.done.complete(Unit)
                     }
-                } else {
-                    handle(e)
+                }
+            } finally {
+                // The loop is ending (scope cancelled): never leave the fd or the
+                // service behind.
+                withContext(NonCancellable) {
+                    opened?.let { teardown(it) }
+                    _state.value = UsbSessionState.NoDevice
                 }
             }
         }
@@ -180,7 +198,7 @@ class UsbSessionEngine(
                 if (!e.granted) denied.add(name) else denied.remove(name)
                 refreshDevices()
                 if (e.device.isDspi && opened == null && autoConnect) {
-                    if (e.granted && present(e.device) && autoConnect) connect(e.device) else connectBest(askPermission = false)
+                    if (e.granted && present(e.device)) connect(e.device) else connectBest(askPermission = false)
                 }
             }
 
@@ -195,7 +213,11 @@ class UsbSessionEngine(
                 autoConnect = true
                 refreshDevices()
                 if (opened == null) {
-                    pickCandidate()?.let { denied.remove(it.deviceName) }
+                    // Explicit: forget a denial, and a dialog whose answer was lost.
+                    pickCandidate()?.let {
+                        denied.remove(it.deviceName)
+                        asked.remove(it.deviceName)
+                    }
                     connectBest(askPermission = true)
                 }
             }
@@ -218,8 +240,10 @@ class UsbSessionEngine(
                 if (!e.visible) return
                 val current = opened
                 if (current != null) {
-                    // A start refused in the background (API 31+) is retried here.
-                    if (!serviceRunning) serviceRunning = service.start()
+                    // Re-issued every time: a start refused in the background (API
+                    // 31+) or inside Service.startForeground (API 34) is invisible
+                    // here; on a running service this only refreshes the notification.
+                    service.start()
                 } else if (autoConnect) {
                     refreshDevices()
                     connectBest(askPermission = true)
@@ -376,8 +400,14 @@ class UsbSessionEngine(
         while (true) {
             link = host.open(d)
             if (link != null) {
-                if (link.claimVendorInterface()) break
-                link.close()
+                val claimed = try {
+                    link.claimVendorInterface()
+                } catch (t: RuntimeException) {
+                    log("claim failed: $t")
+                    false
+                }
+                if (claimed) break
+                runCatching { link.close() }
                 link = null
             }
             if (attempt >= openRetryDelaysMs.size || !present(d)) break
@@ -399,16 +429,16 @@ class UsbSessionEngine(
             // The core may already have adopted the fd: undo everything, then propagate.
             withContext(NonCancellable) {
                 runCatching { core.detach(serial) }
-                link.releaseVendorInterface()
-                link.close()
+                runCatching { link.releaseVendorInterface() }
+                runCatching { link.close() }
             }
             throw c
         } catch (t: Throwable) {
             AttachResult(false, t.message ?: t.javaClass.simpleName)
         }
         if (!result.ok) {
-            link.releaseVendorInterface()
-            link.close()
+            runCatching { link.releaseVendorInterface() }
+            runCatching { link.close() }
             _state.value = UsbSessionState.Failed(serial, result.error)
             return
         }
@@ -416,25 +446,24 @@ class UsbSessionEngine(
         lastSerial = serial
         refreshDevices()
         _state.value = UsbSessionState.Open(serial, d.vid)
-        serviceRunning = service.start()
+        service.start()
     }
 
-    /** PLAN §5.2 order: core disconnect, then release + close the connection. Never interrupted. */
+    /**
+     * PLAN §5.2 order: core disconnect, then release + close the connection,
+     * then stop the service. Never interrupted; every step runs even if an
+     * earlier one throws.
+     */
     private suspend fun teardown(o: Opened) = withContext(NonCancellable) {
         try {
             core.detach(o.serial)
         } catch (t: Throwable) {
             log("detach failed: $t")
-        } finally {
-            try {
-                o.link.releaseVendorInterface()
-                o.link.close()
-            } finally {
-                opened = null
-                serviceRunning = false
-                service.stop()
-            }
         }
+        runCatching { o.link.releaseVendorInterface() }.onFailure { log("release failed: $it") }
+        runCatching { o.link.close() }.onFailure { log("close failed: $it") }
+        opened = null
+        runCatching { service.stop() }.onFailure { log("service stop failed: $it") }
     }
 
     companion object {

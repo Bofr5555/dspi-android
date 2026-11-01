@@ -124,8 +124,14 @@ class BridgeNotificationControls(private val bridge: DspiBridge, private val sco
 
     override fun loadPreset(slot: Int) {
         scope.launch {
-            val r = bridge.loadPreset(slot)
-            if (r != PresetStatus.OK) android.util.Log.w("DspiNotification", "loadPreset($slot): $r")
+            try {
+                val r = bridge.loadPreset(slot)
+                if (r != PresetStatus.OK) android.util.Log.w("DspiNotification", "loadPreset($slot): $r")
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                android.util.Log.w("DspiNotification", "loadPreset($slot) failed", t)
+            }
         }
     }
 }

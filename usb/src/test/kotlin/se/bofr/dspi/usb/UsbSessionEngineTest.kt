@@ -623,6 +623,120 @@ class UsbSessionEngineTest {
         assertTrue(service.running)
         e.setUiVisible(true)
         settle()
-        assertEquals(1, log.calls.count { it == "service.start" })
+        assertEquals(2, log.calls.count { it == "service.start" }) // re-issued each time (NEW-2)
+    }
+
+    // ── Verification round (NEW-1/2/3/7) ────────────────────────────────
+
+    private val fullTeardown = listOf("core.detach(E66138)", "release(fd=40)", "close(fd=40)", "service.stop")
+
+    @Test
+    fun throwingCoreDetachStillClosesEverything() = runTest {
+        val d = host.plug("/dev/bus/usb/001/004", "E66138", permission = true)
+        val e = engine()
+        settle()
+        log.clear()
+        core.detachThrows = true
+        host.unplug(d)
+        e.onDetached(d)
+        settle()
+        assertEquals(fullTeardown, log.calls)
+        assertEquals(UsbSessionState.NoDevice, e.state.value)
+        assertTrue(e.isStarted)
+    }
+
+    @Test
+    fun throwingLinkCloseStillStopsServiceAndKeepsLoopAlive() = runTest {
+        host.linkCloseThrows = true
+        val d = host.plug("/dev/bus/usb/001/004", "E66138", permission = true)
+        val e = engine()
+        settle()
+        log.clear()
+        host.unplug(d)
+        e.onDetached(d)
+        settle()
+        assertEquals(fullTeardown, log.calls)
+        assertFalse(service.running)
+        assertTrue(e.isStarted)
+
+        // Still serving events.
+        host.linkCloseThrows = false
+        host.plug("/dev/bus/usb/001/005", "E66138", permission = true)
+        e.scan(askPermission = true)
+        settle()
+        assertEquals(UsbSessionState.Open("E66138", UsbIds.DSPI_VID), e.state.value)
+    }
+
+    @Test
+    fun concurrentClosesTearDownOnceAndAllReturn() = runTest {
+        host.plug("/dev/bus/usb/001/004", "E66138", permission = true)
+        val e = engine()
+        settle()
+        log.clear()
+        val gate = CompletableDeferred<Unit>()
+        core.detachGate = gate
+        val closers = List(3) { backgroundScope.launch { e.close() } }
+        runCurrent()
+        gate.complete(Unit)
+        settle()
+        assertTrue(closers.all { it.isCompleted })
+        assertEquals(fullTeardown, log.calls)
+    }
+
+    @Test
+    fun exceptionInAnEventDoesNotKillTheLoop() = runTest {
+        host.plug("/dev/bus/usb/001/004", "E66138", permission = true)
+        val e = engine() // its setUiVisible(true) scan hits the throwing hasPermission
+        host.hasPermissionThrows = 1
+        settle()
+        assertTrue(e.isStarted)
+        e.scan(askPermission = true)
+        settle()
+        assertEquals(UsbSessionState.Open("E66138", UsbIds.DSPI_VID), e.state.value)
+    }
+
+    @Test
+    fun loopEndingWhileOpenTearsDown() = runTest {
+        val engineScope = CoroutineScope(backgroundScope.coroutineContext + Job())
+        val e = UsbSessionEngine(host, core, service, engineScope).also {
+            it.start()
+            it.setUiVisible(true)
+        }
+        host.plug("/dev/bus/usb/001/004", "E66138", permission = true)
+        settle()
+        log.clear()
+        engineScope.cancel()
+        settle()
+        assertEquals(fullTeardown, log.calls)
+        assertEquals(UsbSessionState.NoDevice, e.state.value)
+        e.close() // loop gone: returns at once
+    }
+
+    @Test
+    fun serviceStartIsReissuedOnEveryUiReturnWhileOpen() = runTest {
+        host.plug("/dev/bus/usb/001/004", "E66138", permission = true)
+        val e = engine()
+        settle()
+        // e.g. startForeground refused inside the service (API 34): the session cannot tell.
+        e.setUiVisible(false)
+        e.setUiVisible(true)
+        e.setUiVisible(true)
+        settle()
+        assertEquals(3, log.calls.count { it == "service.start" })
+    }
+
+    @Test
+    fun explicitRequestRecoversALostPermissionAnswer() = runTest {
+        host.plug("/dev/bus/usb/001/004", "E66138")
+        val e = engine()
+        settle()
+        assertEquals(listOf("requestPermission(/dev/bus/usb/001/004)"), log.calls)
+        // The answer never arrives (dialog dismissed by the system).
+        e.scan(askPermission = true)
+        settle()
+        assertEquals(1, log.calls.size)
+        e.requestPermission()
+        settle()
+        assertEquals(2, log.calls.count { it.startsWith("requestPermission") })
     }
 }
