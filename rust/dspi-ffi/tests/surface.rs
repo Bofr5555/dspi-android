@@ -48,7 +48,7 @@ fn every_device_call_fails_as_disconnected() {
 #[test]
 fn bad_fd_is_an_invalid_argument() {
     let c = DspiCore::new();
-    assert!(matches!(c.open_fd(-1, "X".into(), 0x2E8A), Err(DspiError::InvalidArgument { .. })));
+    assert!(matches!(c.open_fd(-1, "X".into(), 0x2E8B), Err(DspiError::InvalidArgument { .. })));
     assert!(!c.is_connected());
     c.close_fd(); // no-op without a device
 }
