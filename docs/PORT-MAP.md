@@ -37,8 +37,8 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 |---|---|---|---|---|
 | `DSPi_ConsoleApp.swift` → `AppState`, `AppSettings` | ~400 | `app/…/AppState.kt`, `AppSettings.kt` (DataStore) | coordinator / SETTINGS (prefs UI) | — |
 | `FileMenuActions`, `ToolsMenuActions`, `AutoEQMenuActions`, window controllers, `AppDelegate` | ~1.5k | `app/…/AppScaffold.kt` (NavHost; tool windows → routes) | coordinator | W0 |
-| `USBDevice.swift` lifecycle, menu-bar mode spirit | — | `usb/…/UsbSession.kt`, `DspiConnectionService.kt` | USB | W0 |
-| `BootloaderLocator.swift` | — | `usb/…/BootloaderLocator.kt` | USB | W0 |
+| `USBDevice.swift` lifecycle, menu-bar mode spirit | — | `usb/…/UsbSession.kt` (contract), `AndroidUsbSession.kt` + `UsbSessionEngine.kt` (logic), `AndroidUsbHost.kt`, `DspiConnectionService.kt` + `NotificationControls.kt`, `UiVisibilityTracker.kt` | USB | done (JVM-tested; phone HIL pending) |
+| `BootloaderLocator.swift` | — | `usb/…/BootloaderLocator.kt` (contract), `AndroidBootloaderLocator.kt` (`BootloaderScanner`) | USB | done (locating only; HIL pending) |
 | `FirmwareUpdateView.swift`, `FirmwareInstallUI.swift`, `FirmwareInstaller.swift`, `FirmwareVersion.swift`, `Firmware/*.uf2` | ~1.5k | `feature-firmware/…/FirmwareUpdateView.kt`, `FirmwareInstaller.kt`, PICOBOOT writer, UF2 assets | FIRMWARE | W0 |
 | `Onboarding/*`, `WhatsNew.json` | ~3k | `GettingStartedView.kt`, `WhatsNewView.kt` (simplified) | unassigned (Phase 6) | — |
 | `SoftwareUpdateSettingsTab`, `AppUpdateChecker/Installer.swift`, `MenuBarMode.swift`, `NetworkingSettingsView.swift`, `Link/*` | ~8.5k | **not ported** (Play/F-Droid updates; no hub role on a phone) | — | n/a |
