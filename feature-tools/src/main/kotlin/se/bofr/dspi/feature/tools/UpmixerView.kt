@@ -37,6 +37,14 @@ import kotlinx.coroutines.isActive
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.UpmixStatus
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.ParameterRow
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.ToolHeader
+import se.bofr.dspi.ui.ValueFormat
+import se.bofr.dspi.ui.rememberWhileVisible
 
 /** Telemetry poll period while the view is up (macOS: ~16 Hz). */
 internal const val UPMIX_STATUS_POLL_MS = 60L
@@ -275,9 +283,9 @@ private fun UpmixStatusPane(connected: Boolean, centreOff: Boolean, surroundOn: 
     val dot = if (!connected) {
         secondaryColor()
     } else if (active) {
-        ToolColors.green
+        MacColors.green
     } else {
-        ToolColors.orange
+        MacColors.orange
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -290,26 +298,26 @@ private fun UpmixStatusPane(connected: Boolean, centreOff: Boolean, surroundOn: 
             )
         }
         val corr = t?.correlation ?: 0f
-        TelemetryGauge("Correlation", (corr + 1) / 2, ToolFormat.signed(corr, 2), accentColor(), active)
+        TelemetryGauge("Correlation", (corr + 1) / 2, ValueFormat.signed(corr, 2), accentColor(), active)
         TelemetryGauge(
             "Centre gain",
             t?.centerGain ?: 0f,
             ToolFormat.fixed((t?.centerGain ?: 0f) * 100, 0) + "%",
-            ToolColors.green,
+            MacColors.green,
             active && !centreOff
         )
         TelemetryGauge(
             "Ls gain",
             t?.lsGain ?: 0f,
             ToolFormat.fixed((t?.lsGain ?: 0f) * 100, 0) + "%",
-            ToolColors.purple,
+            MacColors.purple,
             active && surroundOn
         )
         TelemetryGauge(
             "Rs gain",
             t?.rsGain ?: 0f,
             ToolFormat.fixed((t?.rsGain ?: 0f) * 100, 0) + "%",
-            ToolColors.pink,
+            MacColors.pink,
             active && surroundOn
         )
     }

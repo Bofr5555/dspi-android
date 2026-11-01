@@ -251,13 +251,13 @@ fun rememberSliderDrag(model: Float): SliderDragState {
  * device (coalesced to 30/s; use the bridge's `sendOnly = true` setter);
  * [set] clamps, publishes and sends — once on release, and on a typed entry.
  * While a drag is running [value] is ignored, so a late echo cannot pull the
- * thumb back.
+ * thumb back. A typed entry may carry its unit and is kept within [range].
  *
  * @param subtitle a second, smaller line under the title.
  * @param ends labels under the two ends of the slider.
  * @param formatLive text for a value during a drag instead of the number (e.g. "Off").
- * @param help the macOS tooltip; touch has no hover, so it is kept for API
- *   parity only — pass the text as [caption] to show it.
+ * @param help the macOS `.help` tooltip, shown on a long-press of the title
+ *   ([HelpTip]).
  * @param caption secondary text under the slider.
  * @param defaultValue double-tap on the slider resets to it (macOS: right-click; optional).
  */
@@ -277,7 +277,7 @@ fun ParameterRow(
     fieldWidth: Dp = 60.dp,
     formatLive: ((Float) -> String?)? = null,
     isEnabled: Boolean = true,
-    @Suppress("UNUSED_PARAMETER") help: String = "",
+    help: String = "",
     caption: String? = null,
     defaultValue: Float? = null,
     live: ((Float) -> Unit)? = null
@@ -291,9 +291,16 @@ fun ParameterRow(
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = if (isEnabled) colors.label else colors.tertiaryLabel)
-                if (subtitle != null) Text(subtitle, fontSize = 10.sp, color = colors.secondaryLabel)
+            HelpTip(help, Modifier.weight(1f)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        title,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isEnabled) colors.label else colors.tertiaryLabel
+                    )
+                    if (subtitle != null) Text(subtitle, fontSize = 10.sp, color = colors.secondaryLabel)
+                }
             }
             ValueField(
                 label = unit,
@@ -303,7 +310,8 @@ fun ParameterRow(
                 maxDecimals = maxDecimals,
                 displayOverride = displayOverride,
                 liveText = if (drag.dragging) liveFormat(drag.value) else null,
-                enabled = isEnabled
+                enabled = isEnabled,
+                range = range
             ) { typed ->
                 // Commit and let the published value echo back (a clamped entry shows the clamp).
                 setNow(typed)

@@ -40,6 +40,13 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.HelpTip
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.ParameterRow
+import se.bofr.dspi.ui.PullDownMenu
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.ToolHeader
 
 /**
  * Entry point for [se.bofr.dspi.ui.DspiRoutes.LIMITER] (macOS
@@ -69,7 +76,7 @@ fun OutputLimiterView(bridge: DspiBridge, out: Int, onNavigate: (String) -> Unit
             icon = {
                 LimiterIcon(
                     color = if (limiting) {
-                        ToolColors.orange
+                        MacColors.orange
                     } else if (s.enabled) {
                         accentColor()
                     } else {
@@ -173,7 +180,7 @@ private fun LimiterSettings(
                 }, enabled = enabled) { Text("Copy to all outputs") }
             }
             Spacer(Modifier.weight(1f))
-            ToolMenu(
+            PullDownMenu(
                 "All outputs",
                 enabled,
                 listOf(

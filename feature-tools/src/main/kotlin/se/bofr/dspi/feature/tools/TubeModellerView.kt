@@ -80,6 +80,18 @@ import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_XFMR_DAMPING_MAX
 import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_XFMR_DAMPING_MIN
 import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_XFMR_RES_MAX
 import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_XFMR_RES_MIN
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.ChannelChips
+import se.bofr.dspi.ui.HelpTip
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.ParameterRow
+import se.bofr.dspi.ui.PullDownMenu
+import se.bofr.dspi.ui.SectionHeader
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.SwitchRow
+import se.bofr.dspi.ui.ToolChip
+import se.bofr.dspi.ui.ToolHeader
 import se.bofr.dspi.ui.settings.LocalAppSettings
 
 // MARK: - Shaper Model
@@ -215,7 +227,7 @@ fun TubeModellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
 
     val outputs: @Composable () -> Unit = {
         SectionHeader("OUTPUTS") {
-            ToolMenu(
+            PullDownMenu(
                 "Presets",
                 connected,
                 listOf(
@@ -308,7 +320,7 @@ fun TubeModellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                 } else {
                     ToolColumns(left = {
                         SectionHeader("TRANSFER CURVE") {
-                            ToolMenu(
+                            PullDownMenu(
                                 "Apply preset",
                                 connected,
                                 TubeParameters.startingPoints.map { p ->
@@ -481,7 +493,7 @@ private fun TubeShowcase(tube: TubeParameters, outputCount: Int, peaks: List<Flo
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), shape)
             .background(
-                Brush.radialGradient(listOf(ToolColors.orange.copy(alpha = 0.10f * glow), Color.Transparent), radius = 500f),
+                Brush.radialGradient(listOf(MacColors.orange.copy(alpha = 0.10f * glow), Color.Transparent), radius = 500f),
                 shape
             )
             .border(1.dp, Color.Gray.copy(alpha = 0.2f), shape)
@@ -612,7 +624,7 @@ internal fun TubeTransferView(shaper: TubeShaper, isEnabled: Boolean, modifier: 
         listOf(-0.5, 0.5).forEach { drawLine(grid, Offset(0f, y(it)), Offset(w, y(it)), 1f) }
         listOf(-1.0, 1.0).forEach {
             drawLine(
-                ToolColors.red.copy(alpha = 0.3f),
+                MacColors.red.copy(alpha = 0.3f),
                 Offset(0f, y(it)),
                 Offset(w, y(it)),
                 1f,
@@ -626,11 +638,11 @@ internal fun TubeTransferView(shaper: TubeShaper, isEnabled: Boolean, modifier: 
             val xn = shaper.negativeKneeX
             if (xp < 1) {
                 val x0 = x(maxOf(xp, -1.0))
-                drawRect(ToolColors.orange.copy(alpha = 0.10f), Offset(x0, 0f), Size(maxOf(0f, w - x0), h))
+                drawRect(MacColors.orange.copy(alpha = 0.10f), Offset(x0, 0f), Size(maxOf(0f, w - x0), h))
             }
             if (xn > -1) {
                 val x1 = x(minOf(xn, 1.0))
-                drawRect(ToolColors.orange.copy(alpha = 0.10f), Offset(0f, 0f), Size(maxOf(0f, x1), h))
+                drawRect(MacColors.orange.copy(alpha = 0.10f), Offset(0f, 0f), Size(maxOf(0f, x1), h))
             }
             drawLine(
                 primary.copy(alpha = 0.25f),
@@ -653,6 +665,6 @@ internal fun TubeTransferView(shaper: TubeShaper, isEnabled: Boolean, modifier: 
         }
         labelAt(measurer, "in", Offset(w - 10.dp.toPx(), y(0.0) + 8.dp.toPx()), secondary.copy(alpha = 0.6f), 9.sp, bold = true)
         labelAt(measurer, "out", Offset(x(0.0) + 12.dp.toPx(), 7.dp.toPx()), secondary.copy(alpha = 0.6f), 9.sp, bold = true)
-        labelAt(measurer, "0 dBFS", Offset(22.dp.toPx(), y(1.0) - 7.dp.toPx()), ToolColors.red.copy(alpha = 0.5f), 9.sp)
+        labelAt(measurer, "0 dBFS", Offset(22.dp.toPx(), y(1.0) - 7.dp.toPx()), MacColors.red.copy(alpha = 0.5f), 9.sp)
     }
 }

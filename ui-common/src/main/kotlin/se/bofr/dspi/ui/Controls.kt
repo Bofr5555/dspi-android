@@ -13,7 +13,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,8 +28,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 /**
  * The Console's card: `controlBackgroundColor.opacity(0.6)`, 10 pt corners,
@@ -309,82 +305,6 @@ fun BypassCheckbox(isActive: Boolean, isEnabled: Boolean, onToggle: () -> Unit, 
                 .background(base.copy(alpha = fillAlpha))
                 .border(1.2.dp, if (isActive) base else (color?.copy(alpha = 0.6f) ?: c.secondaryLabel.copy(alpha = 0.55f)), CircleShape)
         )
-    }
-}
-
-/**
- * Tool window header (macOS tool views' `headerSection`, Linux ToolHeader):
- * accent icon, title, subtitle, optional accessories, and the effect's
- * on/off switch.
- */
-@Composable
-fun ToolHeader(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onToggle: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    showSwitch: Boolean = true,
-    accessories: @Composable () -> Unit = {}
-) {
-    val c = DspiTheme.colors
-    Row(
-        modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Icon(icon, null, tint = c.accent, modifier = Modifier.size(26.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.label)
-            Text(subtitle, fontSize = 11.sp, color = c.secondaryLabel)
-        }
-        accessories()
-        if (showSwitch) {
-            Switch(
-                checked = checked,
-                onCheckedChange = onToggle,
-                enabled = enabled,
-                colors = SwitchDefaults.colors(checkedTrackColor = c.accent)
-            )
-        }
-    }
-}
-
-/** One chip of [ChannelChips]. */
-data class ChannelChip(val label: String, val isOn: Boolean, val color: Color? = null, val name: String = label)
-
-/**
- * A row of channel chips, filled = on, grey = off; tap toggles (Linux
- * ChannelChips; macOS tool windows' output masks). [onToggle] gets the index.
- */
-@Composable
-fun ChannelChips(chips: List<ChannelChip>, onToggle: (Int) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    val c = DspiTheme.colors
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        chips.forEachIndexed { i, chip ->
-            val shape = RoundedCornerShape(6.dp)
-            val on = chip.isOn
-            Box(
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = 32.dp)
-                    .clip(shape)
-                    .background(if (on) chip.color ?: c.accent else c.secondaryLabel.copy(alpha = 0.12f), shape)
-                    .border(1.dp, if (on) Color.Transparent else c.label.copy(alpha = 0.08f), shape)
-                    .clickable(enabled = enabled, onClickLabel = chip.name) { onToggle(i) }
-                    .alpha(if (enabled) 1f else 0.5f),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    chip.label,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (on) Color.White else c.label.copy(alpha = 0.6f)
-                )
-            }
-        }
     }
 }
 

@@ -13,6 +13,7 @@ package se.bofr.dspi.feature.tools
 
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.ui.ValueFormat
 
 // ═══ Shared mask helpers ════════════════════════════════════════════════
 
@@ -331,7 +332,7 @@ data class SubharmParameters(
         }
 
         /** The HEADROOM COST readout: "+4.2 dB", or "none". */
-        fun headroomText(db: Float): String = if (db > 0f) ToolFormat.signed(db, 1) + " dB" else "none"
+        fun headroomText(db: Float): String = if (db > 0f) ValueFormat.signed(db, 1) + " dB" else "none"
     }
 }
 

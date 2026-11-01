@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.dp
  *   the number, as macOS `LiveValueReadout`.
  * @param onReset long-press action: the macOS right-click reset of a field
  *   that has no slider (e.g. a matrix crosspoint gain -> 0 dB).
+ * @param range when set, a typed entry may carry its unit and is kept within
+ *   it ([ValueFormat.parse] with a range; the tool windows' rows).
  *
  * Stable API (lot 3).
  */
@@ -71,6 +73,7 @@ fun ValueField(
     enabled: Boolean = true,
     textStyle: TextStyle = DspiType.bodyMono,
     onReset: (() -> Unit)? = null,
+    range: ClosedFloatingPointRange<Float>? = null,
     onCommit: (Float) -> Unit
 ) {
     val colors = DspiTheme.colors
@@ -84,7 +87,7 @@ fun ValueField(
         if (!editing) return
         editing = false
         hadFocus = false
-        ValueFormat.parse(field.text)?.let(onCommit)
+        (if (range != null) ValueFormat.parse(field.text, range) else ValueFormat.parse(field.text))?.let(onCommit)
     }
 
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
