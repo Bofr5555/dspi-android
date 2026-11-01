@@ -219,3 +219,18 @@ Reference: macOS `MatrixMixerView.swift` (+ the matrix helpers of
 10. **8-channel extras** (Direct 1:1, Clear, input trims) need RP2350, the
     client's exact wire format (`WIRE_FORMAT_VERSION`) and 8 inputs, as macOS
     `supports8chInput`.
+
+
+## APP
+
+1. **Demo mode** ("Demo (no device)"): no official client has one. Offered
+   only while no DSPi is attached; runs `FakeDspiCore.demo()` (V32 capture)
+   behind its own `DspiBridgeImpl`, never through the USB session, is
+   labelled in the title and in a strip under it, and ends by itself as soon
+   as a DSPi appears. Its input-pair links are not persisted.
+2. **Input-pair links** are kept in a Preferences DataStore
+   (`dspi_bridge`, key `inputLinks/<serial>`) instead of QSettings, same keys
+   and bit layout.
+3. **Connection strip** under the top bar for the Android-only USB states
+   (permission required/denied/pending, open failed) with "Allow USB access";
+   macOS and Linux have no permission step.

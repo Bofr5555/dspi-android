@@ -1,7 +1,8 @@
-// :app — wiring only: NavHost over the feature entry points, bridge
-// construction (demo = FakeDspiCore, device = FfiDspiCore), USB session.
-// Owned by the coordinator (integration); packages do not edit it except
-// through the route table in :ui-common.
+// :app — wiring only (decision D9): NavHost over the feature entry points,
+// the real stack (FfiDspiCore -> DspiBridgeImpl -> AndroidUsbSession), the
+// explicit demo mode (FakeDspiCore.demo()), and the DataStore LinkStore.
+// Owned by package APP (integration); packages do not edit it except through
+// the route table in :ui-common.
 plugins {
     id("dspi.android-app")
 }
@@ -19,10 +20,14 @@ android {
             isMinifyEnabled = false
         }
     }
+    // JVM tests touch android.util.Log / android.os only through code paths
+    // they don't assert on; the stubs return defaults instead of throwing.
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 dependencies {
     implementation(project(":bridge"))
+    // E8: the one release-time :fake-core user (demo mode); tools/ci.sh release-deps allows only :app
     implementation(project(":fake-core"))
     implementation(project(":ffi"))
     implementation(project(":usb"))
@@ -41,4 +46,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.datastore.preferences)
+
+    testImplementation(libs.kotlinx.coroutines.test)
 }

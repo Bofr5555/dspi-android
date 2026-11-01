@@ -1,7 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Same declarations as :usb's manifest (merged; restated here so the app's
+         USB/FGS surface is readable in one place). Keep the two identical. -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Requested at runtime on API 33+ by MainActivity (the service notification). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- DspiConnectionService (foregroundServiceType="connectedDevice") is
+         declared by :usb and merged in. -->
     <application
+        android:name=".DspiApplication"
         android:allowBackup="false"
         android:label="@string/app_name"
         android:supportsRtl="true"
@@ -14,7 +28,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Implicit USB permission + auto-launch for a DSPi (PLAN §5.2). -->
+            <!-- Implicit USB permission + auto-launch for a DSPi (PLAN §5.2);
+                 the filter (:usb res/xml) lists DSPi ids only (decision D8). -->
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>

@@ -10,6 +10,7 @@ coreKtx = "1.16.0"
 activityCompose = "1.10.1"
 lifecycle = "2.9.1"
 navigationCompose = "2.9.0"
+datastore = "1.1.7"             # APP (D9): persistent LinkStore
 jna = "5.17.0"
 junit = "4.13.2"
 ktlint = "1.5.0"
@@ -34,6 +35,7 @@ androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-ru
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 androidx-lifecycle-service = { module = "androidx.lifecycle:lifecycle-service", version.ref = "lifecycle" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-ui = { module = "androidx.compose.ui:ui" }
