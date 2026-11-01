@@ -11,6 +11,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.alert.AlertButton
+import se.bofr.dspi.ui.alert.AlertButtonRole
+import se.bofr.dspi.ui.alert.AlertCheckbox
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertStyle
+import se.bofr.dspi.ui.alert.ConsoleAlert
+import se.bofr.dspi.ui.json.Json
+import se.bofr.dspi.ui.json.bool
+import se.bofr.dspi.ui.json.double
+import se.bofr.dspi.ui.json.int
+import se.bofr.dspi.ui.json.list
+import se.bofr.dspi.ui.json.str
 
 class FileMenuActions(private val bridge: DspiBridge, private val scope: CoroutineScope, private val host: AlertHost) {
     // ═══ Device configuration ═════════════════════════════════════════════
@@ -57,7 +69,7 @@ class FileMenuActions(private val bridge: DspiBridge, private val scope: Corouti
      * the Import button's handler) and report (`showImportResult`).
      */
     fun importConfiguration(text: String) {
-        val info = PresetsJson.parseObject(bridge.configFiles.inspectConfiguration(text))
+        val info = Json.parseObject(bridge.configFiles.inspectConfiguration(text))
         if (info?.bool("ok") != true) {
             host.showError(info?.str("error")?.ifEmpty { null } ?: "The file could not be read.")
             return
@@ -103,7 +115,7 @@ class FileMenuActions(private val bridge: DspiBridge, private val scope: Corouti
             host.beginProgress("Importing configuration…")
             val result =
                 try {
-                    PresetsJson.parseObject(bridge.configFiles.importConfiguration(token, text, volumes, hardware))
+                    Json.parseObject(bridge.configFiles.importConfiguration(token, text, volumes, hardware))
                 } finally {
                     host.endProgress()
                 }
@@ -149,7 +161,7 @@ class FileMenuActions(private val bridge: DspiBridge, private val scope: Corouti
      */
     fun importFilters(text: String) {
         scope.launch {
-            val f = PresetsJson.parseObject(bridge.configFiles.inspectFilters(text))
+            val f = Json.parseObject(bridge.configFiles.inspectFilters(text))
             if (f?.bool("ok") != true) {
                 host.showError(f?.str("error")?.ifEmpty { null } ?: "No valid filters found in file")
                 return@launch
@@ -192,7 +204,7 @@ class FileMenuActions(private val bridge: DspiBridge, private val scope: Corouti
     private fun applyFilters(text: String, wires: List<Int>) {
         if (wires.isEmpty()) return
         scope.launchDeviceSequence {
-            val r = PresetsJson.parseObject(bridge.configFiles.importFilters(text, wires))
+            val r = Json.parseObject(bridge.configFiles.importFilters(text, wires))
             if (r?.bool("ok") == false || r == null) {
                 host.showError(r?.str("error")?.ifEmpty { null } ?: "Failed to import filters")
                 return@launchDeviceSequence

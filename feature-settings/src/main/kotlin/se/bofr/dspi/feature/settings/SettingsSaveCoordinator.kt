@@ -21,6 +21,10 @@ import se.bofr.dspi.bridge.DangerousOpNotConfirmed
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.json.Json
+import se.bofr.dspi.ui.json.bool
+import se.bofr.dspi.ui.json.int
+import se.bofr.dspi.ui.json.str
 
 /**
  * Owner of pending (unsaved) Settings changes for one bridge, so the save bar
@@ -304,7 +308,7 @@ class SettingsSaveCoordinator(
         _csStatus.value = null
         return scope.launch {
             try {
-                val r = CsJson.parseObject(bridge.cs.apply(opJson))
+                val r = Json.parseObject(bridge.cs.apply(opJson))
                 if (r?.bool("ok") != true) {
                     _csStatus.value = (r?.str("error") ?: bridge.cs.statusMessage(r?.int("status") ?: 0xFF)) to true
                 }

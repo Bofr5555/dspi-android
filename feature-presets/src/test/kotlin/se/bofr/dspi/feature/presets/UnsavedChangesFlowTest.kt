@@ -10,6 +10,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiException
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertResponse
 
 /**
  * The preset switch / Copy to state machine of ContentView.swift

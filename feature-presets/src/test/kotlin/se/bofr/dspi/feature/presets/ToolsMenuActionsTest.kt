@@ -9,6 +9,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiException
+import se.bofr.dspi.ui.alert.AlertButtonRole
+import se.bofr.dspi.ui.alert.AlertHost
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ToolsMenuActionsTest {

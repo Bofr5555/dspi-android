@@ -1,9 +1,9 @@
 // The NSAlert of the macOS menu actions as a Compose dialog: title
 // (messageText), text (informativeText), accessory checkboxes or text field,
 // buttons in NSAlert order (first = default, drawn rightmost). Also the
-// ConfigurationProgressSheet. Local to :feature-presets.
-// TODO(consolidation): a shared alert host belongs in :ui-common (HOME).
-package se.bofr.dspi.feature.presets
+// ConfigurationProgressSheet, and [ConsoleAlertHost] drawing an [AlertHost]
+// (moved from :feature-presets, decision E6).
+package se.bofr.dspi.ui.alert
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -117,4 +118,13 @@ fun ProgressSheet(text: String) {
             }
         }
     }
+}
+
+/** Draws [host]'s alert slot and progress sheet (macOS `runModal()` + ConfigurationProgressSheet). */
+@Composable
+fun ConsoleAlertHost(host: AlertHost) {
+    val alert by host.alert.collectAsState()
+    val progress by host.progress.collectAsState()
+    alert?.let { a -> ConsoleAlertDialog(a, onButton = { b, r -> host.respond(b, r) }, onDismiss = host::dismiss) }
+    progress?.let { ProgressSheet(it) }
 }

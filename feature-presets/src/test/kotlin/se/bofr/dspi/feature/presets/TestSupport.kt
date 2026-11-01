@@ -8,6 +8,8 @@ import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.fake.demoDspState
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertResponse
 
 /** Slots 0 ("Living Room") and 1 (unnamed) stored, slot 0 active, startup = specified default 0. */
 fun presetFake(): FakeDspiCore {

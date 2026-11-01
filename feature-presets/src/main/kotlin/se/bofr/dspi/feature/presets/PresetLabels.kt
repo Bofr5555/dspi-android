@@ -15,6 +15,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.json.Json
+import se.bofr.dspi.ui.json.int
+import se.bofr.dspi.ui.json.list
 
 /** Preset slots on the device (ContentView `0..<10`). */
 const val PRESET_SLOT_COUNT = 10
@@ -133,7 +136,7 @@ object PresetDocumentFiles {
      * enabled crosspoints).
      */
     fun exportSummary(documentText: String): String {
-        val doc = PresetsJson.parseObject(documentText)
+        val doc = Json.parseObject(documentText)
         val channels = doc?.list("channels").orEmpty().filterIsInstance<Map<String, Any?>>()
         fun active(c: Map<String, Any?>, key: String) = c.list(key).orEmpty().count { b ->
             val type = (b as? Map<String, Any?>)?.int("type") ?: 0

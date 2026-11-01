@@ -24,6 +24,12 @@ import se.bofr.dspi.bridge.ConfirmationToken
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.alert.AlertButton
+import se.bofr.dspi.ui.alert.AlertButtonRole
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertStyle
+import se.bofr.dspi.ui.alert.AlertTextField
+import se.bofr.dspi.ui.alert.ConsoleAlert
 
 class PresetMenuActions(private val bridge: DspiBridge, private val scope: CoroutineScope, private val host: AlertHost) {
     /** ContentView `presetSwitchInFlight`: the picker ignores input while a switch runs. */

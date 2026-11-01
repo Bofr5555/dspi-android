@@ -13,11 +13,12 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiConstants
-import se.bofr.dspi.feature.presets.AlertHost
 import se.bofr.dspi.feature.presets.attached
 import se.bofr.dspi.feature.presets.detached
 import se.bofr.dspi.feature.presets.newBridge
 import se.bofr.dspi.feature.presets.presetFake
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertResponse
 
 private const val DB = """{"version":1,"generatedAt":"2026-01-18T05:41:39.649194+00:00","entryCount":3,"entries":[
 {"id":"oratory1990/Sennheiser HD 650","manufacturer":"Sennheiser","model":"HD 650","source":"oratory1990","formFactor":"over-ear","preamp":-6.4,
@@ -258,7 +259,7 @@ class AutoEQApplyTest {
         assertEquals("Update AutoEQ Database", a.messageText)
         assertTrue(a.informativeText.contains("Entries: 3"))
         assertEquals(listOf("Import File...", "Cancel"), a.buttons.map { it.title })
-        a.button("Import File...").action(se.bofr.dspi.feature.presets.AlertResponse())
+        a.button("Import File...").action(AlertResponse())
         assertTrue(picked)
     }
 }

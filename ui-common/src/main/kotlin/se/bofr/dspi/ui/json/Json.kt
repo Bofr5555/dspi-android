@@ -1,7 +1,8 @@
-package se.bofr.dspi.feature.settings
+// The UI's one JSON helper (decision E6): a copy of :bridge's internal
+// Json.kt (itself :fake-core MiniJson), so no feature adds a JSON library
+// (docs/SUPPLY-CHAIN.md). Replaces PRESETS' PresetsJson and SETTINGS' CsJson.
+package se.bofr.dspi.ui.json
 
-// Copy of :bridge Json.kt (internal there; modules share no code) for the
-// control-surfaces JSON model. Consolidation candidate for :ui-common.
 /**
  * A small JSON reader/writer, so the module needs no third-party library
  * (docs/SUPPLY-CHAIN.md). Objects become `LinkedHashMap<String, Any?>`,
@@ -9,7 +10,7 @@ package se.bofr.dspi.feature.settings
  * Boolean and null. [write] accepts the same shapes plus Int/Float/Number,
  * ByteArray-free collections and arrays of primitives.
  */
-internal object CsJson {
+object Json {
     fun parse(text: String): Any? {
         val p = Parser(text)
         p.ws()
@@ -204,19 +205,21 @@ internal object CsJson {
 }
 
 // Typed accessors over parsed JSON (missing / wrong type -> null).
-internal fun Any?.asNum(): Number? = this as? Number
+fun Any?.asNum(): Number? = this as? Number
 
-internal fun Map<String, Any?>.int(k: String): Int? = (this[k] as? Number)?.toInt() ?: (this[k] as? Boolean)?.let { if (it) 1 else 0 }
+fun Map<String, Any?>.int(k: String): Int? = (this[k] as? Number)?.toInt() ?: (this[k] as? Boolean)?.let { if (it) 1 else 0 }
 
-internal fun Map<String, Any?>.long(k: String): Long? = (this[k] as? Number)?.toLong()
+fun Map<String, Any?>.double(k: String): Double? = (this[k] as? Number)?.toDouble()
 
-internal fun Map<String, Any?>.float(k: String): Float? = (this[k] as? Number)?.toFloat()
+fun Map<String, Any?>.long(k: String): Long? = (this[k] as? Number)?.toLong()
 
-internal fun Map<String, Any?>.bool(k: String): Boolean? = this[k] as? Boolean ?: (this[k] as? Number)?.let { it.toInt() != 0 }
+fun Map<String, Any?>.float(k: String): Float? = (this[k] as? Number)?.toFloat()
 
-internal fun Map<String, Any?>.str(k: String): String? = this[k] as? String
+fun Map<String, Any?>.bool(k: String): Boolean? = this[k] as? Boolean ?: (this[k] as? Number)?.let { it.toInt() != 0 }
 
-internal fun Map<String, Any?>.list(k: String): List<Any?>? = this[k] as? List<Any?>
+fun Map<String, Any?>.str(k: String): String? = this[k] as? String
+
+fun Map<String, Any?>.list(k: String): List<Any?>? = this[k] as? List<Any?>
 
 @Suppress("UNCHECKED_CAST")
-internal fun Map<String, Any?>.obj(k: String): Map<String, Any?>? = this[k] as? Map<String, Any?>
+fun Map<String, Any?>.obj(k: String): Map<String, Any?>? = this[k] as? Map<String, Any?>

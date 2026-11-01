@@ -10,6 +10,11 @@ import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.FlashStatus
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.ui.alert.AlertButton
+import se.bofr.dspi.ui.alert.AlertButtonRole
+import se.bofr.dspi.ui.alert.AlertHost
+import se.bofr.dspi.ui.alert.AlertStyle
+import se.bofr.dspi.ui.alert.ConsoleAlert
 
 class ToolsMenuActions(private val bridge: DspiBridge, private val scope: CoroutineScope, private val host: AlertHost) {
     /** "Commit Parameters...": save the live settings into the active slot (GATED SAVE_PRESET). */

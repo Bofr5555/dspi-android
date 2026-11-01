@@ -15,8 +15,8 @@ import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.feature.home.components.InputPairMismatch
-import se.bofr.dspi.feature.presets.AlertHost
 import se.bofr.dspi.feature.presets.PresetMenuActions
+import se.bofr.dspi.ui.alert.AlertHost
 
 /**
  * The sidebar picker drives PRESETS' controller (F1); these check the wiring
