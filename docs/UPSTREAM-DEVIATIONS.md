@@ -247,14 +247,13 @@ Reference: macOS `MatrixMixerView.swift` (+ the matrix helpers of
    confirm runs macOS switchToPDM (every EQ-worker output off, then PDM on)
    or switchFromPDM (PDM off, then the output on) as confirmed
    `setOutputEnable` calls; the bridge's snapshot after each call stands in
-   for the macOS read-backs. As Commands.swift setOutputEnable, graph
-   visibility follows ENABLE only in the graph's overview mode, and only
-   when the device accepted the change. No component exposes overview mode
-   to features yet, so the matrix currently never touches visibility
-   (`MatrixActions(isOverviewMode = …)` is the hook). Direct 1:1 visibility
-   is the bridge's (E5).
-8. **Icons** ("power", speaker) are drawn locally (no icon library in the
-   build); disabled crosspoints are greyed (macOS `.saturation(0)`) and dimmed.
+   for the macOS read-backs. As Commands.swift setOutputEnable /
+   applyDirectRouting, graph visibility follows ENABLE and Direct 1:1 only
+   in the graph's overview mode (:ui-common `AppState.isOverviewMode`, the
+   main window's selection; `bridge.directRouting(rows, overview)`), and
+   ENABLE only when the device accepted the change.
+8. **Icons** ("power", speaker) are drawn on a Canvas (no icon library in
+   the build; :ui-common `Glyphs.kt`); disabled crosspoints are greyed (macOS `.saturation(0)`) and dimmed.
 9. **Lifecycle (E9).** The screen's controller (`MatrixActions.forBridge`)
    lives as long as the bridge on an app scope: enable/conflict sequences,
    the open "Warning" alert and the rename dialog survive rotation. Typed
@@ -345,7 +344,8 @@ the macOS alerts and mint in their confirm handler. No added dialogs.
    (every crosspoint entry of the document).
 8. **Status codes.** A transfer failure has no firmware status; alerts print
    it as "error 255" (the C API's no-reply code). No DSPi Link lock exists on
-   Android, so `presetFailureText` never says "locked".
+   Android, so the bridge never returns `PresetStatus.LOCKED`; its wording is
+   core-api's `PresetStatus.failureText` all the same (BRIDGE-3).
 9. **Rename** limits the field to 31 characters (README; macOS truncates in
    firmware).
 
@@ -389,9 +389,9 @@ core is driven. Gating follows coordinator E1/E1b (`reviews/decisions-waveB-1.md
    change event. Commit on release as macOS.
 6. **Preset flows** are PRESETS' `PresetMenuActions` (coordinator F1), held
    in `HomeViewModel` (E9); HOME keeps the picker row and the context-menu
-   UI. Wording, tokens and failure texts are therefore PRESETS'. The
-   "LOCKED" failure text of macOS `presetFailureText` has no `PresetStatus`
-   entry in core-api (review H12, core-api gap).
+   UI. Wording, tokens and failure texts are therefore PRESETS' (failure
+   texts: core-api `PresetStatus.failureText`, LOCKED included). Alerts are
+   drawn by :ui-common's `ConsoleAlertHost`.
 7. **Source picker** mints `HARDWARE_APPLY` from the menu choice and applies
    immediately (E1b), as macOS does.
 8. **Firmware banner** is driven by the bridge's `compat` (too old / too new),
@@ -399,17 +399,24 @@ core is driven. Gating follows coordinator E1/E1b (`reviews/decisions-waveB-1.md
    `FirmwareVersion`); the expected version shown is `1.1.6-beta5`. Hidden
    for the process lifetime ("this launch").
 9. **Not ported here:** `SpectrumBarStrip` above the channel pages and the
-   dashboard (RTA, ANALYSIS); the PEQ list's graph-selection sync
-   (`LocalPeqGraphSelection`, live readouts, band colours) until GRAPH is
-   on main (review H10, follow-up after the GRAPH merge); onboarding anchors (Phase 6); graph resize
-   handle (fixed heights).
+   dashboard (RTA, ANALYSIS); onboarding anchors (Phase 6). The PEQ list
+   follows the graph's band selection (one `PeqGraphSelection` per channel
+   page through `LocalPeqGraphSelection`, macOS `peqSelection`): rows carry
+   the band colour, `PeqRowHighlight` tints selected / graph-hovered rows,
+   values follow a graph drag (`PeqGraphSelection.live` = PeqLiveReadouts),
+   mouse hover sets `listHovered`; a tap on the number selects the band
+   alone (touch has no Cmd/Shift-click; a hardware keyboard's modifiers are
+   not read there). The list does not scroll a newly selected row into view
+   (`PeqRowScrollFollower`): it is part of the page's scroll, not its own
+   list. `GraphResizeHandle` sits under every HOME graph (height =
+   `graphHeight`). With the XO tab shown the graph does not edit
+   (macOS `crossoverTabShown`).
 10. **Capability gates** (`firmwareSupportsNotch`, …) are all true: the core
     only talks to 1.1.6-compatible firmware.
 11. **Linked input pairs** are mirrored by the bridge (`targets()`), not at
     the call site; Clear PEQ calls `clearPeq` once.
-12. **Preferences** `sidebarVolumeMode` and `dashboardCardsPerRow` live in
-    SharedPreferences `dspi_home` under the macOS key names until the F3
-    consolidation moves AppSettings into :ui-common (review H16 / X1).
+12. **Preferences** `sidebarVolumeMode` and `dashboardCardsPerRow` are the
+    shared AppSettings (:ui-common, F3), the keys Settings › General writes.
 13. **Icons** are the Linux client's stroke set (`Icon.qml`) in place of SF
     Symbols; the bass clef is the Linux glyph.
 14. **Light theme**: `DspiColors.Light` is AppKit's light appearance; no
@@ -438,19 +445,21 @@ Gating per E1b, output-config tracking per F2: behaviour is macOS's.
    implies several calls (Reset Pins, the S/PDIF instance count, ADAT enable +
    pin) they run in dependency order (Windows `TopoSort`) and stop at the
    first refusal. Generic success lines where macOS has none of its own;
-   failures use macOS's wording. The fire-and-forget input-rate / I2S
-   clock-mode setters report nothing (no outcome to report; a suspend variant
-   returning the status would be a BRIDGE addition).
-2. **Capabilities** come from `bridge.hardwareCaps`; there is no flag for
-   input-source switching, so the Inputs page is hidden on STM32 only
-   (contract request: an `inputSourceSupported` / LG Sound Sync flag).
+   failures use macOS's wording. Input rate and I2S clock mode use the
+   bridge's status-returning setters (BRIDGE-3), so the next call of a
+   sequence cannot overtake them; their only failure is a lost transfer
+   (no status byte on the wire), shown as a failure line; success shows
+   none, as macOS. A sequence (and Save) aborts when
+   `bridge.deviceGeneration` changes (macOS `transport.generation`).
+2. **Capabilities** come from `bridge.hardwareCaps`, including
+   `inputSourceSupported` (BRIDGE-3) for the Inputs page.
 3. **BCK candidates** also require the LRCLK neighbour (BCK + 1) to be a
    wirable GPIO (Windows `IsAudioCapable`, Linux `pairFree`); macOS would
    offer GPIO 22 (LRCLK on board-reserved 23) and let the firmware refuse.
 4. **Overview click-through:** tapping a pin opens the page that sets it
    (Windows PinNavigation, without the scroll-and-flash). Control-surface
-   pins are recognised by the bridge's owner label "Control Surface N"
-   (contract request: a structured owner kind on `PinOwner`).
+   pins are recognised by `PinOwner.kind` = `CONTROL_SURFACE` and its
+   `index` (BRIDGE-3; macOS `PinConsumer.controlSurface`).
 5. **MCK multiplier lock** reads the live rate from `fetchInputRate()` every
    2 s while the I2S page is open (macOS: `telemetry.sampleRateHz`).
 6. **Page list on phones.** The macOS sidebar becomes a grouped list of
@@ -465,12 +474,18 @@ Gating per E1b, output-config tracking per F2: behaviour is macOS's.
    app-scoped coordinator, E9). The full binding editor (component/function/
    target pickers, IR learn, display pages, group and macro editors) is not
    ported yet.
-8. **App preferences** use the exact macOS `@AppStorage` key names in a
-   Preferences DataStore (`AppSettingsStore`, to move to :ui-common per
-   F3); the macOS one-time migrations of retired keys are not needed.
-9. **Device identity** for aborting a Save/hardware sequence is the selected
-   serial (macOS: the transport generation); the bridge's own revert uses
-   its generation.
+8. **App preferences** are :ui-common's one AppSettings store (F3): the
+   exact macOS `@AppStorage` key names in a Preferences DataStore
+   (`app_settings`), provided by :app as `LocalAppSettings` and read by
+   GRAPH, HOME, ANALYSIS and TOOLS too. The macOS one-time migrations of
+   retired keys are not needed; the store imports the packages' interim
+   local files once (`dspi_home`, `analysis_settings`, `dspi_tools`; keys
+   already in the DataStore win) and deletes them. The analyser's device
+   options are pushed into `bridge.rta` by :app at start and on every
+   change, not by this tab.
+9. **Device identity** for aborting a Save/hardware sequence is
+   `bridge.deviceGeneration` (macOS: the transport generation); the pending
+   global draft is still kept per serial (macOS `noteSelectedDevice`).
 
 ## TOOLS
 
@@ -491,7 +506,9 @@ ranges, defaults, presets and starting points are the macOS ones.
    (Leveller, Upmixer, limiter popover) stay single-column. Everything
    scrolls. Fonts and chips are larger for touch (chips 36 dp high).
 3. **Touch for hover/right-click/scroll.** `.help(...)` tooltips are shown on
-   long-press (Material `TooltipBox`); channel-chip names likewise. Cmd+scroll
+   long-press (:ui-common `HelpTip`, Material `TooltipBox`); channel-chip
+   names likewise. Rows are :ui-common's `ParameterRow` (CustomSlider:
+   relative drag, no tap-to-jump, nothing sent on the grab). Cmd+scroll
    stepping of value fields has no touch equivalent; tap the value to type
    (unit optional, clamped to the row's range, committed on Done or when the
    field loses focus).
@@ -502,9 +519,9 @@ ranges, defaults, presets and starting points are the macOS ones.
 5. **Firmware gates** use `DspState.formatVersion` with the macOS thresholds
    (loudness mask V19, crossfeed pair mask V20, psybass V23, subharm V29/V30,
    tube V31, limiter V32, upmixer V26 + RP2350). The limiter screen shows an
-   upgrade note below V32 (macOS hides the cell instead). HOME's
-   `OutputLimiterCell` should be hidden below V32 as on macOS, so the note is
-   only a fallback, never the normal path.
+   upgrade note below V32, which is never the normal path: HOME hides the
+   `OutputLimiterCell` below V32 as macOS (`hardwareCaps.limiterSupported`
+   = V32; TOOLS review #16).
 6. **Icons.** SF Symbols are not available: headers have no symbol except
    the Tube Modeller (`TubeIcon`, ported) and the Output Limiter
    (`LimiterIcon`, ported). The "unsupported" note uses a Unicode warning sign.
@@ -513,9 +530,9 @@ ranges, defaults, presets and starting points are the macOS ones.
    approximated with unblurred translucent strokes (no DrawScope blur below
    API 31). The audio bloom follows `BridgeStatus.peaks` (app ids 2..10 =
    outputs), as macOS follows the status peaks.
-8. **Tube Basic/Advanced** is remembered in `SharedPreferences`
-   (`dspi_tools`/`tubeModellerAdvanced`) instead of `@AppStorage`, and the
-   segmented switch sits under the header rather than in it.
+8. **Tube Basic/Advanced** is the shared AppSettings key
+   `tubeModellerAdvanced` (macOS `@AppStorage`); the segmented switch sits
+   under the header rather than in it.
 9. **Subharmonic solo** is switched off when the view leaves composition
    (macOS: when the window closes); headroom is re-read whenever the subharm
    parameters change and on open; the sub meter polls at 10 Hz while the
@@ -616,9 +633,10 @@ Reference: DSPi-Console (macOS) v1.1.6-beta5 `FirmwareUpdateView.swift`,
 10. **Expected version.** `FirmwareVersion.expected` is the tracked Console
     release (`CONSOLE_VERSION = "1.1.6-beta5"`), not the Android app's version.
 11. **Shared locator.** `FirmwareUpdateView` takes an optional
-    `bootloaderLocator` (default: its own `AndroidBootloaderLocator`) so
-    :app can pass one shared instance. The screen starts it on open and stops
-    it when the visit ends, as macOS polls only while a flashing UI is open.
+    `bootloaderLocator`; :app passes its one shared `AndroidBootloaderLocator`
+    (the default, for previews/tests, is the view's own). The screen starts
+    it on open and stops it when the visit ends, as macOS polls only while a
+    flashing UI is open.
 
 ## ANALYSIS
 
@@ -652,14 +670,14 @@ Reference: DSPi-Console (macOS) v1.1.6-beta5 `FirmwareUpdateView.swift`,
    (Catmull-Rom through populated bands, bins crossfading in above the bass
    bank). No glow and no 30 px fade-in at the curve's left end. On phones
    (< 600 dp) bar cells use one column (platform: width).
-5. **Analyser preferences** are read under the macOS `@AppStorage` key names
-   (`rtaFloorDB`, `rtaCeilingDB`, `rtaShowPeakHold`, `rtaSmoothingOn`,
-   `rtaBarColumns`, `graphMinFreq`, `graphMaxFreq`, `rtaFftOrder`, `rtaAvgMs`,
-   `rtaPeakDecayDBs`, `rtaDashboardShowGraph/Bars`) with the macOS defaults,
-   from a local store (SharedPreferences `analysis_settings`) until the
-   consolidation package provides the shared AppSettings store (F3). The
-   transform size, averaging and peak decay are pushed to the analyser
-   whenever the page starts watching, as macOS `RtaWatch`.
+5. **Analyser preferences** are the shared AppSettings (:ui-common, F3;
+   macOS keys and defaults), so the dashboard selection
+   (`rtaDashboardSource` / `rtaDashboardOtherSide`) is shared with the
+   graph's gear panel. The transform size, averaging and peak decay are
+   pushed into `bridge.rta` by :app once, app-wide, at start and on every
+   change (the bridge sends them with every request), not when a page
+   starts watching (macOS `RtaWatch` pushes there because its engine has no
+   memory of them).
 6. **"Following another console" / Take control** is not shown: the core and
    bridge expose no RTA ownership state (no hub sharing on Android).
 7. **System Statistics**: all macOS sections, including S/PDIF INPUT (state,
@@ -730,9 +748,13 @@ Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
 5. **Not offered in the gear panel:** RTA Bars (the bar strip belongs with
    ANALYSIS's bar renderer) and Pop Out Graph (the full-screen route is
    `GraphScreen`, reached through app navigation).
-6. **GraphScreen** (pop-out) picks its edited channel from a menu instead of
-   following the main window's selection; "Follow Channel Selection" is not
-   offered.
+6. **GraphScreen** (pop-out) is a full-screen route. With "Follow Channel
+   Selection" (`popoutGraphFollowsSelection`, Graph Setup › CURVES in the
+   pop-out and Settings › Graphing) it edits the main window's selected
+   channel (:ui-common `AppState.activeEqChannel`: the channel route or the
+   tablet sidebar; overview = none); off, a channel menu picks it and every
+   curve is drawn active. The non-following pop-out shares the main
+   visibility (macOS keeps its own `popoutVisibility`).
 7. **Level offset.** The edited curve and the dots include the bridge's
    `channelGainOffset`, which is the output gain for outputs (macOS) and also
    the input preamp for inputs (bridge contract, BRIDGE §2).
@@ -740,14 +762,14 @@ Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
    core only talks V32 firmware, which has every PEQ type and per-band bypass
    (macOS checks `firmwareSupports*`). The Linkwitz Transform is shown but
    not created or dragged on the graph, as upstream.
-9. **Preferences.** The graph's AppSettings keys live in `GraphSettings`
-   behind `LocalGraphSettings` (in memory by default) until the F3
-   consolidation provides the shared store; property names are the exact
-   macOS `@AppStorage` keys (including `rtaDashboardSource` /
-   `rtaDashboardOtherSide`, whose Swift properties are named `…Key`);
-   `popoutGraphFollowsSelection` is not carried (§6); the band selection is shared with HOME's band list via
-   `LocalPeqGraphSelection` (`PeqGraphSelection.live` replaces the macOS
-   `PeqLiveReadouts`).
+9. **Preferences** are :ui-common's shared AppSettings (`LocalAppSettings`,
+   F3; macOS keys; the Swift property names `rtaDashboardSelectionKey` /
+   `rtaDashboardOtherSideKey` are stored as "rtaDashboardSource" /
+   "rtaDashboardOtherSide"). The band selection is shared with HOME's band
+   list via `LocalPeqGraphSelection` (`PeqGraphSelection.live` replaces the
+   macOS `PeqLiveReadouts`). Outputs past the eight paired ones (PDM aside)
+   draw in the accent colour, as macOS `ChannelPalette.output` (the
+   bridge's `channelColor` wraps; review F9).
 10. **GraphView(channels, editable).** With `editable` and one channel, that
     channel is the page's selected channel and the visible set is drawn too
     (others dashed), as on a macOS channel page; without `editable`, a
@@ -757,3 +779,44 @@ Windows `DSPiConsole.Core/GraphEditing` port (v1.1.6-beta4) with its tests.
     for. At the editor's cadence the throttle passes each value on at once
     (its window has closed by the next send), so it adds no latency in
     practice; it only merges a burst.
+
+## CONSOLIDATION (decisions E6, F3)
+
+What the consolidation package changed across packages; each package's own
+section above is updated too.
+
+1. **One preference store.** :ui-common `AppSettings` (every macOS
+   `AppSettings` `@AppStorage` key, plus `settingsSelectedTab` and
+   `tubeModellerAdvanced`) over one Preferences DataStore (`app_settings`),
+   provided by :app as `LocalAppSettings`. On the first start the interim
+   per-package files (`dspi_home`, `analysis_settings`, `dspi_tools`) fill
+   the keys the DataStore lacks and are deleted (marker key
+   `dspiLegacyPreferencesImported`, not a macOS key). GRAPH's former
+   in-memory settings had nothing to import.
+2. **Analyser options** (FFT order, averaging, peak decay) are pushed into
+   the current bridge's `rta` once, app-wide (:app `bindRtaOptions`), at
+   start and on change of the preferences, the analyser caps or the bridge
+   (demo enter/exit); macOS pushes from the Spectrum tab and on every
+   `RtaWatch` start. The device's order range is used when it reports a
+   usable one, else the protocol's.
+3. **Main-window selection.** macOS keeps `activeEqChannel` /
+   `isOverviewMode` on the one view model; here :ui-common `AppState`
+   (provided by :app as `LocalAppState`) is written by HOME (channel route,
+   tablet sidebar; null on the phone's home page) and read by GraphScreen
+   (Follow Channel Selection) and MATRIX (overview-only visibility).
+   Curve visibility itself stays the bridge's.
+4. **Shared widgets.** One implementation each in :ui-common: the NSAlert
+   model + host (`se.bofr.dspi.ui.alert`), JSON (`se.bofr.dspi.ui.json`),
+   compact gain/delay fields, glyphs, `MacColors`, `WhileVisible` /
+   `rememberWhileVisible`, `ParameterRow`/`ValueField`, `SwitchRow`,
+   `SegmentedPicker`, `SliderRow`, `Caption`, `HelpTip`, `SectionHeader`,
+   `PullDownMenu`, `ToolHeader`, `ChannelChips`. Visible effects: the tool
+   windows' sliders are CustomSlider (relative drag, no tap-to-jump, F4)
+   with :ui-common's type sizes; switch rows toggle on a tap anywhere on
+   the row (macOS toggles on its label too); ANALYSIS' and SETTINGS'
+   segmented choices are Material segmented buttons (macOS
+   `.pickerStyle(.segmented)`); ANALYSIS' value fields are tap-to-type like
+   every other field.
+5. **Not merged: GRAPH `PeqDspMath` and fake-core `DspMath`.** One pure-JVM
+   home for both needs a new module in `settings.gradle.kts` (coordinator)
+   and an edit of :fake-core (BRIDGE); left as two copies.
