@@ -375,3 +375,56 @@ core is driven. Gating follows coordinator E1/E1b (`reviews/decisions-waveB-1.md
 15. **isDeviceReady** (row/dashboard fade) is `connected && bulkValid`: the
     core marks the state valid once the connect fetch landed (review H13).
 16. **Typed band values** go to the bridge unclamped, as macOS (review H7).
+
+## SETTINGS
+
+Reference: macOS `DSPi_ConsoleApp.swift` (v1.1.6-beta5) SettingsView and tabs;
+Windows `Settings/PendingChangeTracker.cs` (only its `TopoSort`),
+`PinNavigation.cs`; Linux `qt/qml/settings/` for the page split.
+Gating per E1b, output-config tracking per F2: behaviour is macOS's.
+
+1. **Gating (E1b) and dirty tracking (F2), otherwise as macOS.** A hardware
+   control mints HARDWARE_APPLY on the tap/choice, calls
+   `bridge.beginOutputEdit()` and applies at once
+   (`SettingsSaveCoordinator.applyHardware`). The Save bar reads
+   `bridge.outputConfigDirty` only (never `hardwareUnsaved`); Save writes the
+   global draft, then `saveOutputConfig` and the CS save with
+   SAVE_OUTPUT_CONFIG / CS_SAVE tokens minted on the Save tap; Revert drops the
+   global draft, reverts the CS preview and calls `bridge.revertOutputConfig`
+   with a HARDWARE_APPLY token minted on the Revert tap. Where one user action
+   implies several calls (Reset Pins, the S/PDIF instance count, ADAT enable +
+   pin) they run in dependency order (Windows `TopoSort`) and stop at the
+   first refusal. Generic success lines where macOS has none of its own;
+   failures use macOS's wording. The fire-and-forget input-rate / I2S
+   clock-mode setters report nothing (no outcome to report; a suspend variant
+   returning the status would be a BRIDGE addition).
+2. **Capabilities** come from `bridge.hardwareCaps`; there is no flag for
+   input-source switching, so the Inputs page is hidden on STM32 only
+   (contract request: an `inputSourceSupported` / LG Sound Sync flag).
+3. **BCK candidates** also require the LRCLK neighbour (BCK + 1) to be a
+   wirable GPIO (Windows `IsAudioCapable`, Linux `pairFree`); macOS would
+   offer GPIO 22 (LRCLK on board-reserved 23) and let the firmware refuse.
+4. **Overview click-through:** tapping a pin opens the page that sets it
+   (Windows PinNavigation, without the scroll-and-flash). Control-surface
+   pins are recognised by the bridge's owner label "Control Surface N"
+   (contract request: a structured owner kind on `PinOwner`).
+5. **MCK multiplier lock** reads the live rate from `fetchInputRate()` every
+   2 s while the I2S page is open (macOS: `telemetry.sampleRateHz`).
+6. **Page list on phones.** The macOS sidebar becomes a grouped list of
+   pages (one page at a time; system back returns to the list); ≥ 840 dp
+   shows sidebar + page. "Software Update" and "Networking" are not ported
+   (PORT-MAP), nor the Advanced tab's "Onboarding (Developer)" section
+   (onboarding is Phase 6). The save bar adds a tap-to-expand list of what
+   is pending (Windows InfoBar).
+7. **Control Surfaces** renders the controls, groups, macros and auxiliary
+   outputs from the core's `cs_snapshot`, with rename/remove of a slot,
+   macro Run and aux on/off (live previews or one click, D1; run in the
+   app-scoped coordinator, E9). The full binding editor (component/function/
+   target pickers, IR learn, display pages, group and macro editors) is not
+   ported yet.
+8. **App preferences** use the exact macOS `@AppStorage` key names in a
+   Preferences DataStore (`AppSettingsStore`, to move to :ui-common per
+   F3); the macOS one-time migrations of retired keys are not needed.
+9. **Device identity** for aborting a Save/hardware sequence is the selected
+   serial (macOS: the transport generation); the bridge's own revert uses
+   its generation.

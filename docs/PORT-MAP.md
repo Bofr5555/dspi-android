@@ -36,7 +36,7 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 
 | macOS | Lines | Android | Package | Status |
 |---|---|---|---|---|
-| `DSPi_ConsoleApp.swift` → `AppState`, `AppSettings` | ~400 | `app/…/AppState.kt`, `AppSettings.kt` (DataStore) | coordinator / SETTINGS (prefs UI) | — |
+| `DSPi_ConsoleApp.swift` → `AppState`, `AppSettings` | ~400 | `app/…/AppState.kt`; `feature-settings/…/AppSettings.kt` + `DataStoreAppSettingsStore.kt` (`AppSettingsStore`, macOS keys) | coordinator / SETTINGS (prefs UI) | AppSettings done (SETTINGS); interface to move to :ui-common |
 | `FileMenuActions`, `ToolsMenuActions`, `AutoEQMenuActions`, window controllers, `AppDelegate` | ~1.5k | `app/…/AppScaffold.kt` (NavHost; tool windows → routes) | coordinator | W0 |
 | `USBDevice.swift` lifecycle, menu-bar mode spirit | — | `usb/…/UsbSession.kt` (contract), `AndroidUsbSession.kt` + `UsbSessionEngine.kt` (logic), `AndroidUsbHost.kt`, `DspiConnectionService.kt` + `NotificationControls.kt`, `UiVisibilityTracker.kt` | USB | done (JVM-tested; phone HIL pending) |
 | `BootloaderLocator.swift` | — | `usb/…/BootloaderLocator.kt` (contract), `AndroidBootloaderLocator.kt` (`BootloaderScanner`) | USB | done (locating only; HIL pending) |
@@ -61,7 +61,7 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 | `SpectrumAnalyser.swift`, `SpectrumAnalyserView.swift`, `RtaMetal*.swift`, `RtaRenderCache.swift` | ~4.7k | `feature-analysis/…/SpectrumAnalyserView.kt` (Canvas/AGSL; tablet first) | `rta` controller | ANALYSIS | — |
 | `StatsView.swift` | 1,682 | `feature-analysis/…/StatsView.kt` | `stats` controller | ANALYSIS | — |
 | `InterruptMonitor.swift` | 1,070 | `feature-analysis/…/InterruptMonitorView.kt` | `monitor` | ANALYSIS | — |
-| Settings: `SettingsView` + `PinOverviewTab`, `GeneralSettingsTab`, `GlobalSettingsTab`, `SpectrumSettingsTab`, `GraphingSettingsTab`, `AdvancedSettingsTab`, `ControlInterfacesSettingsTab`, `ControlSurfacesSettingsTab`, `HardwareSettingsTab`, `SettingsSaveCoordinator`, `GlobalSettingsDraft`, `OutputConfigSnapshot`, `SettingsSaveBar` | ~9k | `feature-settings/…/SettingsScreen.kt` + one file per tab, `SettingsSaveCoordinator.kt`, `PendingChangeTracker.kt` (Windows) | hardware IO setters, `pinOwners`, `cs` controller, `setOutputConfigMode`, `saveOutputConfig` | SETTINGS | W0 |
+| Settings: `SettingsView` + `PinOverviewTab`, `GeneralSettingsTab`, `GlobalSettingsTab`, `SpectrumSettingsTab`, `GraphingSettingsTab`, `AdvancedSettingsTab`, `ControlInterfacesSettingsTab`, `ControlSurfacesSettingsTab`, `HardwareSettingsTab`, `SettingsSaveCoordinator`, `GlobalSettingsDraft`, `OutputConfigSnapshot`, `SettingsSaveBar` | ~9k | `feature-settings/…/SettingsScreen.kt` + one file per tab, `SettingsSaveCoordinator.kt`, `HardwareChange.kt` (Windows TopoSort) | hardware IO setters, `pinOwners`, `cs` controller, `setOutputConfigMode`, `saveOutputConfig` | SETTINGS | done (live hardware apply per E1b + save bar, all tabs; CS editor partial — see UPSTREAM-DEVIATIONS SETTINGS) |
 | `AutoEQ/AutoEQManager.swift`, `AutoEQBrowser.swift`, `autoeq_database.json` | ~1k | `feature-presets/…/autoeq/*.kt`, DB as asset | `setInputPreamp` + `setFilter` × 10 on inputs 1–2 | PRESETS | done (`AutoEQManager.kt`, `AutoEQBrowser.kt`, `AutoEQMenuActions.kt`; DB asset from v1.1.6-beta5; no GitHub rebuild) |
 
 ## Touch gestures (On-Graph Filter Editing, README l.572–792)
