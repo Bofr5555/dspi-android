@@ -24,7 +24,7 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 | macOS | Android | Package | Status |
 |---|---|---|---|
 | `Commands.swift`, `Constants.swift`, `DSPViewModel.swift` (wire structs + view model), `USBDevice.swift`, `USBNotificationReader.swift`, `Models.swift`, `DSPMath.swift` | `third_party/DSPi-Console-Linux/core` (unmodified + `third_party/patches/`) → `rust/dspi-ffi` → `core-api` `DspiCoreApi` → `bridge` `DspiBridge` (`StateFlow<DspState>` + per-feature flows) | FFI, BRIDGE | FFI: done (`DspiCore` implemented, `0001-android-fd.patch`, V32 fixture; HIL pending) · BRIDGE: W0 |
-| `PresetSnapshot.swift`, `PresetDocument.swift`, `PresetDocumentTransfer.swift`, `FilterFile.swift` | in the core: `presetdiff.rs` (`captureBaseline`, `presetDirty`, `presetChanges`), `presetfile.rs` (`configExport/Inspect/Import`), `filterfile.rs` (`filtersExport/Inspect/Import`); UI in `feature-presets` | FFI / PRESETS | FFI: done (JSON passthroughs) · PRESETS: W0 |
+| `PresetSnapshot.swift`, `PresetDocument.swift`, `PresetDocumentTransfer.swift`, `FilterFile.swift` | in the core: `presetdiff.rs` (`captureBaseline`, `presetDirty`, `presetChanges`), `presetfile.rs` (`configExport/Inspect/Import`), `filterfile.rs` (`filtersExport/Inspect/Import`); UI in `feature-presets` | FFI / PRESETS | FFI: done (JSON passthroughs) · PRESETS: done (`PresetAlerts.kt` diff summary, `FileMenuActions.kt`, `PresetLabels.kt`; JVM-tested) |
 | `HostAudioFormatMonitor.swift` (CoreAudio) | `AudioManager`/`AudioDeviceInfo` badge in `feature-home` | HOME | — |
 | Linux `qt/src/DSPiBridge.{h,cpp}` | `bridge/…/DspiBridge.kt` (interface) + `DspiBridgeImpl.kt`, `DangerousOpsImpl.kt`, `LinkStore.kt` | BRIDGE | done (tested; `StubDspiBridge` deleted by APP integration, D9) |
 | Linux `RtaController`, `SiggenController`, `StatsController`, `CsController`, `MonitorModel`, `ConfigFiles` | `bridge/…/Controllers.kt` interfaces + `ControllersImpl.kt` | BRIDGE | done (tested) |
@@ -48,7 +48,7 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 
 | macOS (beta5) | Lines | Android target | Backed by (bridge / core) | Package | Status |
 |---|---|---|---|---|---|
-| `ContentView.swift` (`SidebarSelection`, `ContentView`, `OutputChannelDetail`, `UserVolumeSection`, `MasterModeSection`, preset context menu) | 1,382 | `feature-home`: `HomeScreen.kt` (sidebar content first on phone), `ChannelScreen.kt`; preset menu → `feature-presets` | `peakLevel/isClipping`, `setMasterVolume/Mode`, `setUserVolume/Mute`, `setInputSource`, presets | HOME (+PRESETS menu) | W0 |
+| `ContentView.swift` (`SidebarSelection`, `ContentView`, `OutputChannelDetail`, `UserVolumeSection`, `MasterModeSection`, preset context menu) | 1,382 | `feature-home`: `HomeScreen.kt` (sidebar content first on phone), `ChannelScreen.kt`; preset menu → `feature-presets` | `peakLevel/isClipping`, `setMasterVolume/Mode`, `setUserVolume/Mute`, `setInputSource`, presets | HOME (+PRESETS menu) | W0 · PRESETS menu: done (`feature-presets/…/PresetMenuActions.kt`, `ToolsMenuActions.kt`, `PresetsScreen.kt`; JVM-tested) |
 | `Components.swift` (26 views) | 2,821 | `feature-home/…/components/*.kt`, one file per MARK section | `setFilter`, `setBandBypass`, `setInputPreamp`, `setChannelDelay`, `setInputLinked`, `copyChannel/pasteChannel` | HOME | — |
 | `DashboardView.swift` | 579 | `feature-home/…/DashboardView.kt` | state + `magnitudeCurve` | HOME | — |
 | `CustomSlider.swift`, `ChannelPalette.swift`, NSView wrappers | ~0.6k | `ui-common/…/CustomSlider.kt`, `ChannelPalette.kt`, `Theme.kt` | — | HOME | W0 |
@@ -62,7 +62,7 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 | `StatsView.swift` | 1,682 | `feature-analysis/…/StatsView.kt` | `stats` controller | ANALYSIS | — |
 | `InterruptMonitor.swift` | 1,070 | `feature-analysis/…/InterruptMonitorView.kt` | `monitor` | ANALYSIS | — |
 | Settings: `SettingsView` + `PinOverviewTab`, `GeneralSettingsTab`, `GlobalSettingsTab`, `SpectrumSettingsTab`, `GraphingSettingsTab`, `AdvancedSettingsTab`, `ControlInterfacesSettingsTab`, `ControlSurfacesSettingsTab`, `HardwareSettingsTab`, `SettingsSaveCoordinator`, `GlobalSettingsDraft`, `OutputConfigSnapshot`, `SettingsSaveBar` | ~9k | `feature-settings/…/SettingsScreen.kt` + one file per tab, `SettingsSaveCoordinator.kt`, `PendingChangeTracker.kt` (Windows) | hardware IO setters, `pinOwners`, `cs` controller, `setOutputConfigMode`, `saveOutputConfig` | SETTINGS | W0 |
-| `AutoEQ/AutoEQManager.swift`, `AutoEQBrowser.swift`, `autoeq_database.json` | ~1k | `feature-presets/…/autoeq/*.kt`, DB as asset | `setFilter` × N on inputs 1–2 | PRESETS | — |
+| `AutoEQ/AutoEQManager.swift`, `AutoEQBrowser.swift`, `autoeq_database.json` | ~1k | `feature-presets/…/autoeq/*.kt`, DB as asset | `setInputPreamp` + `setFilter` × 10 on inputs 1–2 | PRESETS | done (`AutoEQManager.kt`, `AutoEQBrowser.kt`, `AutoEQMenuActions.kt`; DB asset from v1.1.6-beta5; no GitHub rebuild) |
 
 ## Touch gestures (On-Graph Filter Editing, README l.572–792)
 

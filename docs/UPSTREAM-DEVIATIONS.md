@@ -129,3 +129,74 @@ the implementation does beyond it.
 4. Multi-device: like macOS, a second unit never takes over an open
    connection; when the open unit leaves, the session switches to a survivor,
    preferring the last serial (Linux `rescan()`).
+
+## PRESETS
+
+Reference: DSPi-Console (macOS) v1.1.6-beta5 — ContentView preset picker and
+`PresetContextMenuItems`, `PresetSnapshot.swift` (`PresetDiff`, `PresetAlerts`),
+`DSPi_ConsoleApp.swift` `FileMenuActions` / `ToolsMenuActions` /
+`AutoEQMenuActions`, `AutoEQ/*`; Linux `qt/qml/components/PresetMenu.qml`,
+`main.qml`, `qt/src/ConfigFiles.cpp`, `AutoEqLibrary.cpp` @ 4683a2c for how a
+GUI drives this core.
+
+1. **Preset menu "Save" asks first.** macOS saves straight away (README "The
+   Preset Menu": "It does not ask for confirmation"). SAVE_PRESET is gated, so
+   Save shows the Commit Parameters alert ("Save Preset" / "Save current
+   parameters to preset slot N?" / Save, Cancel) and mints the token in its
+   Save handler. Only a failure is reported, as on macOS.
+2. **"Copy to…" asks first.** macOS only runs the Unsaved Changes alert.
+   COPY_PRESET is gated: an occupied destination gets Linux PresetMenu.qml's
+   "Replace “N: name”?" / "Its settings will be replaced with the current
+   ones. Its name stays the same." (Replace, Cancel); an empty one "Copy
+   Preset" / "Copy the current settings into “N: Empty”? The current preset
+   stays active." (Copy, Cancel). Then, if dirty, the Unsaved Changes alert
+   (macOS order of operations: Save saves the source, Discard reloads it,
+   then the copy). The copy (and save) tokens are minted in the last alert's
+   handler, right before the calls.
+3. **Save Master Volume / Save Output Configuration ask first** (macOS: no
+   alert). Gated SAVE_MASTER_VOLUME / SAVE_OUTPUT_CONFIG; the wording comes
+   from README "Saving Master Volume and Output Configuration"; the result
+   alerts are macOS's.
+4. **Clear All Slots** mints one single-use DELETE_PRESET token per occupied
+   slot in the one "Clear All Presets?" handler. Clearing the active slot (or
+   Clear All) reloads the active slot afterwards, as macOS does (Linux does
+   not).
+5. **AutoEQ.** "Rebuild from GitHub" is not offered (it crawls the GitHub API
+   and downloads thousands of files; the app has no network permission).
+   "Update Database..." offers Import File... and Reset to Built-in (the user
+   copy lives in the app's files dir). The browser is a full-screen dialog
+   instead of a window; the favourite heart is always shown (no hover). Apply
+   with no device connected shows "No device connected." (macOS writes into a
+   disconnected model, Linux returns false silently).
+6. **One page.** macOS spreads these actions over the sidebar's Preset picker,
+   its right-click menu and the File / Tools / AutoEQ menus. Here they are one
+   "Presets & Files" page (phone: one column; ≥ 840 dp: two panes) with the
+   macOS item titles. The picker is a radio list of the ten slots with the
+   macOS labels ("N: name", "Preset N", "Empty", "*" on the dirty active slot)
+   and the startup default marked; the startup mode is shown read-only
+   (Settings › Global Parameters owns it).
+7. **No quit prompt.** Android has no app quit / main-window close; the
+   connection lives in the foreground service. The Unsaved Changes flow is
+   `PresetMenuActions.withUnsavedChanges`, reusable by whoever switches
+   devices (macOS also asks there).
+8. **Files.** NSOpenPanel / NSSavePanel → the Storage Access Framework, run
+   from a translucent framework activity (`DocumentPickerActivity`; no
+   androidx.activity dependency, see the final report). The configuration's
+   document name is the chosen file name without its extension; extra
+   `.dspipreset` / `.json` / `.bin` extensions some providers append are also
+   stripped. Added: "Share Device Configuration..." (Android share sheet via a
+   FileProvider cache file).
+9. **Import results** use the core's report lines (presetfile.rs /
+   filterfile.rs, as Linux): configuration — "Success" when clean, else an
+   "Import Device Configuration" alert (macOS rule); filters — "Success" with
+   the core's lines (macOS composes "Filters imported to N channel(s)" plus
+   notes itself). The configuration progress sheet is indeterminate (the core
+   applies in one bulk write). The export summary counts matrix entries that
+   are not `enabled: false` (macOS counts the document's crosspoints, Linux the
+   enabled ones).
+10. **Status codes.** A transfer failure has no firmware status; alerts print
+    it as "error 255" (the C API's no-reply code). No DSPi Link lock exists on
+    Android, so `presetFailureText` never says "locked".
+11. **Rename** limits the field to 31 characters (README; macOS truncates in
+    firmware).
+
