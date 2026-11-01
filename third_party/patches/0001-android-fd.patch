@@ -1,0 +1,111 @@
+Android fd open path + embedder accessors for dspi-core (DSPi-Console-Linux core/).
+
+Why: Android apps cannot enumerate USB with libusb (no access to
+/dev/bus/usb); the app opens the device through UsbManager and hands the
+usbfs file descriptor to native code. dspi-ffi wraps that fd with
+`rusb::GlobalContext::open_device_with_fd` (after
+`rusb::disable_device_discovery()`) and needs a way to give the resulting
+handle to the core. dspi-ffi is a separate crate (UniFFI instead of the C
+ABI), so it also needs public access to what lib.rs's C wrappers reach
+through `pub(crate)` fields.
+
+Choice (docs/PACKAGES.md, FFI DoD 1): three small `pub` accessors instead
+of calling the core's `extern "C"` functions, so the glue stays safe Rust
+and keeps the core's own types. No upstream behaviour changes; the C ABI is
+untouched.
+
+Hunks:
+1. core/src/device.rs `use`: import `DeviceHandle`.
+2. core/src/device.rs `DeviceManager::select_device_handle(handle, serial, vid)`
+   (PLAN-NATIVE-ANDROID.md Appendix A): the tail of `select_device` for a
+   handle the embedder opened. Rejects a handle whose descriptor is
+   readable and not a DSPi, claims ONLY the vendor interface
+   (`VENDOR_INTERFACE` = 2; never the audio interfaces 0/1; no kernel
+   driver detach), starts the notify listener, records vid + serial (the
+   serial is kept for auto-reconnect, as `select_device` does).
+3. core/src/lib.rs `DspiCore::{device_manager, device_manager_mut,
+   reset_device_state}`: public access for embedders. `reset_device_state`
+   is what `dspi_select_device` did inline after a successful select.
+4. core/src/lib.rs `dspi_select_device`: call `reset_device_state` (same
+   behaviour, one definition).
+
+Upstream form: identical; can be proposed to WeebLabs/DSPi-Console-Linux as is.
+
+--- a/core/src/device.rs
++++ b/core/src/device.rs
+@@ -4,7 +4,7 @@
+ use std::sync::Arc;
+ 
+ use log::{info, warn};
+-use rusb::{Device, GlobalContext};
++use rusb::{Device, DeviceHandle, GlobalContext};
+ 
+ use crate::notify::{NotifyHub, NotifyListener};
+ use crate::rta::{RtaHub, RtaWorker};
+@@ -184,6 +184,28 @@
+         Err(UsbError::NotConnected)
+     }
+ 
++    /// Adopt a device handle opened by the embedder instead of by
++    /// enumeration (Android: `UsbDeviceConnection.getFileDescriptor()` ->
++    /// `rusb::GlobalContext::open_device_with_fd`). Claims the vendor
++    /// interface only (never the audio interfaces, no kernel driver detach)
++    /// and connects exactly as `select_device` does.
++    pub fn select_device_handle(&mut self, handle: DeviceHandle<GlobalContext>, serial: &str, vid: u16) -> Result<(), UsbError> {
++        self.disconnect();
++        if let Ok(desc) = handle.device().device_descriptor() {
++            if !is_dspi(desc.vendor_id(), desc.product_id()) {
++                return Err(UsbError::InvalidArgument);
++            }
++        }
++        let _ = handle.claim_interface(crate::protocol::VENDOR_INTERFACE);
++        let connection = UsbConnection::new(handle);
++        self.notify_listener = Some(NotifyListener::start(connection.shared_handle(), Arc::clone(&self.notify_hub)));
++        self.connection = Some(connection);
++        self.connected_vid = Some(vid);
++        self.selected_serial = Some(serial.to_owned());
++        info!("Connected to DSPi device: {serial}");
++        Ok(())
++    }
++
+     /// Close current device connection.
+     pub fn disconnect(&mut self) {
+         if let Some(serial) = &self.selected_serial {
+--- a/core/src/lib.rs
++++ b/core/src/lib.rs
+@@ -67,6 +67,24 @@
+     pub fn state(&self) -> &DspState {
+         &self.state
+     }
++
++    /// Device discovery and connection, for embedders that wrap the core
++    /// in their own FFI instead of the C ABI below.
++    pub fn device_manager(&self) -> &DeviceManager {
++        &self.device_manager
++    }
++
++    pub fn device_manager_mut(&mut self) -> &mut DeviceManager {
++        &mut self.device_manager
++    }
++
++    /// Forget everything known about the previous device: call after
++    /// selecting a (new) device, before `fetch_all`.
++    pub fn reset_device_state(&mut self) {
++        self.state = DspState::default();
++        self.cs = cs::CsState::default();
++        self.baseline = None;
++    }
+ }
+ 
+ impl Default for DspiCore {
+@@ -189,9 +207,7 @@
+     with_core(core, |c| {
+         let ok = c.device_manager.select_device(serial).is_ok();
+         if ok {
+-            c.state = DspState::default();
+-            c.cs = cs::CsState::default();
+-            c.baseline = None;
++            c.reset_device_state();
+         }
+         ok
+     })
