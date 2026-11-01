@@ -15,6 +15,19 @@ android {
         versionName = "0.1.0-hil2"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
+    // The container's home (and with it ~/.android/debug.keystore) is thrown
+    // away after every run, so debug builds would get a new signature each
+    // time and could not update an installed copy. Use a persistent,
+    // gitignored project keystore when it exists (tools/debug-keystore.sh).
+    val projectDebugKeystore = rootProject.file("keystore/debug.keystore")
+    if (projectDebugKeystore.exists()) {
+        signingConfigs.getByName("debug") {
+            storeFile = projectDebugKeystore
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
