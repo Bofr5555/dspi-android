@@ -816,7 +816,9 @@ section above is updated too.
    the row (macOS toggles on its label too); ANALYSIS' and SETTINGS'
    segmented choices are Material segmented buttons (macOS
    `.pickerStyle(.segmented)`); ANALYSIS' value fields are tap-to-type like
-   every other field.
+   every other field. HOME's graphs are no longer fixed at 220/260 dp: their
+   height is `AppSettings.graphHeight` (default 250, 200–350) with a
+   `GraphResizeHandle` under each, as macOS.
 5. **Not merged: GRAPH `PeqDspMath` and fake-core `DspMath`.** One pure-JVM
    home for both needs a new module in `settings.gradle.kts` (coordinator)
    and an edit of :fake-core (BRIDGE); left as two copies.

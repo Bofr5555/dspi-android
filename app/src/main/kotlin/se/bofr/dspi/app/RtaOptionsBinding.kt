@@ -10,6 +10,7 @@ package se.bofr.dspi.app
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,12 +34,18 @@ fun RtaController.apply(o: RtaOptions) {
 }
 
 /** Keep the current bridge's analyser options equal to the preferences. Main thread (the bridge's). */
+fun bindRtaOptions(scope: CoroutineScope, settings: StateFlow<AppSettings>, bridges: StateFlow<DspiBridge>): Job =
+    bindRtaControllers(scope, settings, bridges.map { it.rta })
+
+/** [bindRtaOptions] over the controllers themselves (the current one first; a new one gets the options at once). */
 @OptIn(ExperimentalCoroutinesApi::class)
-fun bindRtaOptions(scope: CoroutineScope, settings: StateFlow<AppSettings>, bridges: StateFlow<DspiBridge>): Job = scope.launch {
-    bridges
-        .flatMapLatest { bridge ->
-            combine(settings, bridge.rta.caps) { s, caps -> rtaOptionsFor(s, caps) }
-                .distinctUntilChanged()
-                .map { bridge to it }
-        }.collect { (bridge, o) -> bridge.rta.apply(o) }
-}
+internal fun bindRtaControllers(scope: CoroutineScope, settings: StateFlow<AppSettings>, controllers: Flow<RtaController>): Job =
+    scope.launch {
+        controllers
+            .distinctUntilChanged { a, b -> a === b }
+            .flatMapLatest { rta ->
+                combine(settings, rta.caps) { s, caps -> rtaOptionsFor(s, caps) }
+                    .distinctUntilChanged()
+                    .map { rta to it }
+            }.collect { (rta, o) -> rta.apply(o) }
+    }

@@ -373,7 +373,5 @@ private fun GraphSetupPage(settings: AppSettings, store: AppSettingsStore, inPop
             store.update { it.copy(popoutGraphFollowsSelection = on) }
         }
     }
-    // "Follow Channel Selection" (pop-out only) has no counterpart: GraphScreen
-    // picks the channel it edits itself (docs/UPSTREAM-DEVIATIONS.md GRAPH).
     Spacer(Modifier.size(12.dp))
 }
