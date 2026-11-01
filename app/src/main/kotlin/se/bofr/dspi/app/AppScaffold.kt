@@ -17,7 +17,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -78,8 +77,7 @@ fun AppScaffold(
 @Composable
 private fun DspiNavHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?) {
     // G1: every device-writing control is disabled while the bridge refuses writes
-    val writesFlow = remember(bridge) { bridge.writesAllowedFlow() }
-    val writes by writesFlow.collectAsStateWithLifecycle(bridge.writesAllowedNow())
+    val writes by bridge.writesAllowed.collectAsStateWithLifecycle()
     CompositionLocalProvider(LocalWritesAllowed provides writes) { DspiRoutesHost(bridge, bootloaderLocator) }
 }
 
