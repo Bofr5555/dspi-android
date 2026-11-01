@@ -87,6 +87,7 @@ class MatrixActionsTest {
     fun matrixGainDragIsThrottledThenCommittedOnce() = runTest {
         val r = rig()
         val route = MatrixRoute(true, 0f, false)
+        val rev0 = r.bridge.stateRevision.value
         r.actions.matrixGainLive(0, 0, route, -1f) // goes out at once
         r.actions.matrixGainLive(0, 0, route, -2f)
         r.actions.matrixGainLive(0, 0, route, -3f) // latest wins
@@ -97,6 +98,8 @@ class MatrixActionsTest {
             listOf("setMatrixRoute(0, 0, true, -1.0, false)", "setMatrixRoute(0, 0, true, -3.0, false)"),
             r.calls("setMatrixRoute")
         )
+        // sendOnly: the device follows, no stateChanged during the drag
+        assertEquals(rev0, r.bridge.stateRevision.value)
         advanceTimeBy(100) // the throttle goes idle
         runCurrent()
         r.core.calls.clear()
@@ -111,6 +114,7 @@ class MatrixActionsTest {
             r.calls("setMatrixRoute")
         )
         assertEquals(-6f, r.bridge.matrixGain(0, 0))
+        assertTrue(r.bridge.stateRevision.value > rev0) // the commit emits
     }
 
     @Test

@@ -57,20 +57,18 @@ class MatrixActions(
         bridge.setMatrixRoute(row, col, route.isConnected, route.gain, !route.isInverted)
 
     /**
-     * matrixGainBinding during a drag.
-     * TODO(E4): switch to `setMatrixRoute(..., sendOnly = true)` once the
-     * coordinator's contract batch lands; until then live values are
-     * throttled full writes.
+     * matrixGainBinding during a drag: throttled `setMatrixRoute(sendOnly = true)`;
+     * [matrixGainCommit] writes the final value once with `sendOnly = false`.
      */
     fun matrixGainLive(row: Int, col: Int, route: MatrixRoute, db: Float) = routeThrottles
         .getOrPut(routeKey(row, col)) {
-            Throttle(scope, THROTTLE_MS) { r -> bridge.setMatrixRoute(row, col, r.isConnected, r.gain, r.isInverted) }
+            Throttle(scope, THROTTLE_MS) { r -> bridge.setMatrixRoute(row, col, r.isConnected, r.gain, r.isInverted, sendOnly = true) }
         }.submit(route.copy(gain = db))
 
     /** matrixGainBinding set (release / typed value). */
     fun matrixGainCommit(row: Int, col: Int, route: MatrixRoute, db: Float) {
         routeThrottles[routeKey(row, col)]?.cancel()
-        bridge.setMatrixRoute(row, col, route.isConnected, db, route.isInverted)
+        bridge.setMatrixRoute(row, col, route.isConnected, db, route.isInverted, sendOnly = false)
     }
 
     private fun routeKey(row: Int, col: Int): Long = (row.toLong() shl 32) or col.toLong()

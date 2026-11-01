@@ -162,10 +162,8 @@ Reference: macOS `MatrixMixerView.swift` (+ the matrix helpers of
    `Throttle` (30 ms) and commit once on release: output gain via
    `sendOutputGainToDevice` → `setOutputGain`, delay via
    `sendOutputDelayToDevice` → `setOutputDelay`, input trim via
-   `setInputPreamp(sendOnly = true)` → `sendOnly = false`. Crosspoint gain
-   has no sendOnly in the contract yet (E4), so its live values are
-   throttled full `setMatrixRoute` writes and the release writes once more
-   (TODO in `MatrixActions.matrixGainLive`).
+   `setInputPreamp(sendOnly = true)` → `sendOnly = false`, crosspoint gain
+   via `setMatrixRoute(sendOnly = true)` → `sendOnly = false`.
 3. **Rounding as macOS:** output gain 0.1 dB, output delay whole ms
    (README: "Applied in whole milliseconds"); delay max 42 ms (RP2040) /
    85 ms (RP2350) as `CompactDelayField(maxDelay:)`. Gain fields −60…+12 dB.
