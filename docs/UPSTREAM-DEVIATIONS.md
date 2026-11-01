@@ -42,3 +42,57 @@ irreversible/flash operations, not a UX change. Contract:
    invalid token (other op, spent, revoked, expired, other bridge) throws
    `DangerousOpNotConfirmed` before any USB traffic: a programming error,
    never a transport-style failure value.
+
+## BRIDGE
+
+Reference: DSPi-Console-Linux `qt/src/DSPiBridge.{h,cpp}` and controllers
+@ `4683a2c`.
+
+1. **Threading.** Qt calls the core on the GUI thread. Here every core call
+   runs on one serial FFI dispatcher and results are published on the main
+   dispatcher (PLAN §3.4/§5.4). Getters read the last published `DspState`
+   snapshot instead of the core live; `sendOnly` calls therefore do not
+   refresh getters until the commit, except the "preview" setters
+   (`setInputPreamp(sendOnly)`, `sendOutputGainToDevice`), which refresh the
+   snapshot silently and emit `PreviewChanged` like Qt's `previewChanged`.
+   Read-modify-write setters (`setFilter`, `setCrossover`, …) read the band
+   from the core on the FFI thread so queued edits compose.
+2. **Curves.** `magnitudeCurve` includes the channel's gain offset (contract);
+   Qt leaves that to `BodePlotItem`. Curves are recomputed eagerly on the FFI
+   thread for the channels a change touched (Qt: lazily on draw).
+   `magnitudesRevision` is bumped whenever a curve or a gain offset changed.
+3. **Android devices.** No libusb enumeration: `:usb` hands fds to
+   `attachDevice`/`detachDevice`. `scanDevices`/`selectDevice` keep Qt's
+   behaviour for cores that can enumerate (desktop, the fake). The 500 ms
+   hotplug timer runs only with `hotplugPolling = true`. `reconnect`/`rescan`
+   re-open the remembered fd instead of reselecting by serial. Connection
+   error texts mention reconnecting instead of the udev rule;
+   `installUdevRule` has no Android equivalent. `scanDevices` also selects
+   the first device when none is selected (not only when disconnected), so
+   a core that starts connected (the fake, demo mode) is picked up.
+4. **Status poll at 0 Hz** when no UI is visible (`setUiVisible(false)`,
+   PLAN §5.3) and while disconnected; Qt's timer always runs.
+5. **DangerousOps** (no Qt equivalent; PLAN §4, DESIGN §4.5): every
+   flash-writing and write-as-read operation (presets, save/revert/factory
+   reset, save master volume / output config, bootloader, clear clips, all
+   pin/IO setters that use IN requests, DAC mute test, buffer-stats reset,
+   siggen start/identify, CS save/revert/learn/macro, configuration import)
+   needs a single-use `ConfirmationToken` (10 s) from
+   `bridge.dangerousOps.confirm(op)`. Without one the call does nothing,
+   returns its failure value and emits `CommandFailed(DangerousOpNotConfirmed)`.
+   Not gated: siggen stop, CS learn/macro cancel (safety), and the poll's own
+   clip read-then-clear (Qt behaviour).
+6. **Retry** (no Qt equivalent; DESIGN §4.5 rule 4): idempotent GETs issued
+   within 2 s after a flash write are retried up to 4× at 150 ms on a
+   transfer error. SETs are never retried.
+7. **Errors.** Qt ignores the core's bool for fire-and-forget setters; here a
+   failure is also reported as `BridgeEvent.CommandFailed`.
+8. **StatsController.info** carries the STAT_* counters only (contract); the
+   receiver/LG/ADAT/I2S-slave readings Qt folds into `info` are available
+   through the bridge's `fetch*` calls. Buffer history for the traces is the
+   UI's job (collect `buffers`).
+9. **ConfigFiles** works on text, not file URLs (SAF lives in the UI);
+   `inspectConfiguration` adds `crossPlatform` as Qt does, not the localised
+   `saved` string.
+10. **Channel descriptors** follow Qt (`"IN1"`, `"OUT3"`); the contract KDoc
+    shows `"IN 1"`.

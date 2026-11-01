@@ -26,8 +26,9 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 | `Commands.swift`, `Constants.swift`, `DSPViewModel.swift` (wire structs + view model), `USBDevice.swift`, `USBNotificationReader.swift`, `Models.swift`, `DSPMath.swift` | `third_party/DSPi-Console-Linux/core` (unmodified + `third_party/patches/`) → `rust/dspi-ffi` → `core-api` `DspiCoreApi` → `bridge` `DspiBridge` (`StateFlow<DspState>` + per-feature flows) | FFI, BRIDGE | W0 (contracts) |
 | `PresetSnapshot.swift`, `PresetDocument.swift`, `PresetDocumentTransfer.swift`, `FilterFile.swift` | in the core: `presetdiff.rs` (`captureBaseline`, `presetDirty`, `presetChanges`), `presetfile.rs` (`configExport/Inspect/Import`), `filterfile.rs` (`filtersExport/Inspect/Import`); UI in `feature-presets` | FFI / PRESETS | W0 |
 | `HostAudioFormatMonitor.swift` (CoreAudio) | `AudioManager`/`AudioDeviceInfo` badge in `feature-home` | HOME | — |
-| Linux `qt/src/DSPiBridge.{h,cpp}` | `bridge/…/DspiBridge.kt` (interface) + `DspiBridgeImpl.kt` | BRIDGE | W0 (interface + `StubDspiBridge`) |
-| Linux `RtaController`, `SiggenController`, `StatsController`, `CsController`, `MonitorModel`, `ConfigFiles` | `bridge/…/Controllers.kt` interfaces + implementations | BRIDGE | W0 (interfaces) |
+| Linux `qt/src/DSPiBridge.{h,cpp}` | `bridge/…/DspiBridge.kt` (interface) + `DspiBridgeImpl.kt`, `DangerousOps.kt`, `LinkStore.kt` | BRIDGE | done (tested; `StubDspiBridge` is a deprecated delegate until `:app` switches) |
+| Linux `RtaController`, `SiggenController`, `StatsController`, `CsController`, `MonitorModel`, `ConfigFiles` | `bridge/…/Controllers.kt` interfaces + `ControllersImpl.kt` | BRIDGE | done (tested) |
+| Linux `core/src/dsp_math.rs` (+ `commands.rs`/`preset.rs`/`presetdiff.rs` semantics, for the fake) | `fake-core/…/DspMath.kt`, `FakeDspiCore.kt`, `FakePresetDiff.kt`, `FakeFiles.kt`, `DspStateJson.kt` | BRIDGE | done (tested; fixture hookup pending FFI's `fixtures/dspstate_v32.json`) |
 | Linux `qml/components/Throttle.qml` | `bridge/…/Throttle.kt` | BRIDGE | done (tested) |
 | Windows `Core/Models/ChannelMap.cs` / DSPiBridge `wire/appId` | `bridge/…/ChannelMap.kt` | BRIDGE | done (tested) |
 
