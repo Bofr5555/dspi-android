@@ -1239,7 +1239,9 @@ class DspiBridgeImpl(
                 if (all != d.availableSerials || inaccessible != d.inaccessibleDevices) {
                     _devices.value = d.copy(availableSerials = all, inaccessibleDevices = inaccessible)
                 }
-                if (!connected && all.isNotEmpty()) selectDevice(all.first())
+                // Qt: `!connected()`; also when nothing is selected yet (a core
+                // that starts connected, like the fake in demo mode)
+                if ((!connected || selectedSerial.isEmpty()) && all.isNotEmpty()) selectDevice(all.first())
             }
         }
     }
