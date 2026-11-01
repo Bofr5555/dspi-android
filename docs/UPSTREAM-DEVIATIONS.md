@@ -138,3 +138,65 @@ the implementation does beyond it.
 4. Multi-device: like macOS, a second unit never takes over an open
    connection; when the open unit leaves, the session switches to a survivor,
    preferring the last serial (Linux `rescan()`).
+
+## MATRIX
+
+Reference: macOS `MatrixMixerView.swift` (+ the matrix helpers of
+`DSPViewModel.swift`, `Commands.swift`) @ v1.1.6-beta5; bridge usage as Linux
+`qt/qml/MatrixMixerWindow.qml` @ 4683a2c.
+
+1. **Phone layout: one page per output.** Below 600 dp the grid becomes a
+   tab row of outputs (name + OUTn, disabled outputs dimmed) over a pager;
+   each page lists the matrix rows for that output (name, input trim in
+   8-channel mode, gain field, INV, the crosspoint dot) and the output's
+   ENABLE / GAIN / DELAY / MUTE. The ROUTING band (with Direct 1:1 / Clear in
+   8-channel mode) and the OUTPUT band keep their macOS labels and order.
+   From 600 dp the macOS grid is drawn as-is (scrolls both ways).
+2. **Compact fields on touch.** macOS: click to type, plain scroll wheel to
+   adjust. Here: tap opens a small editor (unit optional, a decimal comma is
+   accepted; non-numbers are ignored as on macOS); long-press then drag
+   (up/right = more) replaces the scroll wheel at 0.1 dB per 3 dp (delay
+   1 ms per 4 dp). Crosspoint gain moves unquantised, like the macOS wheel
+   (the core quantises on the wire); output gain and input trim snap to
+   0.1 dB, which the Swift setters round to anyway. Drags are live through
+   `Throttle` (30 ms) and commit once on release: output gain via
+   `sendOutputGainToDevice` → `setOutputGain`, delay via
+   `sendOutputDelayToDevice` → `setOutputDelay`, input trim via
+   `setInputPreamp(sendOnly = true)` → `sendOnly = false`, crosspoint gain
+   via `setMatrixRoute(sendOnly = true)` → `sendOnly = false`.
+3. **Rounding as macOS:** output gain 0.1 dB, output delay whole ms
+   (README: "Applied in whole milliseconds"); delay max 42 ms (RP2040) /
+   85 ms (RP2350) as `CompactDelayField(maxDelay:)`. Gain fields −60…+12 dB.
+4. **Hover help → captions/labels.** ENABLE's tooltip text is a caption on the
+   phone page and the click label for accessibility; MatrixPoint's
+   "Connect/Disconnect" and "Phase inverted/Normal phase" are content
+   descriptions. The row's long name (e.g. "Upmix Centre") is shown under the
+   short one on the phone page.
+5. **Column header menu** opens on tap or long-press (tablet) and from a "•••"
+   button or long-press on the name (phone); items and wording as macOS
+   (Identify only when connected and the generator is supported, disabled on a
+   disabled output; Rename; Copy/Paste Parameters). Rename is a dialog
+   (≤ 31 characters, trimmed, empty ignored) instead of in-place editing.
+6. **Row count.** macOS sizes USB input rows from the host's CoreAudio
+   format; Android has no equivalent, so the device-reported active input
+   count is used (macOS's own fallback, Qt's behaviour). S/PDIF, I2S and ADAT
+   follow macOS `effectiveInputChannels`.
+7. **PDM conflict and graph visibility.** Same alert text and buttons; the
+   confirm runs macOS switchToPDM (every EQ-worker output off, then PDM on)
+   or switchFromPDM (PDM off, then the output on) as confirmed
+   `setOutputEnable` calls; the bridge's snapshot after each call stands in
+   for the macOS read-backs. As Commands.swift setOutputEnable, graph
+   visibility follows ENABLE only in the graph's overview mode, and only
+   when the device accepted the change. No component exposes overview mode
+   to features yet, so the matrix currently never touches visibility
+   (`MatrixActions(isOverviewMode = …)` is the hook). Direct 1:1 visibility
+   is the bridge's (E5).
+8. **Icons** ("power", speaker) are drawn locally (no icon library in the
+   build); disabled crosspoints are greyed (macOS `.saturation(0)`) and dimmed.
+9. **Lifecycle (E9).** The screen's controller (`MatrixActions.forBridge`)
+   lives as long as the bridge on an app scope: enable/conflict sequences,
+   the open "Warning" alert and the rename dialog survive rotation. Typed
+   text in the dialogs is saved across rotation.
+10. **8-channel extras** (Direct 1:1, Clear, input trims) need RP2350, the
+    client's exact wire format (`WIRE_FORMAT_VERSION`) and 8 inputs, as macOS
+    `supports8chInput`.
