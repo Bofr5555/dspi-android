@@ -5,6 +5,7 @@
 package se.bofr.dspi.feature.settings
 
 import se.bofr.dspi.bridge.PinOwner
+import se.bofr.dspi.bridge.PinOwnerKind
 import se.bofr.dspi.core.DspState
 
 /** What a claimed GPIO is doing; also the Overview's section order. */
@@ -98,12 +99,9 @@ data class PinContext(
             dacMute = DacHwMuteConfig.from(state),
             uart = CtrlClaim(state.ctrlStatus.uartLive, state.uart.txPin, state.uart.rxPin),
             i2c = CtrlClaim(state.ctrlStatus.i2cLive, state.i2c.sdaPin, state.i2c.sclPin),
-            csPins = owners.mapNotNull { o ->
-                CS_OWNER.matchEntire(o.owner)?.let { m -> (m.groupValues[1].toInt() - 1) to o.pin }
-            }
+            // The bridge says structurally who holds a pin (PinOwner.kind, macOS PinConsumer.controlSurface(slot))
+            csPins = owners.filter { it.kind == PinOwnerKind.CONTROL_SURFACE && it.index >= 0 }.map { it.index to it.pin }
         )
-
-        private val CS_OWNER = Regex("Control Surface (\\d+)")
     }
 }
 

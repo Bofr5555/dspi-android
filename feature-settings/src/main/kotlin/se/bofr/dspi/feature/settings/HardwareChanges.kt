@@ -235,11 +235,11 @@ class HardwareChanges(private val bridge: DspiBridge) {
         fieldLabel = "Input sample rate",
         oldDisplay = OutputConfigSnapshot.INPUT_RATE_LABELS.getOrElse(device.i2sInputRate) { "?" },
         newDisplay = OutputConfigSnapshot.INPUT_RATE_LABELS.getOrElse(index) { "?" },
-        apply = { t ->
-            bridge.setInputRate(t, index)
-            0
-        },
-        // Fire-and-forget on the bridge: no outcome to report (macOS shows none either)
+        // Suspends until the device took it, so a following call cannot overtake it (BRIDGE-3).
+        // 0xED has no status byte: the only failure is a lost transfer (NO_REPLY).
+        apply = { t -> bridge.setInputRateWithStatus(t, index).code },
+        statusText = { "Failed to set input sample rate" },
+        // macOS shows no line on success
         successText = ""
     )
 
@@ -251,11 +251,10 @@ class HardwareChanges(private val bridge: DspiBridge) {
         fieldLabel = "I2S clock mode",
         oldDisplay = masterSlave(device.i2sClockMode),
         newDisplay = masterSlave(mode),
-        apply = { t ->
-            bridge.setI2sClockMode(t, mode)
-            0
-        },
-        // Fire-and-forget on the bridge: no outcome to report (macOS shows none either)
+        // Suspends until the device took it (BRIDGE-3); 0x88 has no status byte, so only NO_REPLY fails.
+        apply = { t -> bridge.setI2sClockModeWithStatus(t, mode).code },
+        statusText = { "Failed to set I2S clock mode" },
+        // macOS shows no line on success
         successText = ""
     )
 
