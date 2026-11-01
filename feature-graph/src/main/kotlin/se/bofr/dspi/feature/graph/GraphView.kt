@@ -172,17 +172,23 @@ fun dbLabel(db: Double): String {
 }
 
 /** macOS `Color.accentColor` (system blue): an output beyond the palette (macOS `eqCurveColor`). */
-internal val AccentColour = Color(0xFF007AFF)
+internal val AccentColour = ChannelPalette.accent
 
-/** A channel's curve colour (macOS `eqCurveColor`), from the bridge's palette. */
+/**
+ * A channel's curve colour (macOS `eqCurveColor`), from the bridge's palette
+ * with :ui-common's ChannelPalette (the macOS values) as the fallback. As
+ * macOS `ChannelPalette.output`, an output past the eight paired outputs
+ * (the PDM sub aside) is the accent colour, never a wrapped palette entry
+ * (review F9; the bridge's `channelColor` wraps).
+ */
 internal fun channelColour(bridge: DspiBridge, ch: Int): Color {
+    val numOut = bridge.numOutputChannels
     if (!bridge.isInputChannel(ch)) {
-        // macOS: `MatrixOutput.all.indices.contains(outIdx) ? … : .accentColor` — no wrap-around.
         val out = bridge.rta.tapIndex(ch)
-        if (out !in 0 until DspiConstants.MAX_OUTPUTS) return AccentColour
+        val isPdm = out == numOut - 1
+        if (out < 0 || (!isPdm && out >= ChannelPalette.outputs.size)) return AccentColour
     }
-    val hex = bridge.channelColor(ch).removePrefix("#")
-    return hex.toLongOrNull(16)?.let { Color(0xFF000000 or it) } ?: ChannelPalette.color(ch)
+    return ChannelPalette.fromHex(bridge.channelColor(ch), ChannelPalette.color(ch, numOut))
 }
 
 /**
