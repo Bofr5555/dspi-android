@@ -822,3 +822,44 @@ section above is updated too.
 5. **Not merged: GRAPH `PeqDspMath` and fake-core `DspMath`.** One pure-JVM
    home for both needs a new module in `settings.gradle.kts` (coordinator)
    and an edit of :fake-core (BRIDGE); left as two copies.
+
+## READ-ONLY UI (owner decision G1)
+
+Deliberate deviation from every official client (macOS/Qt show the firmware
+banner but still send every command).
+
+1. **One mechanism.** :ui-common `LocalWritesAllowed` (default true) is
+   provided by :app from the bridge (`connected && compat == COMPAT_OK`;
+   until `DspiBridge.writesAllowed` is on main through a TEMPORARY SHIM,
+   `app/…/WritesAllowed.kt`). The :ui-common controls gate their `enabled`
+   on it (`writeEnabled`): CustomSlider, ParameterRow, ValueField, compact
+   gain/delay fields, PillButton, SplitActionPill, PopUpButton,
+   BypassCheckbox, PullDownMenu, SwitchRow, SegmentedPicker, ToolHeader's
+   switch, ChannelChips/ToolChip; SidebarIconButton ignores the tap but keeps
+   the long-press. Feature controls built from Material directly read
+   `writesAllowed()`.
+2. **Disabled while read-only:** every device write — HOME volume/mute,
+   effect toggles, Bypass Master EQ, limiter tap, routing/invert, all band
+   fields and menus, Linkwitz Apply, channel Identify/Rename/Paste, every
+   preset action (load, save, rename, default, copy, clear); the graph's
+   on-graph editor (the edited curve is drawn as a plain line, no dots,
+   drags, chip or band menus); MATRIX crosspoints, gains, delays, ENABLE,
+   MUTE, Direct 1:1, Clear, header Identify/Rename/Paste; all TOOLS controls;
+   PRESETS Tools/File imports/saves and AutoEQ apply; SETTINGS device pages
+   (pickers, switches, pins, global draft, control interfaces, control
+   surfaces Run/aux/rename/remove), the Save bar, Advanced › Reset channel
+   names; ANALYSIS signal-generator controls and Start, Reset Watermarks.
+3. **Still enabled:** navigation, reading every page, Copy Parameters,
+   export/share of the configuration, app preferences (Settings › About,
+   Advanced, Graphing, Spectrum; the graph gear panel; dashboard layout;
+   sidebar volume mode; Tube Basic/Advanced), the analyser's side/mode/channel
+   choices, curve visibility pills, the interrupt monitor's pause/clear/copy,
+   and the whole firmware update screen (Install, Enter bootloader:
+   `WritesExempt`; the bridge allows `enterBootloader`).
+4. **Banner.** HOME's FirmwareMismatchBanner keeps the macOS wording and adds
+   "Until the firmware matches, this app is read-only: settings are shown
+   but cannot be changed." No banner while compat is still unknown (the
+   controls are disabled then too, as the bridge refuses writes).
+5. **Not covered here:** the foreground notification's volume/mute/preset
+   actions live in :usb (`NotificationControls`); the bridge refuses them
+   while read-only, but the notification does not hide them (USB package).

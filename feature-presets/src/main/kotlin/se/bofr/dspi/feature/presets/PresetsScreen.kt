@@ -56,6 +56,7 @@ import se.bofr.dspi.feature.presets.autoeq.FavoriteProfile
 import se.bofr.dspi.ui.DspiRoutes
 import se.bofr.dspi.ui.alert.AlertHost
 import se.bofr.dspi.ui.alert.ConsoleAlertHost
+import se.bofr.dspi.ui.writesAllowed
 
 /** The menu-action objects of one Presets screen, sharing one alert slot. */
 class PresetsController(val bridge: DspiBridge, scope: CoroutineScope, val autoEQ: AutoEQManager, io: CoroutineDispatcher) {
@@ -278,7 +279,7 @@ private fun PresetSection(
     onSelect: (Int) -> Unit
 ) {
     SectionHeader("Preset")
-    val enabled = connected && !inFlight
+    val enabled = connected && !inFlight && writesAllowed() // loading a preset writes (G1)
     for (slot in 0 until PRESET_SLOT_COUNT) {
         val isActive = slot == active
         Row(
@@ -324,6 +325,10 @@ private fun PresetMenuSection(
     slotLabels: List<String>
 ) {
     var copyMenuOpen by remember { mutableStateOf(false) }
+
+    // G1: every preset action writes to the device
+    @Suppress("NAME_SHADOWING")
+    val connected = connected && writesAllowed()
     SectionHeader("Preset Menu")
     MenuRow("Save", enabled = connected, onClick = actions::saveActivePreset)
     MenuRow("Rename…", enabled = connected, onClick = actions::renameActivePreset)
@@ -353,6 +358,9 @@ private fun PresetMenuSection(
 /** Tools menu: Commit Parameters..., Revert to Saved..., Factory Reset.... */
 @Composable
 private fun ToolsSection(tools: ToolsMenuActions, connected: Boolean) {
+    // G1: Commit / Revert / Factory Reset write to the device
+    @Suppress("NAME_SHADOWING")
+    val connected = connected && writesAllowed()
     SectionHeader("Tools")
     MenuRow("Commit Parameters...", enabled = connected, onClick = tools::commitParameters)
     MenuRow("Revert to Saved...", enabled = connected, onClick = tools::revertToSaved)
@@ -362,16 +370,18 @@ private fun ToolsSection(tools: ToolsMenuActions, connected: Boolean) {
 /** File menu: filters, device configuration, master volume, output configuration. */
 @Composable
 private fun FileSection(controller: PresetsController, requests: PresetFileRequests, connected: Boolean) {
+    // G1: imports and the two saves write; export and share only read
+    val canWrite = writesAllowed()
     SectionHeader("File")
-    MenuRow("Import Filters...", enabled = connected, onClick = requests.importFilters)
+    MenuRow("Import Filters...", enabled = connected && canWrite, onClick = requests.importFilters)
     MenuRow("Export Filters...", enabled = connected, onClick = requests.exportFilters)
     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-    MenuRow("Import Device Configuration...", enabled = connected, onClick = requests.importConfiguration)
+    MenuRow("Import Device Configuration...", enabled = connected && canWrite, onClick = requests.importConfiguration)
     MenuRow("Export Device Configuration...", enabled = connected, onClick = requests.exportConfiguration)
     MenuRow("Share Device Configuration...", enabled = connected, onClick = requests.shareConfiguration)
     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-    MenuRow("Save Master Volume", enabled = connected, onClick = controller.tools::saveMasterVolume)
-    MenuRow("Save Output Configuration", enabled = connected, onClick = controller.tools::saveOutputConfig)
+    MenuRow("Save Master Volume", enabled = connected && canWrite, onClick = controller.tools::saveMasterVolume)
+    MenuRow("Save Output Configuration", enabled = connected && canWrite, onClick = controller.tools::saveOutputConfig)
 }
 
 /** AutoEQ menu: Browse Profiles..., Favorite Profiles, Clear Favorites, Update Database.... */
@@ -394,7 +404,7 @@ private fun AutoEQSection(controller: PresetsController, favorites: List<Favorit
     } else {
         Column(Modifier.padding(start = 16.dp)) {
             for (favorite in favorites) {
-                MenuRow(favorite.name) { controller.autoEQMenu.applyFavorite(favorite) }
+                MenuRow(favorite.name, enabled = writesAllowed()) { controller.autoEQMenu.applyFavorite(favorite) }
             }
         }
     }

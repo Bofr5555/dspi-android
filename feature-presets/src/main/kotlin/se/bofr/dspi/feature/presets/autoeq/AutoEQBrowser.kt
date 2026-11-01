@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import se.bofr.dspi.ui.writesAllowed
 
 /** The AutoEQ browser. [onApply] applies the selected profile and returns whether it was applied (then the browser closes). */
 @Composable
@@ -106,7 +107,9 @@ fun AutoEQBrowser(manager: AutoEQManager, onApply: (HeadphoneEntry) -> Boolean, 
                 }
             }
             TextButton(onClick = onDismiss) { Text("Cancel") }
-            Button(onClick = { selectedEntry?.let { if (onApply(it)) onDismiss() } }, enabled = selectedEntry != null) { Text("Apply") }
+            Button(onClick = {
+                selectedEntry?.let { if (onApply(it)) onDismiss() }
+            }, enabled = selectedEntry != null && writesAllowed()) { Text("Apply") }
         }
     }
 }

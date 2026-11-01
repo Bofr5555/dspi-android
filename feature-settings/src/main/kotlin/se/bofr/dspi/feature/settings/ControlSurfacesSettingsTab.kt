@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.writeEnabled
 
 /** Which Control page (macOS `ControlSurfacesSettingsTab.Section`). */
 enum class CsSection { CONTROLS, GROUPS, MACROS, AUX }
@@ -135,7 +136,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                                 "${m.steps.size} step${if (m.steps.size == 1) "" else "s"}" + if (running) " · Running" else ""
                             ) {
                                 // Firing a macro is one click (D1), never a flash write
-                                OutlinedButton(onClick = { op(CsModel.macroFireOp(i)) }, enabled = !busy) { Text("Run") }
+                                OutlinedButton(onClick = { op(CsModel.macroFireOp(i)) }, enabled = writeEnabled(!busy)) { Text("Run") }
                             }
                         }
                     }
@@ -161,7 +162,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                             val on = cs.auxState.getOrElse(slot) { 0 } != 0
                             SettingRow(cs.auxName(slot), "${CsModel.typeName(b.type)} · GPIO ${b.gpio0}", onClick = { renaming = slot }) {
                                 // Switching an output is instant and never writes to flash
-                                Switch(checked = on, onCheckedChange = { op(CsModel.auxStateOp(slot, it)) }, enabled = !busy)
+                                Switch(checked = on, onCheckedChange = { op(CsModel.auxStateOp(slot, it)) }, enabled = writeEnabled(!busy))
                             }
                         }
                     }
@@ -203,13 +204,13 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                 TextButton(onClick = {
                     op(CsModel.nameOp(slot, text.trim()))
                     renaming = null
-                }, enabled = !busy) { Text("Apply") }
+                }, enabled = writeEnabled(!busy)) { Text("Apply") }
             },
             dismissButton = {
                 TextButton(onClick = {
                     op(CsModel.clearBindingOp(slot))
                     renaming = null
-                }, enabled = !busy) { Text("Remove", color = Color(0xFFFF453A)) }
+                }, enabled = writeEnabled(!busy)) { Text("Remove", color = Color(0xFFFF453A)) }
             }
         )
     }

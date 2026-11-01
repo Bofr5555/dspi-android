@@ -78,6 +78,7 @@ import se.bofr.dspi.ui.SwitchRow
 import se.bofr.dspi.ui.ToolHeader
 import se.bofr.dspi.ui.ValueFormat
 import se.bofr.dspi.ui.rememberWhileVisible
+import se.bofr.dspi.ui.writeEnabled
 
 /** `SubharmBandView`'s magnitudes: the 70 Hz bell and the steady-state sub levels. */
 object SubharmBandMath {
@@ -448,7 +449,7 @@ private fun SoloButton(solo: Boolean, enabled: Boolean, onClick: () -> Unit) {
                 .height(28.dp)
                 .alpha(if (enabled) 1f else 0.4f)
                 .background(if (solo) MacColors.orange else secondaryColor().copy(alpha = 0.12f), RoundedCornerShape(5.dp))
-                .clickable(enabled = enabled, onClick = onClick)
+                .clickable(enabled = writeEnabled(enabled), onClick = onClick)
                 .padding(horizontal = 10.dp),
             contentAlignment = Alignment.Center
         ) {

@@ -32,6 +32,7 @@ import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.I2cConfig
 import se.bofr.dspi.core.UartConfig
 import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.writeEnabled
 
 /** macOS `UART_CTRL_BAUD_CHOICES`. */
 internal val UART_CTRL_BAUD_CHOICES = listOf(9600L, 19200L, 38400L, 57600L, 115200L, 230400L, 460800L, 921600L, 1000000L)
@@ -136,14 +137,14 @@ fun ControlInterfacesSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCo
                         "GPIO transmitting to the controller's RX.",
                         uartDraft.txPin,
                         ctrlCandidates(pins, PinConsumer.UartCtrl, uartDraft.txPin, uartDraft.rxPin) { it % 4 == 0 },
-                        enabled = connected
+                        enabled = writeEnabled(connected)
                     ) { uartDraft = uartDraft.copy(txPin = it) }
                     PinRow(
                         "RX Pin",
                         "GPIO receiving from the controller's TX.",
                         uartDraft.rxPin,
                         ctrlCandidates(pins, PinConsumer.UartCtrl, uartDraft.rxPin, uartDraft.txPin) { it % 4 == 1 },
-                        enabled = connected
+                        enabled = writeEnabled(connected)
                     ) { uartDraft = uartDraft.copy(rxPin = it) }
                     ChoiceRow(
                         "Baud Rate",
@@ -152,7 +153,7 @@ fun ControlInterfacesSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCo
                             it to baudLabel(it)
                         },
                         uartDraft.baud,
-                        enabled = connected
+                        enabled = writeEnabled(connected)
                     ) {
                         uartDraft = uartDraft.copy(baud = it)
                     }
@@ -160,7 +161,7 @@ fun ControlInterfacesSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCo
                         "Push Notifications",
                         "Stream live parameter/preset/format changes to the controller (type-0x40 frames) instead of polling.",
                         uartDraft.notify,
-                        enabled = connected
+                        enabled = writeEnabled(connected)
                     ) { uartDraft = uartDraft.copy(notify = it) }
                 }
                 ApplyRow(uartApplying, uartDirty, uartStatus, connected, onRevert = {
@@ -190,26 +191,26 @@ fun ControlInterfacesSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCo
                         "Serial data line (even GPIO).",
                         i2cDraft.sdaPin,
                         ctrlCandidates(pins, PinConsumer.I2cCtrl, i2cDraft.sdaPin, i2cDraft.sclPin) { it % 2 == 0 },
-                        enabled = connected
+                        enabled = writeEnabled(connected)
                     ) { i2cDraft = i2cDraft.copy(sdaPin = it) }
                     PinRow(
                         "SCL Pin",
                         "Serial clock line (next odd GPIO, same instance).",
                         i2cDraft.sclPin,
                         ctrlCandidates(pins, PinConsumer.I2cCtrl, i2cDraft.sclPin, i2cDraft.sdaPin) { it % 2 == 1 },
-                        enabled = connected
+                        enabled = writeEnabled(connected)
                     ) { i2cDraft = i2cDraft.copy(sclPin = it) }
-                    SettingRow("Target Address", "7-bit address, 0x08 - 0x77.", enabled = connected) {
+                    SettingRow("Target Address", "7-bit address, 0x08 - 0x77.", enabled = writeEnabled(connected)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = {
                                 i2cDraft =
                                     i2cDraft.copy(address = (i2cDraft.address - 1).coerceAtLeast(I2C_CTRL_ADDR_MIN))
-                            }, enabled = connected) { Text("−") }
+                            }, enabled = writeEnabled(connected)) { Text("−") }
                             Text("0x%02X".format(i2cDraft.address), style = MaterialTheme.typography.bodyLarge)
                             TextButton(onClick = {
                                 i2cDraft =
                                     i2cDraft.copy(address = (i2cDraft.address + 1).coerceAtMost(I2C_CTRL_ADDR_MAX))
-                            }, enabled = connected) { Text("+") }
+                            }, enabled = writeEnabled(connected)) { Text("+") }
                         }
                     }
                 }
@@ -271,7 +272,7 @@ private fun InterfaceHeader(
         }
         Pill(text, color)
         Spacer(Modifier.width(8.dp))
-        Switch(checked = on, onCheckedChange = onChange, enabled = enabled)
+        Switch(checked = on, onCheckedChange = onChange, enabled = writeEnabled(enabled))
     }
 }
 
@@ -300,6 +301,6 @@ private fun ApplyRow(
         }
         if (applying) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
         TextButton(onClick = onRevert, enabled = dirty && !applying) { Text("Revert") }
-        OutlinedButton(onClick = onApply, enabled = dirty && !applying && connected) { Text("Apply") }
+        OutlinedButton(onClick = onApply, enabled = dirty && !applying && writeEnabled(connected)) { Text("Apply") }
     }
 }

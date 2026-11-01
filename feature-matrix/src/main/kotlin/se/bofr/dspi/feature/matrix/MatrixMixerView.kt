@@ -81,6 +81,7 @@ import se.bofr.dspi.ui.MacColors
 import se.bofr.dspi.ui.PowerGlyph
 import se.bofr.dspi.ui.SpeakerGlyph
 import se.bofr.dspi.ui.state.LocalAppState
+import se.bofr.dspi.ui.writesAllowed
 
 /** Tablet threshold: below this the grid becomes one page per output. */
 val MatrixGridMinWidth: Dp = 600.dp
@@ -196,8 +197,8 @@ private fun RoutingHeader(ui: MatrixUi) {
     SectionLabel("ROUTING", Modifier.height(if (ui.state.is8ch) 48.dp else 26.dp)) {
         if (ui.state.is8ch) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = ui.actions::applyDirectRouting) { Text("Direct 1:1") }
-                OutlinedButton(onClick = ui.actions::clearAllRoutes) { Text("Clear") }
+                OutlinedButton(onClick = ui.actions::applyDirectRouting, enabled = writesAllowed()) { Text("Direct 1:1") }
+                OutlinedButton(onClick = ui.actions::clearAllRoutes, enabled = writesAllowed()) { Text("Clear") }
             }
         }
     }
@@ -206,12 +207,13 @@ private fun RoutingHeader(ui: MatrixUi) {
 /** macOS column header context menu (Identify / Rename / Copy / Paste Parameters). */
 @Composable
 private fun OutputHeaderMenu(ui: MatrixUi, output: Int, expanded: Boolean, onDismiss: () -> Unit) {
+    val canWrite = writesAllowed()
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         if (ui.state.connected && ui.siggenSupported) {
             // A matrix-disabled output would render silent, so Identify needs it enabled.
             DropdownMenuItem(
                 text = { Text("Identify") },
-                enabled = ui.state.output(output).enabled,
+                enabled = canWrite && ui.state.output(output).enabled,
                 onClick = {
                     onDismiss()
                     ui.actions.identifyOutput(output)
@@ -219,7 +221,7 @@ private fun OutputHeaderMenu(ui: MatrixUi, output: Int, expanded: Boolean, onDis
             )
             HorizontalDivider()
         }
-        DropdownMenuItem(text = { Text("Rename") }, onClick = {
+        DropdownMenuItem(text = { Text("Rename") }, enabled = canWrite, onClick = {
             onDismiss()
             ui.startRename(output)
         })
@@ -228,7 +230,7 @@ private fun OutputHeaderMenu(ui: MatrixUi, output: Int, expanded: Boolean, onDis
             onDismiss()
             ui.actions.copyChannelParams(output)
         })
-        DropdownMenuItem(text = { Text("Paste Parameters") }, enabled = expanded && ui.actions.canPaste(), onClick = {
+        DropdownMenuItem(text = { Text("Paste Parameters") }, enabled = canWrite && expanded && ui.actions.canPaste(), onClick = {
             onDismiss()
             ui.actions.pasteChannelParams(output)
         })
@@ -254,7 +256,9 @@ private fun EnableButton(ui: MatrixUi, idx: Int, modifier: Modifier = Modifier) 
     Box(
         modifier
             .size(44.dp)
-            .clickable(role = Role.Switch, onClickLabel = enableHelp(o), onClick = { ui.requestOutputEnable(idx) }),
+            .clickable(enabled = writesAllowed(), role = Role.Switch, onClickLabel = enableHelp(o), onClick = {
+                ui.requestOutputEnable(idx)
+            }),
         contentAlignment = Alignment.Center
     ) { PowerGlyph(enableColor(o, secondaryColor)) }
 }
@@ -265,7 +269,7 @@ private fun MuteButton(ui: MatrixUi, idx: Int, modifier: Modifier = Modifier) {
     Box(
         modifier
             .size(44.dp)
-            .clickable(role = Role.Switch, onClickLabel = if (o.muted) "Unmute" else "Mute", onClick = {
+            .clickable(enabled = writesAllowed(), role = Role.Switch, onClickLabel = if (o.muted) "Unmute" else "Mute", onClick = {
                 ui.actions.setOutputMute(idx, !o.muted)
             }),
         contentAlignment = Alignment.Center

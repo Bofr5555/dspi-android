@@ -92,7 +92,9 @@ import se.bofr.dspi.ui.SegmentedPicker
 import se.bofr.dspi.ui.SwitchRow
 import se.bofr.dspi.ui.ToolChip
 import se.bofr.dspi.ui.ToolHeader
+import se.bofr.dspi.ui.WritesExempt
 import se.bofr.dspi.ui.settings.LocalAppSettings
+import se.bofr.dspi.ui.writeEnabled
 
 // MARK: - Shaper Model
 
@@ -278,15 +280,17 @@ fun TubeModellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
             UnsupportedNote("Requires firmware with wire format V31 or newer.", "Update the DSPi firmware to use the Tube Modeller.")
         } else {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                // The Basic | Advanced switch: only how many controls you see, never the sound.
-                SegmentedPicker(
-                    listOf("Basic", "Advanced"),
-                    listOf(0, 1),
-                    if (advanced) 1 else 0,
-                    true,
-                    { v -> appSettings.update { it.copy(tubeModellerAdvanced = v == 1) } },
-                    Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)
-                )
+                // The Basic | Advanced switch: only how many controls you see, never the sound (a preference: usable read-only, G1).
+                WritesExempt {
+                    SegmentedPicker(
+                        listOf("Basic", "Advanced"),
+                        listOf(0, 1),
+                        if (advanced) 1 else 0,
+                        true,
+                        { v -> appSettings.update { it.copy(tubeModellerAdvanced = v == 1) } },
+                        Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)
+                    )
+                }
                 if (!advanced) {
                     ToolColumns(left = {
                         TubeShowcase(tube, outputCount, status.peaks, connected)
@@ -551,7 +555,11 @@ private fun TubeTypeRow(tube: TubeParameters, enabled: Boolean, select: (Int) ->
                 Text("Tube", fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.weight(1f))
                 Box {
-                    TextButton(onClick = { open = true }, enabled = enabled) { Text(TubeParameters.tubeTypeName(tube.type) + " ▾") }
+                    TextButton(onClick = { open = true }, enabled = writeEnabled(enabled)) {
+                        Text(
+                            TubeParameters.tubeTypeName(tube.type) + " ▾"
+                        )
+                    }
                     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                         DropdownMenuItem(text = { Text("Custom") }, onClick = {
                             open = false

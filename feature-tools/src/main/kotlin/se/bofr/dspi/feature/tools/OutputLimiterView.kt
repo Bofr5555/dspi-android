@@ -47,6 +47,7 @@ import se.bofr.dspi.ui.ParameterRow
 import se.bofr.dspi.ui.PullDownMenu
 import se.bofr.dspi.ui.SegmentedPicker
 import se.bofr.dspi.ui.ToolHeader
+import se.bofr.dspi.ui.writeEnabled
 
 /**
  * Entry point for [se.bofr.dspi.ui.DspiRoutes.LIMITER] (macOS
@@ -177,7 +178,7 @@ private fun LimiterSettings(
             HelpTip("Give every output this output's threshold, release and on/off state. Link groups are left as they are.") {
                 OutlinedButton(onClick = {
                     edit(bridge) { bridge.copyLimiterToAll(out) }
-                }, enabled = enabled) { Text("Copy to all outputs") }
+                }, enabled = writeEnabled(enabled)) { Text("Copy to all outputs") }
             }
             Spacer(Modifier.weight(1f))
             PullDownMenu(

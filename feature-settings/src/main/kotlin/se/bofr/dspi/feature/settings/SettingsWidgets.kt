@@ -45,6 +45,8 @@ import se.bofr.dspi.ui.MacColors
 import se.bofr.dspi.ui.SegmentedPicker
 import se.bofr.dspi.ui.SliderRow
 import se.bofr.dspi.ui.SwitchRow
+import se.bofr.dspi.ui.writeEnabled
+import se.bofr.dspi.ui.writesAllowed
 
 /** A grouped-Form section: header label, card of rows, optional footer. */
 @Composable
@@ -96,7 +98,7 @@ internal fun SettingRow(
     Row(
         modifier
             .fillMaxWidth()
-            .then(if (onClick != null && enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(if (onClick != null && enabled && writesAllowed()) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp, vertical = 10.dp)
             .alpha(if (enabled) 1f else 0.45f),
         verticalAlignment = Alignment.CenterVertically
@@ -133,6 +135,10 @@ internal fun <T> ChoiceRow(
 ) {
     var open by remember { mutableStateOf(false) }
     val label = options.firstOrNull { it.first == selected }?.second ?: selected.toString()
+
+    // G1: a device setting's menu is disabled read-only (preference tabs are WritesExempt)
+    @Suppress("NAME_SHADOWING")
+    val enabled = writeEnabled(enabled)
     SettingRow(title, detail, enabled = enabled, onClick = { open = true }) {
         Box {
             TextButton(onClick = { open = true }, enabled = enabled) { Text("$label ▾") }
