@@ -13,5 +13,7 @@ dependencies {
     implementation(project(":bridge"))
     implementation(project(":ui-common"))
     testImplementation(project(":fake-core"))
+    // E2: @Previews on FakeDspiCore (debug source set only; never in release)
+    debugImplementation(project(":fake-core"))
     testImplementation(libs.kotlinx.coroutines.test)
 }
