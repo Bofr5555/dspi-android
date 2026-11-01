@@ -112,3 +112,20 @@ the implementation does beyond it.
 11. **ConfigFiles** works on text, not file URLs (SAF lives in the UI);
     `inspectConfiguration` adds `crossPlatform` as Qt does, not the localised
     `saved` string.
+
+## USB
+
+1. **Notification instead of the macOS menu-bar item** (`MenuBarMode.swift`,
+   spirit only): user volume (−/+ 2 dB steps, −60..0 dB as
+   `UserVolumeSection`), mute toggle, "Next preset" (cycles occupied slots;
+   hidden while the preset is dirty, the notification's equivalent of the
+   Unsaved Changes gate). No hub/sharing items (not ported).
+2. **Permission prompts** are Android-only: a denial is remembered per
+   attached device until an explicit request or a re-plug, and dialogs are
+   only shown while a UI is visible (queued otherwise).
+3. **Bootloader locator** has no volume half (macOS pairs USB match + mounted
+   volume); boards are identified by usbfs device name, and the app does not
+   auto-launch for BOOTSEL boards (D8).
+4. Multi-device: like macOS, a second unit never takes over an open
+   connection; when the open unit leaves, the session switches to a survivor,
+   preferring the last serial (Linux `rescan()`).

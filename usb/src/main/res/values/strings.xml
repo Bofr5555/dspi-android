@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="dspi_usb_channel_name">DSPi connection</string>
+    <string name="dspi_usb_channel_description">Shown while a DSPi is connected. Volume, mute and preset controls.</string>
+    <string name="dspi_usb_action_volume_down">Vol −</string>
+    <string name="dspi_usb_action_volume_up">Vol +</string>
+    <string name="dspi_usb_action_volume_down_description">Volume down</string>
+    <string name="dspi_usb_action_volume_up_description">Volume up</string>
+    <string name="dspi_usb_action_mute">Mute</string>
+    <string name="dspi_usb_action_unmute">Unmute</string>
+    <string name="dspi_usb_action_next_preset">Next preset</string>
+    <string name="dspi_usb_title_disconnected">DSPi</string>
+    <string name="dspi_usb_connecting">Connecting…</string>
+    <string name="dspi_usb_title_serial">DSPi %1$s</string>
+    <string name="dspi_usb_title_connected">DSPi connected</string>
+    <string name="dspi_usb_muted">Muted</string>
+    <string name="dspi_usb_volume">Volume %1$s</string>
+    <string name="dspi_usb_preset">Preset %1$d</string>
+    <string name="dspi_usb_preset_named">Preset %1$d: %2$s</string>
+    <string name="dspi_usb_unsaved">unsaved changes</string>
+</resources>
