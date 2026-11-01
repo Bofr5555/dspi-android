@@ -52,6 +52,8 @@ import se.bofr.dspi.feature.home.components.ChannelRow
 import se.bofr.dspi.feature.home.components.ConnectionStatusIndicator
 import se.bofr.dspi.feature.home.components.SidebarVolumeMode
 import se.bofr.dspi.feature.home.components.VolumeModeSelector
+import se.bofr.dspi.feature.home.components.setSidebarVolumeMode
+import se.bofr.dspi.feature.home.components.sidebarVolumeMode
 import se.bofr.dspi.ui.ChannelPalette
 import se.bofr.dspi.ui.CpuSection
 import se.bofr.dspi.ui.CustomSlider
@@ -66,6 +68,8 @@ import se.bofr.dspi.ui.SidebarIconButton
 import se.bofr.dspi.ui.UserVolumeTaper
 import se.bofr.dspi.ui.VerticalRule
 import se.bofr.dspi.ui.rememberSliderDrag
+import se.bofr.dspi.ui.settings.AppSettingsStore
+import se.bofr.dspi.ui.settings.LocalAppSettings
 
 /** Saves a [SidebarSelection] across configuration changes. */
 private val SelectionSaver =
@@ -90,7 +94,7 @@ private val SelectionSaver =
 @Composable
 fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modifier = Modifier) {
     val c = DspiTheme.colors
-    val prefs = rememberHomePreferences()
+    val prefs = LocalAppSettings.current
     val homeVm: HomeViewModel = viewModel(factory = HomeViewModel.factory(bridge))
     val connected = bridge.observeStatus { it.connected }
     val s = bridge.observeState()
@@ -337,7 +341,7 @@ private fun ChannelContextMenu(
  * right-click opens the tool window).
  */
 @Composable
-private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: HomePreferences, onNavigate: (String) -> Unit) {
+private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: AppSettingsStore, onNavigate: (String) -> Unit) {
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
@@ -383,7 +387,7 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: Hom
             if (bridge.inputSources.isNotEmpty()) {
                 SourceRow(bridge, connected)
             }
-            when (prefs.sidebarVolumeMode) {
+            when (prefs.sidebarVolumeMode()) {
                 SidebarVolumeMode.MASTER -> MasterModeSection(bridge, prefs)
                 SidebarVolumeMode.AUTO -> UserVolumeSection(bridge, prefs)
             }
@@ -428,7 +432,7 @@ private fun SourceRow(bridge: DspiBridge, connected: Boolean) {
  * commits; double-tap resets to 0 dB (macOS right-click).
  */
 @Composable
-fun UserVolumeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modifier = Modifier) {
+fun UserVolumeSection(bridge: DspiBridge, prefs: AppSettingsStore, modifier: Modifier = Modifier) {
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
@@ -436,7 +440,7 @@ fun UserVolumeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modi
     fun db(v: Float) = UserVolumeTaper.scalarToDB(v.toDouble())
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            VolumeModeSelector(prefs.sidebarVolumeMode, { prefs.sidebarVolumeMode = it })
+            VolumeModeSelector(prefs.sidebarVolumeMode(), { prefs.setSidebarVolumeMode(it) })
             Spacer(Modifier.weight(1f))
             Text(UserVolumeTaper.displayString(db(drag.value)), style = DspiType.bodyMono, color = c.label)
         }
@@ -458,7 +462,7 @@ fun UserVolumeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modi
  * double-tap resets to 0 dB.
  */
 @Composable
-fun MasterModeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modifier = Modifier) {
+fun MasterModeSection(bridge: DspiBridge, prefs: AppSettingsStore, modifier: Modifier = Modifier) {
     val c = DspiTheme.colors
     val s = bridge.observeState()
     val connected = bridge.observeStatus { it.connected }
@@ -466,7 +470,7 @@ fun MasterModeSection(bridge: DspiBridge, prefs: HomePreferences, modifier: Modi
     val db = MasterVolumeTaper.sliderToDB(drag.value)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            VolumeModeSelector(prefs.sidebarVolumeMode, { prefs.sidebarVolumeMode = it })
+            VolumeModeSelector(prefs.sidebarVolumeMode(), { prefs.setSidebarVolumeMode(it) })
             Spacer(Modifier.weight(1f))
             Text(
                 if (db <=

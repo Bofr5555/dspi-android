@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.ui.BandFields
@@ -51,6 +52,7 @@ import se.bofr.dspi.ui.FilterType
 import se.bofr.dspi.ui.HorizontalRule
 import se.bofr.dspi.ui.ValueFormat
 import se.bofr.dspi.ui.VerticalRule
+import se.bofr.dspi.ui.settings.AppSettingsStore
 
 /**
  * The overview: one card per stereo pair (inputs, each S/PDIF pair) or mono
@@ -58,12 +60,13 @@ import se.bofr.dspi.ui.VerticalRule
  * Cards per row: Auto (as many 440 dp cards as fit) or the user's 1-3.
  */
 @Composable
-fun DashboardOverview(bridge: DspiBridge, prefs: HomePreferences, modifier: Modifier = Modifier) {
+fun DashboardOverview(bridge: DspiBridge, prefs: AppSettingsStore, modifier: Modifier = Modifier) {
     val s = bridge.observeState()
     val ready = bridge.observeDeviceReady()
+    val cardsPerRow = prefs.settings.collectAsStateWithLifecycle().value.dashboardCardsPerRow
     val cards = DashboardCard.cards(s.numOutputChannels, s.outputEnabled)
     BoxWithConstraints(modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp).alpha(if (ready) 1f else 0f)) {
-        val columns = DashboardCard.columnCount(prefs.dashboardCardsPerRow, maxWidth.value, cards.size)
+        val columns = DashboardCard.columnCount(cardsPerRow, maxWidth.value, cards.size)
         Column(verticalArrangement = Arrangement.spacedBy(DashboardCard.SPACING.dp)) {
             cards.chunked(columns).forEach { row ->
                 Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(DashboardCard.SPACING.dp)) {
@@ -227,7 +230,7 @@ fun DashboardRow(band: Int, params: BandFields, color: Color, modifier: Modifier
  * hover; touch has no hover, so it is always there, dimmed).
  */
 @Composable
-private fun DashboardCardFrame(prefs: HomePreferences, content: @Composable () -> Unit) {
+private fun DashboardCardFrame(prefs: AppSettingsStore, content: @Composable () -> Unit) {
     val c = DspiTheme.colors
     var open by remember { mutableStateOf(false) }
     Box {
@@ -251,9 +254,9 @@ private fun DashboardCardFrame(prefs: HomePreferences, content: @Composable () -
 
 /** The dashboard layout panel: Auto, or a fixed number of cards per row. */
 @Composable
-private fun DashboardLayoutPanel(prefs: HomePreferences) {
+private fun DashboardLayoutPanel(prefs: AppSettingsStore) {
     val c = DspiTheme.colors
-    val chosen = prefs.dashboardCardsPerRow.coerceIn(0, 3)
+    val chosen = prefs.settings.collectAsStateWithLifecycle().value.dashboardCardsPerRow.coerceIn(0, 3)
     Column(Modifier.width(240.dp)) {
         Text(
             "DASHBOARD LAYOUT",
@@ -281,7 +284,7 @@ private fun DashboardLayoutPanel(prefs: HomePreferences) {
                                 "$n ${if (n == 1) "card" else "cards"} per row"
                             }
                         ) {
-                            prefs.dashboardCardsPerRow = n
+                            prefs.update { it.copy(dashboardCardsPerRow = n) }
                         },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
