@@ -184,6 +184,7 @@ impl From<&state::DspState> for DspState {
             crossfeed_feed: s.crossfeed_feed,
             crossfeed_itd: s.crossfeed_itd,
             crossfeed_output_pair_mask: s.crossfeed_output_pair_mask,
+            crossfeed_pair_map: s.crossfeed_pair_map.to_vec(),
             channel_delays: s.channel_delays.to_vec(),
             matrix_routing: s.matrix_routing.iter().map(|r| r.to_vec()).collect(),
             matrix_gain: s.matrix_gain.iter().map(|r| r.to_vec()).collect(),

@@ -122,6 +122,10 @@ class FfiDspiCore : DspiCoreApi {
 
     override fun setCrossfeedOutputs(pairMask: Int) = call { core.setCrossfeedOutputs(pairMask.toUByte()) }
 
+    override fun setCrossfeedPairMap(map: List<Int>) = call { core.setCrossfeedPairMap(ByteArray(map.size) { map[it].toByte() }) }
+
+    override fun fetchCrossfeedPairMap(): List<Int> = call { core.fetchCrossfeedPairMap().map { it.toInt() and 0xFF } }
+
     override fun setLevellerEnabled(enabled: Boolean) = call { core.setLevellerEnabled(enabled) }
 
     override fun setLevellerAmount(pct: Float) = call { core.setLevellerAmount(pct) }
@@ -345,6 +349,8 @@ class FfiDspiCore : DspiCoreApi {
     override fun computePhaseCurve(filters: List<FilterParams>, unwrap: Boolean): List<Double> = se.bofr.dspi.ffi.uniffi.computePhaseCurve(filters.map { it.toFfi() }, unwrap)
 
     override fun curveFreq(i: Long): Double = se.bofr.dspi.ffi.uniffi.curveFreq(i.toUInt())
+
+    override fun crossfeedPairMapValid(map: List<Int>, numPairs: Int): Boolean = se.bofr.dspi.ffi.uniffi.crossfeedPairMapValid(ByteArray(map.size) { map[it].toByte() }, numPairs.toUByte())
 
     override fun configInspect(text: String): String = se.bofr.dspi.ffi.uniffi.configInspect(text)
 
@@ -599,6 +605,7 @@ internal fun se.bofr.dspi.ffi.uniffi.DspState.toDomain() =
         crossfeedFeed = crossfeedFeed,
         crossfeedItd = crossfeedItd,
         crossfeedOutputPairMask = crossfeedOutputPairMask.toInt(),
+        crossfeedPairMap = crossfeedPairMap.map { it.toInt() and 0xFF },
         channelDelays = channelDelays,
         matrixRouting = matrixRouting,
         matrixGain = matrixGain,
@@ -705,6 +712,7 @@ internal fun DspState.toFfi() =
         crossfeedFeed = crossfeedFeed,
         crossfeedItd = crossfeedItd,
         crossfeedOutputPairMask = crossfeedOutputPairMask.toUByte(),
+        crossfeedPairMap = ByteArray(crossfeedPairMap.size) { crossfeedPairMap[it].toByte() },
         channelDelays = channelDelays,
         matrixRouting = matrixRouting,
         matrixGain = matrixGain,

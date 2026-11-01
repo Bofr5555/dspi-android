@@ -160,6 +160,12 @@ data class DspState(
     val crossfeedFeed: Float,
     val crossfeedItd: Boolean,
     val crossfeedOutputPairMask: Int,
+    /**
+     * Outputs of each crossfeed pair, 4 bytes (K340 firmware fork; zero
+     * from other firmware). Byte p: 0 = default (2p, 2p+1), else
+     * `(right << 4) | left`, 0-based output indices.
+     */
+    val crossfeedPairMap: List<Int>,
     val channelDelays: List<Float>,
     val matrixRouting: List<List<Boolean>>,
     val matrixGain: List<List<Float>>,

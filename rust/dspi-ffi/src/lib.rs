@@ -61,6 +61,18 @@ pub fn curve_freq(i: u32) -> f64 {
     dsp_math::curve_freq(i as usize)
 }
 
+/// Whether `map` (4 bytes, `DspState.crossfeed_pair_map` encoding) is a pair
+/// map the firmware accepts for `num_pairs` stereo pairs (4 on RP2350, 2 on
+/// RP2040): every pair gets two distinct non-PDM outputs, no output is used
+/// twice, bytes beyond `num_pairs` are 0 (core `protocol::crossfeed_map_valid`).
+#[uniffi::export]
+pub fn crossfeed_pair_map_valid(map: Vec<u8>, num_pairs: u8) -> bool {
+    match <[u8; 4]>::try_from(map.as_slice()) {
+        Ok(m) => dspi_core::protocol::crossfeed_map_valid(&m, num_pairs as usize),
+        Err(_) => false,
+    }
+}
+
 /// Check a `.dspipreset` document: JSON {ok, error, name, platform, firmware,
 /// savedUtc} (`dspi_config_inspect`).
 #[uniffi::export]

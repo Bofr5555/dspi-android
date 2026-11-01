@@ -1,0 +1,335 @@
+Crossfeed output pair map (K340 firmware fork) for dspi-core.
+
+Why: the owner's K340 amplifier wires one DAC per ear (out0 = R woofer,
+out1 = R tweeter, out2 = L woofer, out3 = L tweeter), so crossfeed's fixed
+pairs (2p, 2p+1) are the same ear twice. The K340 firmware fork
+(~/prog/DSPi-xfeed, branch k340-xfeed, commit 0c7c388) makes the outputs of each crossfeed
+pair configurable; this patch teaches the core about it. Upstream firmware
+v1.1.6-beta5 has none of it: its bulk image carries zero in the claimed bytes
+(= default pairing) and it STALLs the two new requests.
+
+Encoding (firmware crossfeed_map.h): 4 bytes, byte p = pair p; 0x00 = the
+default (2p, 2p+1), else (right << 4) | left (0-based output indices). Valid
+= every pair p < pairs (4 RP2350 / 2 RP2040) has two distinct stereo outputs
+(< 2 * pairs, never the PDM sub), no output is used twice, bytes beyond the
+platform's pairs are 0. Firmware stores/reports the map normalized (explicit
+default bytes -> 0). Wire format stays V32: the map claims the former
+WireCrossfeedParams.reserved2 (crossfeed section offset 12, bulk offset 44).
+
+Hunks:
+1. core/src/protocol.rs: REQ_CROSSFEED_PAIR_MAP (0x02; one opcode, OUT
+   sets / IN gets, like REQ_LIMITER; free on every upstream branch),
+   OFF_CROSSFEED_PAIR_MAP, CROSSFEED_MAP_PAIRS, crossfeed_map_{pair,
+   encode_pair,valid,normalize}; decode_bulk/encode_bulk carry the map;
+   tests (wire position, validation incl. the exhaustive 2-pair count).
+2. core/src/state.rs: DspState.crossfeed_pair_map ([u8; 4], default zero),
+   DspState::crossfeed_pair_count().
+3. core/src/commands.rs: set_crossfeed_pair_map (validates, normalizes,
+   InvalidArgument without USB traffic for a refused map; state updated only
+   after the send succeeds) and fetch_crossfeed_pair_map (Err = unsupported).
+4. core/src/presetfile.rs: "pairMap" in the crossfeed block (export always;
+   import only when present, invalid -> default); test.
+5. core/src/presetdiff.rs: per-pair "Crossfeed pair N outputs" lines.
+
+The C ABI (lib.rs) is unchanged; dspi-ffi wraps the Rust methods.
+
+diff --git a/core/src/commands.rs b/core/src/commands.rs
+index b532d6c..0204ce9 100644
+--- a/core/src/commands.rs
++++ b/core/src/commands.rs
+@@ -401,6 +401,32 @@ impl DspiCore {
+         self.send(REQ_SET_CROSSFEED_OUTPUTS, 0, WINDEX_GLOBAL, &[pair_mask])
+     }
+ 
++    /// Which outputs each crossfeed pair processes (K340 firmware fork,
++    /// `REQ_CROSSFEED_PAIR_MAP`). The whole map is written at once since
++    /// pairs must stay disjoint. A map the firmware would refuse is rejected
++    /// here with `InvalidArgument` (nothing sent, state unchanged); a valid
++    /// one is stored normalized, as the firmware reports it.
++    pub fn set_crossfeed_pair_map(&mut self, map: [u8; CROSSFEED_MAP_PAIRS]) -> Result<()> {
++        if !crossfeed_map_valid(&map, self.state.crossfeed_pair_count()) {
++            return Err(UsbError::InvalidArgument);
++        }
++        let map = crossfeed_map_normalize(&map);
++        self.send(REQ_CROSSFEED_PAIR_MAP, 0, WINDEX_GLOBAL, &map)?;
++        self.state.crossfeed_pair_map = map;
++        Ok(())
++    }
++
++    /// Read the live pair map (`REQ_CROSSFEED_PAIR_MAP`) into the state.
++    /// Firmware without the fork STALLs, so an Err also means "unsupported";
++    /// the state keeps the bulk image's value (zero there = default map).
++    pub fn fetch_crossfeed_pair_map(&mut self) -> Result<[u8; CROSSFEED_MAP_PAIRS]> {
++        let b = self.get_exact(REQ_CROSSFEED_PAIR_MAP, 0, WINDEX_GLOBAL, CROSSFEED_MAP_PAIRS as u16, CROSSFEED_MAP_PAIRS)?;
++        let mut map = [0u8; CROSSFEED_MAP_PAIRS];
++        map.copy_from_slice(&b[..CROSSFEED_MAP_PAIRS]);
++        self.state.crossfeed_pair_map = map;
++        Ok(map)
++    }
++
+     // ═══════════════════════════════════════════════════════════════
+     // Volume Leveller
+     // ═══════════════════════════════════════════════════════════════
+diff --git a/core/src/presetdiff.rs b/core/src/presetdiff.rs
+index 7a7c586..9e6b017 100644
+--- a/core/src/presetdiff.rs
++++ b/core/src/presetdiff.rs
+@@ -98,6 +98,12 @@ pub fn diff(o: &DspState, n: &DspState) -> Vec<String> {
+     if o.crossfeed_output_pair_mask != n.crossfeed_output_pair_mask {
+         c.push(format!("Crossfeed output pairs: 0x{:02X} → 0x{:02X}", o.crossfeed_output_pair_mask, n.crossfeed_output_pair_mask));
+     }
++    for p in 0..CROSSFEED_MAP_PAIRS {
++        let (a, b) = (crossfeed_map_pair(&o.crossfeed_pair_map, p), crossfeed_map_pair(&n.crossfeed_pair_map, p));
++        if a != b {
++            c.push(format!("Crossfeed pair {} outputs: {}/{} → {}/{}", p + 1, a.0 + 1, a.1 + 1, b.0 + 1, b.1 + 1));
++        }
++    }
+ 
+     // Psychoacoustic bass
+     if o.psybass_enabled != n.psybass_enabled { c.push(format!("Psychoacoustic Bass: {}", on(n.psybass_enabled))); }
+diff --git a/core/src/presetfile.rs b/core/src/presetfile.rs
+index 89a4a96..8a30636 100644
+--- a/core/src/presetfile.rs
++++ b/core/src/presetfile.rs
+@@ -207,6 +207,7 @@ pub fn export(s: &DspState, name: &str, app_version: &str, links: u8) -> String
+     doc.insert("crossfeed".into(), json!({
+         "enabled": s.crossfeed_enabled, "preset": s.crossfeed_preset, "freqHz": s.crossfeed_freq,
+         "feedDb": s.crossfeed_feed, "itd": s.crossfeed_itd, "outputPairMask": s.crossfeed_output_pair_mask,
++        "pairMap": s.crossfeed_pair_map,
+     }));
+     doc.insert("leveller".into(), json!({
+         "enabled": s.leveller_enabled, "speed": s.leveller_speed, "lookahead": s.leveller_lookahead,
+@@ -358,6 +359,19 @@ impl DspiCore {
+             ns.crossfeed_feed = f(b, "feedDb", 4.5);
+             ns.crossfeed_itd = flag(b, "itd", true);
+             ns.crossfeed_output_pair_mask = int(b, "outputPairMask", ns.crossfeed_output_pair_mask as i64) as u8;
++            // K340 fork: absent (other clients) keeps the current map; an
++            // invalid one (e.g. from a wider platform) falls back to default.
++            if let Some(m) = ints(b, "pairMap") {
++                let mut map = [0u8; CROSSFEED_MAP_PAIRS];
++                for (dst, x) in map.iter_mut().zip(m.iter()) {
++                    *dst = (*x).clamp(0, 255) as u8;
++                }
++                ns.crossfeed_pair_map = if crossfeed_map_valid(&map, ns.crossfeed_pair_count()) {
++                    crossfeed_map_normalize(&map)
++                } else {
++                    [0; CROSSFEED_MAP_PAIRS]
++                };
++            }
+         }
+         if let Some(b) = block(v, "leveller") {
+             ns.leveller_enabled = flag(b, "enabled", false);
+@@ -684,6 +698,15 @@ mod tests {
+         assert!(parse("not json").unwrap_err().starts_with("Not a valid configuration file"));
+     }
+ 
++    #[test]
++    fn export_writes_the_crossfeed_pair_map() {
++        let mut s = DspState::default();
++        s.crossfeed_pair_map = [0x02, 0x13, 0, 0];
++        let v = parse(&export(&s, "K340", "0.1", 0)).unwrap();
++        assert_eq!(v["crossfeed"]["pairMap"], json!([2, 19, 0, 0]));
++        assert_eq!(ints(&v["crossfeed"], "pairMap"), Some(vec![2, 19, 0, 0]));
++    }
++
+     #[test]
+     fn export_round_trips_the_fields_it_writes() {
+         let mut s = DspState::default();
+diff --git a/core/src/protocol.rs b/core/src/protocol.rs
+index 9d853d9..f839ff0 100644
+--- a/core/src/protocol.rs
++++ b/core/src/protocol.rs
+@@ -252,6 +252,12 @@ pub const REQ_SET_CROSSFEED_ITD: u8 = 0x66;
+ pub const REQ_GET_CROSSFEED_ITD: u8 = 0x67;
+ pub const REQ_SET_CROSSFEED_OUTPUTS: u8 = 0xFC;
+ pub const REQ_GET_CROSSFEED_OUTPUTS: u8 = 0xFD;
++/// Crossfeed output pair map (K340 firmware fork, not in upstream v1.1.6).
++/// One opcode for both directions, like REQ_LIMITER: OUT sets, IN gets;
++/// 4 bytes, byte p = outputs of pair p (see [`crossfeed_map_pair`]). OUT
++/// ignores an invalid map; IN returns the normalized live map. Firmware
++/// without the fork STALLs both.
++pub const REQ_CROSSFEED_PAIR_MAP: u8 = 0x02;
+ 
+ // ADAT input (RP2350)
+ pub const REQ_SET_ADAT_INPUT_ENABLE: u8 = 0x68;
+@@ -505,6 +511,65 @@ pub const BULK_CHUNK_SIZE: usize = 2048;
+ pub const OFF_HEADER: usize = 0;
+ pub const OFF_GLOBAL: usize = 16;
+ pub const OFF_CROSSFEED: usize = 32;
++/// Crossfeed pair map inside the crossfeed section (the former `reserved2`).
++pub const OFF_CROSSFEED_PAIR_MAP: usize = OFF_CROSSFEED + 12;
++/// Width of the crossfeed pair map (pairs on the widest platform).
++pub const CROSSFEED_MAP_PAIRS: usize = 4;
++
++/// Outputs `(left, right)` of crossfeed pair `p`: map byte 0 = the default
++/// pairing (2p, 2p+1), otherwise `(right << 4) | left` (firmware
++/// `crossfeed_map.h`). The filter is symmetric; left/right only label it.
++pub fn crossfeed_map_pair(map: &[u8; CROSSFEED_MAP_PAIRS], p: usize) -> (u8, u8) {
++    match map[p] {
++        0 => (2 * p as u8, 2 * p as u8 + 1),
++        b => (b & 0x0F, b >> 4),
++    }
++}
++
++/// Map byte for an explicit pair (not normalized; see [`crossfeed_map_normalize`]).
++pub fn crossfeed_map_encode_pair(left: u8, right: u8) -> u8 {
++    ((right & 0x0F) << 4) | (left & 0x0F)
++}
++
++/// Firmware's validity rule: every pair p < `num_pairs` gets two distinct
++/// stereo outputs (< 2 * num_pairs, never the PDM sub), no output is used by
++/// two pairs, and bytes for pairs >= `num_pairs` are 0.
++pub fn crossfeed_map_valid(map: &[u8; CROSSFEED_MAP_PAIRS], num_pairs: usize) -> bool {
++    if num_pairs == 0 || num_pairs > CROSSFEED_MAP_PAIRS {
++        return false;
++    }
++    let mut used = 0u32;
++    for p in 0..CROSSFEED_MAP_PAIRS {
++        if p >= num_pairs {
++            if map[p] != 0 {
++                return false;
++            }
++            continue;
++        }
++        let (l, r) = crossfeed_map_pair(map, p);
++        let n = 2 * num_pairs as u8;
++        if l >= n || r >= n || l == r {
++            return false;
++        }
++        let bits = (1u32 << l) | (1u32 << r);
++        if used & bits != 0 {
++            return false;
++        }
++        used |= bits;
++    }
++    true
++}
++
++/// Explicit default bytes become 0, as the firmware stores and reports them.
++pub fn crossfeed_map_normalize(map: &[u8; CROSSFEED_MAP_PAIRS]) -> [u8; CROSSFEED_MAP_PAIRS] {
++    let mut out = *map;
++    for (p, b) in out.iter_mut().enumerate() {
++        if *b == crossfeed_map_encode_pair(2 * p as u8, 2 * p as u8 + 1) {
++            *b = 0;
++        }
++    }
++    out
++}
+ pub const OFF_LEGACY: usize = 48;
+ pub const OFF_DELAYS: usize = 64;
+ pub const OFF_CROSSPOINTS: usize = 132;
+@@ -626,6 +691,8 @@ pub fn decode_bulk(data: &[u8], state: &mut DspState) -> Result<(), BulkError> {
+     s.crossfeed_output_pair_mask = d[OFF_CROSSFEED + 3];
+     s.crossfeed_freq = read_f32_le(d, OFF_CROSSFEED + 4);
+     s.crossfeed_feed = read_f32_le(d, OFF_CROSSFEED + 8);
++    s.crossfeed_pair_map
++        .copy_from_slice(&d[OFF_CROSSFEED_PAIR_MAP..OFF_CROSSFEED_PAIR_MAP + CROSSFEED_MAP_PAIRS]);
+ 
+     // Delays
+     for ch in 0..MAX_CHANNELS {
+@@ -828,6 +895,7 @@ pub fn encode_bulk(state: &DspState) -> Vec<u8> {
+     d[OFF_CROSSFEED + 3] = s.crossfeed_output_pair_mask;
+     write_f32_le(&mut d, OFF_CROSSFEED + 4, s.crossfeed_freq);
+     write_f32_le(&mut d, OFF_CROSSFEED + 8, s.crossfeed_feed);
++    d[OFF_CROSSFEED_PAIR_MAP..OFF_CROSSFEED_PAIR_MAP + CROSSFEED_MAP_PAIRS].copy_from_slice(&s.crossfeed_pair_map);
+ 
+     for ch in 0..MAX_CHANNELS {
+         write_f32_le(&mut d, OFF_DELAYS + ch * 4, s.channel_delays[ch]);
+@@ -1190,6 +1258,52 @@ mod tests {
+         assert_eq!(name_from_bytes(&t.channel_names[0]), "USB L");
+     }
+ 
++    #[test]
++    fn crossfeed_pair_map_rides_in_the_reserved_word() {
++        let mut img = v32_image();
++        // Firmware without the map writes zero there: the default pairing.
++        let mut s = DspState::default();
++        decode_bulk(&img, &mut s).unwrap();
++        assert_eq!(s.crossfeed_pair_map, [0; 4]);
++        // K340: woofers L=2/R=0, tweeters L=3/R=1.
++        img[OFF_CROSSFEED + 12..OFF_CROSSFEED + 16].copy_from_slice(&[0x02, 0x13, 0, 0]);
++        decode_bulk(&img, &mut s).unwrap();
++        assert_eq!(s.crossfeed_pair_map, [0x02, 0x13, 0, 0]);
++        assert_eq!(crossfeed_map_pair(&s.crossfeed_pair_map, 0), (2, 0));
++        assert_eq!(crossfeed_map_pair(&s.crossfeed_pair_map, 1), (3, 1));
++        assert_eq!(crossfeed_map_pair(&s.crossfeed_pair_map, 2), (4, 5));
++        s.crossfeed_pair_map = [0, 0, 0x54, 0];
++        let e = encode_bulk(&s);
++        assert_eq!(&e[OFF_CROSSFEED_PAIR_MAP..OFF_CROSSFEED_PAIR_MAP + 4], &[0, 0, 0x54, 0]);
++    }
++
++    #[test]
++    fn crossfeed_pair_map_validation_matches_firmware() {
++        let k340 = [0x02, 0x13, 0, 0];
++        assert!(crossfeed_map_valid(&[0; 4], 4) && crossfeed_map_valid(&[0; 4], 2));
++        assert!(crossfeed_map_valid(&k340, 4) && crossfeed_map_valid(&k340, 2));
++        assert!(!crossfeed_map_valid(&[0x11, 0, 0, 0], 4), "same output twice");
++        assert!(!crossfeed_map_valid(&[0x02, 0, 0, 0], 4), "output 2 shared with default pair 1");
++        assert!(!crossfeed_map_valid(&[0x40, 0, 0, 0], 2), "RP2040 output 4 is the PDM sub");
++        assert!(!crossfeed_map_valid(&[0x80, 0, 0, 0], 4), "RP2350 output 8 is the PDM sub");
++        assert!(!crossfeed_map_valid(&[0, 0, 0x54, 0], 2), "pairs beyond the platform must be 0");
++        assert!(crossfeed_map_valid(&[0x76, 0x54, 0x32, 0x10], 4));
++        assert!(!crossfeed_map_valid(&[0; 4], 0) && !crossfeed_map_valid(&[0; 4], 5));
++        assert_eq!(crossfeed_map_normalize(&[0x10, 0x32, 0x54, 0x76]), [0; 4]);
++        assert_eq!(crossfeed_map_normalize(&[0x10, 0x13, 0x02, 0x76]), [0, 0x13, 0x02, 0]);
++        assert_eq!(crossfeed_map_encode_pair(3, 1), 0x13);
++        // Every valid two-pair map (24 pairings, 5 duplicate default encodings).
++        let mut n = 0;
++        for a in 0..=255u8 {
++            for b in 0..=255u8 {
++                if crossfeed_map_valid(&[a, b, 0, 0], 2) {
++                    n += 1;
++                }
++            }
++        }
++        assert_eq!(n, 29);
++    }
++
+     #[test]
+     fn old_wire_formats_are_rejected() {
+         let mut img = v32_image();
+diff --git a/core/src/state.rs b/core/src/state.rs
+index 060b3c0..1a85f22 100644
+--- a/core/src/state.rs
++++ b/core/src/state.rs
+@@ -4,7 +4,7 @@
+ //! output-indexed arrays use output indices 0..num_output_channels-1.
+ 
+ use crate::protocol::{
+-    BULK_PARAMS_SIZE, SUBHARM_DEFAULTS, SUBHARM_PARAM_COUNT, TUBE_DEFAULTS, TUBE_PARAM_COUNT,
++    BULK_PARAMS_SIZE, CROSSFEED_MAP_PAIRS, SUBHARM_DEFAULTS, SUBHARM_PARAM_COUNT, TUBE_DEFAULTS, TUBE_PARAM_COUNT,
+     UPMIX_DEFAULTS, UPMIX_PARAM_COUNT,
+ };
+ use crate::types::*;
+@@ -67,6 +67,10 @@ pub struct DspState {
+     pub crossfeed_itd: bool,
+     /// Bit p: crossfeed runs on output pair p.
+     pub crossfeed_output_pair_mask: u8,
++    /// Outputs of each crossfeed pair (K340 firmware fork; wire bytes of the
++    /// former crossfeed `reserved2`). Byte p: 0 = default (2p, 2p+1), else
++    /// `(right << 4) | left`. See `protocol::crossfeed_map_*`.
++    pub crossfeed_pair_map: [u8; CROSSFEED_MAP_PAIRS],
+ 
+     // ── Per-channel delays (wire channel index) ─────────────────────
+     pub channel_delays: [f32; MAX_CHANNELS],
+@@ -239,6 +243,7 @@ impl Default for DspState {
+             crossfeed_feed: 4.5,
+             crossfeed_itd: true,
+             crossfeed_output_pair_mask: 0,
++            crossfeed_pair_map: [0; CROSSFEED_MAP_PAIRS],
+             channel_delays: [0.0; MAX_CHANNELS],
+             matrix_routing: [[false; MAX_OUTPUTS]; MAX_INPUTS],
+             matrix_gain: [[0.0; MAX_OUTPUTS]; MAX_INPUTS],
+@@ -354,6 +359,12 @@ impl DspState {
+     pub fn pdm_output_index(&self) -> u8 {
+         self.num_output_channels.saturating_sub(1)
+     }
++
++    /// Stereo output pairs crossfeed can run on (4 on RP2350, 2 on RP2040):
++    /// every output except the mono PDM sub, two per pair.
++    pub fn crossfeed_pair_count(&self) -> usize {
++        (self.num_output_channels.saturating_sub(1) as usize / 2).clamp(1, CROSSFEED_MAP_PAIRS)
++    }
+ }
+ 
+ #[cfg(test)]
