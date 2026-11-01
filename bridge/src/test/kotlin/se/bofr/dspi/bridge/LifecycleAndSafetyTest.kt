@@ -270,6 +270,8 @@ class LifecycleAndSafetyTest {
                 "saveOutputConfig" to { b.saveOutputConfig(ops.confirm(DangerousOp.SAVE_OUTPUT_CONFIG)) },
                 "setInputRate" to { b.setInputRate(ops.confirm(DangerousOp.HARDWARE_APPLY), 1).also { runCurrent() } },
                 "setI2sClockMode" to { b.setI2sClockMode(ops.confirm(DangerousOp.HARDWARE_APPLY), 1).also { runCurrent() } },
+                "setInputRateWithStatus" to { b.setInputRateWithStatus(ops.confirm(DangerousOp.HARDWARE_APPLY), 2) },
+                "setI2sClockModeWithStatus" to { b.setI2sClockModeWithStatus(ops.confirm(DangerousOp.HARDWARE_APPLY), 0) },
                 "setI2c" to { b.setI2c(false, 18, 19, 0x42).also { runCurrent() } },
                 "factoryReset" to { b.factoryReset(ops.confirm(DangerousOp.FACTORY_RESET)) },
                 "saveMasterVolume" to { b.saveMasterVolume(ops.confirm(DangerousOp.SAVE_MASTER_VOLUME)) },

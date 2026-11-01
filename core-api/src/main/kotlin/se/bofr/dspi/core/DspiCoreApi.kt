@@ -464,17 +464,29 @@ interface DspiCoreApi : AutoCloseable {
     fun setAdatInputClockMode(mode: Int)
 
     /**
-     * 0 = 44.1k, 1 = 48k, 2 = 96k.
+     * I2S/ADAT-master input rate: 0 = 44.1k, 1 = 48k, 2 = 96k (others clamp
+     * to 48k). REQ_SET_INPUT_RATE 0xED is a payload SET with no status byte:
+     * Ok means the transfer completed. The firmware stores the rate and
+     * applies it live only while it is the rate authority (I2S or ADAT input
+     * in master clock mode).
      */
     @Throws(DspiException::class)
     fun setInputRate(index: Int)
 
     /**
-     * Hz the pipeline runs at now (0 if unknown).
+     * Hz the pipeline runs at now (0 if unknown): the LIVE rate (firmware
+     * `audio_state.freq`, REQ_GET_INPUT_RATE 0xEE word 0, same as status
+     * wValue 15) for every source, not the configured I2S rate (word 1,
+     * ignored; that one is `DspState.i2s_input_rate`).
      */
     @Throws(DspiException::class)
     fun fetchInputRate(): Long
 
+    /**
+     * I2S clock mode, 0 master / 1 slave. REQ_SET_I2S_CLOCK_MODE 0x88 is a
+     * payload SET with no status byte (Ok = transfer completed); the
+     * firmware applies it deferred in its main loop.
+     */
     @Throws(DspiException::class)
     fun setI2sClockMode(mode: Int)
 

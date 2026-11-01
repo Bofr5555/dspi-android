@@ -1,7 +1,9 @@
 package se.bofr.dspi.bridge
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.FilterParams
 import se.bofr.dspi.core.FlashStatus
@@ -118,6 +120,19 @@ interface DspiBridge {
      * Returns false when nothing was pending or the device changed.
      */
     suspend fun revertOutputConfig(token: ConfirmationToken): Boolean
+
+    /**
+     * BRIDGE-3 / SETTINGS S16: macOS `transport.generation` (`USBDevice.swift`
+     * `bumpGeneration`) — a counter bumped on every device open and on every
+     * close/loss: a device selection or attach, a detach, a disconnect, and
+     * both halves of a [reconnect]/[rescan] (so a re-plug of the SAME unit
+     * changes it, unlike [selectedSerial]). Never decreases; 0 before the
+     * first device. A multi-call UI sequence captures it before the first
+     * call and aborts as soon as it differs (macOS `stillCurrent()` /
+     * `guard transport.generation == generation`). It is bumped on the main
+     * thread before the new device's state is published.
+     */
+    val deviceGeneration: StateFlow<Long> get() = NO_DEVICE_GENERATION
 
     /** magnitudesChanged: increments when any channel's curve was recomputed. */
     val magnitudesRevision: StateFlow<Long>
@@ -641,11 +656,52 @@ interface DspiBridge {
 
     suspend fun setAdatInputClockMode(token: ConfirmationToken, mode: Int): PinConfigStatus
 
-    /** GATED [DangerousOp.HARDWARE_APPLY]. */
+    /**
+     * GATED [DangerousOp.HARDWARE_APPLY]. I2S/ADAT-master input rate,
+     * index 0 = 44.1 kHz, 1 = 48 kHz, 2 = 96 kHz (others clamp to 48 kHz as
+     * in the core). Fire-and-forget (macOS `setInputRate`); the outcome of
+     * the transfer is not reported — use [setInputRateWithStatus] when the
+     * next call must wait for it.
+     */
     fun setInputRate(token: ConfirmationToken, index: Int)
 
-    /** GATED [DangerousOp.HARDWARE_APPLY]. */
+    /**
+     * GATED [DangerousOp.HARDWARE_APPLY]. I2S clock mode, 0 master / 1 slave.
+     * Fire-and-forget (macOS `setI2SClockMode`); see [setI2sClockModeWithStatus].
+     */
     fun setI2sClockMode(token: ConfirmationToken, mode: Int)
+
+    /**
+     * BRIDGE-3 / SETTINGS S7: [setInputRate] that suspends until the device
+     * took the request, on the same serial FFI queue as every other call, so a
+     * following suspend call cannot overtake it (macOS runs the sequence on
+     * one serial queue too). Same HARDWARE_APPLY gate, same retry blackout,
+     * same output-config bookkeeping as the pin calls.
+     *
+     * Status: REQ_SET_INPUT_RATE (0xED) is an OUT transfer with no status byte
+     * on the wire (firmware `vendor_commands.c`), so the result is
+     * [PinConfigStatus.SUCCESS] when the transfer completed and
+     * [PinConfigStatus.NO_REPLY] when it failed or no device is usable —
+     * never a firmware refusal. The firmware validates the rate itself (only
+     * 44.1/48/96 kHz are stored) and applies it live only while it is the rate
+     * authority (I2S master or ADAT master input); otherwise it is stored for
+     * later. The default body (test doubles only) is the fire-and-forget call.
+     */
+    suspend fun setInputRateWithStatus(token: ConfirmationToken, index: Int): PinConfigStatus {
+        setInputRate(token, index)
+        return PinConfigStatus.SUCCESS
+    }
+
+    /**
+     * BRIDGE-3 / SETTINGS S7: [setI2sClockMode] that suspends until the
+     * device took it; see [setInputRateWithStatus] for ordering, gating and
+     * the status (REQ_SET_I2S_CLOCK_MODE 0x88 is a payload SET with no status
+     * byte; the firmware applies it deferred in its main loop).
+     */
+    suspend fun setI2sClockModeWithStatus(token: ConfirmationToken, mode: Int): PinConfigStatus {
+        setI2sClockMode(token, mode)
+        return PinConfigStatus.SUCCESS
+    }
 
     fun setLgSoundSync(enabled: Boolean)
 
@@ -670,6 +726,18 @@ interface DspiBridge {
 
     suspend fun fetchLgStatus(): se.bofr.dspi.core.LgStatus?
 
+    /**
+     * The LIVE pipeline sample rate in Hz — what the audio path runs at now,
+     * whatever the source (USB host rate, the locked S/PDIF/ADAT stream, the
+     * I2S master rate or the detected I2S-slave rate). It is NOT the
+     * configured I2S rate ([se.bofr.dspi.core.DspState.i2sInputRate], set by
+     * [setInputRate]): the core's `fetch_input_rate` reads REQ_GET_INPUT_RATE
+     * (0xEE), whose first word is the firmware's `audio_state.freq` (the same
+     * value as status wValue 15 / macOS `fetchSampleRate`), and ignores the
+     * second word (the selected I2S rate). After [setInputRate] it changes only
+     * once the firmware applied the rate (rate authority active). 0 when no
+     * device is usable or on failure. FakeDspiCore models the same split.
+     */
     suspend fun fetchInputRate(): Int
 
     /** S/PDIF receiver status (lock, source, rate, counters), null on failure. */
@@ -762,3 +830,6 @@ interface DspiBridge {
      */
     fun setUiVisible(visible: Boolean)
 }
+
+/** Default [DspiBridge.deviceGeneration] for implementations without a device (test doubles). */
+private val NO_DEVICE_GENERATION: StateFlow<Long> = MutableStateFlow(0L).asStateFlow()

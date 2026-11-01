@@ -329,9 +329,9 @@ class DspiBridgeImplTest {
         assertEquals("SPDIF 2 R", b.channelName(5))
         assertEquals("PDM", b.channelName(10))
         val owners = b.pinOwners()
-        assertTrue(PinOwner(6, "Output 1/2", "output") in owners)
-        assertTrue(PinOwner(10, "Subwoofer", "output") in owners)
-        assertTrue(PinOwner(14, "I2S BCK", "clock") in owners)
+        assertTrue(PinOwner(6, "Output 1/2", "output", PinOwnerKind.OUTPUT_SLOT, 0) in owners)
+        assertTrue(PinOwner(10, "Subwoofer", "output", PinOwnerKind.SUBWOOFER, 4) in owners)
+        assertTrue(PinOwner(14, "I2S BCK", "clock", PinOwnerKind.I2S_BCK) in owners)
     }
 
     @Test

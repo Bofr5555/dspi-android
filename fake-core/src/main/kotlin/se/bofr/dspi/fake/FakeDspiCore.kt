@@ -697,11 +697,35 @@ open class FakeDspiCore(
 
     override fun setInputRate(index: Int) = set("setInputRate", "$index") { it.copy(i2sInputRate = if (index > 2) 1 else index) }
 
+    /**
+     * Test/demo hook: the rate an EXTERNAL clock gives the pipeline — the USB
+     * host's stream, a locked S/PDIF/ADAT-slave stream, or the I2S-slave
+     * master — in Hz. The firmware follows it whenever it is not the rate
+     * authority (see [fetchInputRate]).
+     */
+    @Volatile var externalRateHz: Long = 48_000L
+
+    /**
+     * Firmware `audio_state.freq` (REQ_GET_INPUT_RATE word 0, the same as
+     * status wValue 15): the LIVE pipeline rate, not the configured I2S rate.
+     * The firmware is the rate authority — and runs at the selected
+     * `i2s_input_rate` — only with I2S input in master clock mode or ADAT input
+     * in master clock mode (`vendor_commands.c` REQ_SET_INPUT_RATE,
+     * `rate_authority_active`); every other source runs at [externalRateHz].
+     */
     override fun fetchInputRate(): Long = op("fetchInputRate") {
-        when (s.i2sInputRate) {
-            0 -> 44_100L
-            2 -> 96_000L
-            else -> 48_000L
+        val st = s
+        val authority =
+            (st.inputSource == INPUT_SOURCE_I2S && st.i2sClockMode == 0) ||
+                (st.inputSource == INPUT_SOURCE_ADAT && st.adatInputClockMode == 0)
+        if (authority) {
+            when (st.i2sInputRate) {
+                0 -> 44_100L
+                2 -> 96_000L
+                else -> 48_000L
+            }
+        } else {
+            externalRateHz
         }
     }
 
@@ -1216,6 +1240,10 @@ open class FakeDspiCore(
     companion object {
         const val MAGNITUDE_POINTS = 201
         const val DEMO_SERIAL = "DEMO0000E6614103"
+
+        /** Firmware `InputSource` ids (`audio_input.h`). */
+        private const val INPUT_SOURCE_I2S = 2
+        private const val INPUT_SOURCE_ADAT = 3
 
         /** Bands below this index come from the bass bank (core rta.rs test caps). */
         const val RTA_BASS_BANDS = 14
