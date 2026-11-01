@@ -7,6 +7,7 @@ package se.bofr.dspi.feature.home
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -15,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.FilterParams
+import se.bofr.dspi.feature.graph.LocalPeqGraphSelection
+import se.bofr.dspi.feature.graph.PeqGraphSelection
 import se.bofr.dspi.feature.home.components.ChannelSettingsView
 import se.bofr.dspi.feature.home.components.FilterListView
 import se.bofr.dspi.feature.home.components.InputChannelHeader
@@ -40,7 +43,12 @@ internal fun DspiBridge.applyPeqBand(ch: Int, band: Int, p: BandFields) {
  * it at the call site). Inputs never offer the Linkwitz Transform.
  */
 @Composable
-fun InputChannelDetail(bridge: DspiBridge, ch: Int, modifier: Modifier = Modifier) {
+fun InputChannelDetail(
+    bridge: DspiBridge,
+    ch: Int,
+    modifier: Modifier = Modifier,
+    graphSelection: PeqGraphSelection? = LocalPeqGraphSelection.current
+) {
     bridge.observeState() // recompose on stateChanged; the getters read the snapshot
     val bands = bridge.channelBands(ch)?.peq?.map { it.toFields() } ?: emptyList()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -51,7 +59,8 @@ fun InputChannelDetail(bridge: DspiBridge, ch: Int, modifier: Modifier = Modifie
             onUpdate = { band, p -> bridge.applyPeqBand(ch, band, p) },
             onBypassToggle = { band, bypass -> bridge.setBandBypass(ch, band, bypass) },
             onSetAllBypass = { bridge.setAllBandsBypass(ch, it, crossover = false) },
-            onClear = null // handled by InputChannelHeader's Clear button
+            onClear = null, // handled by InputChannelHeader's Clear button
+            graphSelection = graphSelection
         )
     }
 }
@@ -62,12 +71,20 @@ enum class OutputChannelTab { PEQ, CROSSOVER }
 /**
  * Right-pane content for an output (macOS `OutputChannelDetail`): the
  * settings card, then PEQ | XO tabs switching the band list between PEQ and
- * crossover bands.
+ * crossover bands. [tabState] is hoisted so the page's graph can stop
+ * editing while the XO tab is shown (macOS `crossoverTabShown`).
  */
 @Composable
-fun OutputChannelDetail(bridge: DspiBridge, outputIndex: Int, onNavigate: (String) -> Unit, modifier: Modifier = Modifier) {
+fun OutputChannelDetail(
+    bridge: DspiBridge,
+    outputIndex: Int,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    tabState: MutableState<OutputChannelTab> = rememberSaveable(outputIndex) { mutableStateOf(OutputChannelTab.PEQ) },
+    graphSelection: PeqGraphSelection? = LocalPeqGraphSelection.current
+) {
     bridge.observeState() // recompose on stateChanged; the getters read the snapshot
-    var tab by rememberSaveable(outputIndex) { mutableStateOf(OutputChannelTab.PEQ) }
+    var tab by tabState
     val ch = 2 + outputIndex
     val bands = bridge.channelBands(ch)
     val tabs =
@@ -86,7 +103,8 @@ fun OutputChannelDetail(bridge: DspiBridge, outputIndex: Int, onNavigate: (Strin
                     onUpdate = { band, p -> bridge.applyPeqBand(ch, band, p) },
                     onBypassToggle = { band, bypass -> bridge.setBandBypass(ch, band, bypass) },
                     onSetAllBypass = { bridge.setAllBandsBypass(ch, it, crossover = false) },
-                    onClear = { bridge.clearAllBands(ch, crossover = false) }
+                    onClear = { bridge.clearAllBands(ch, crossover = false) },
+                    graphSelection = graphSelection
                 )
             OutputChannelTab.CROSSOVER ->
                 FilterListView(

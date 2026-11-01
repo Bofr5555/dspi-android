@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +48,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import se.bofr.dspi.bridge.ChannelMap
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.feature.graph.GraphResizeHandle
 import se.bofr.dspi.feature.graph.GraphView
+import se.bofr.dspi.feature.graph.LocalPeqGraphSelection
+import se.bofr.dspi.feature.graph.PeqGraphSelection
 import se.bofr.dspi.feature.home.components.ChannelRow
 import se.bofr.dspi.feature.home.components.ConnectionStatusIndicator
 import se.bofr.dspi.feature.home.components.SidebarVolumeMode
@@ -70,6 +74,7 @@ import se.bofr.dspi.ui.VerticalRule
 import se.bofr.dspi.ui.rememberSliderDrag
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
+import se.bofr.dspi.ui.state.LocalAppState
 
 /** Saves a [SidebarSelection] across configuration changes. */
 private val SelectionSaver =
@@ -110,6 +115,11 @@ fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modi
 
     BoxWithConstraints(modifier.fillMaxSize().background(c.mainContent)) {
         val twoPane = maxWidth >= 840.dp
+        // The main window's selection (macOS updateSelection(to:)): a channel selected in place on a tablet,
+        // the overview on the phone's home page (channel pages are their own route)
+        val appState = LocalAppState.current
+        val selectedChannel = if (twoPane) graphChannels(bridge, selection).firstOrNull() else null
+        LaunchedEffect(selectedChannel) { appState.updateSelection(selectedChannel) }
         Column(Modifier.fillMaxSize()) {
             FirmwareMismatchBanner(bridge, onUpdate = { onNavigate(DspiRoutes.FIRMWARE) })
             if (twoPane) {
@@ -126,23 +136,31 @@ fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modi
                     VerticalRule()
                     Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
                         GraphHeader(bridge, onNavigate)
-                        GraphView(
-                            bridge,
-                            Modifier.fillMaxWidth().height(260.dp).padding(horizontal = 16.dp),
-                            graphChannels(bridge, selection),
-                            editable =
-                            selection != SidebarSelection.Overview
-                        )
-                        Spacer(Modifier.height(18.dp))
-                        when (val sel = selection) {
-                            SidebarSelection.Overview -> DashboardOverview(bridge, prefs)
-                            is SidebarSelection.Input -> InputChannelDetail(bridge, sel.ch, Modifier.padding(horizontal = 16.dp))
-                            is SidebarSelection.Output -> OutputChannelDetail(
+                        val selectedChannel = graphChannels(bridge, selection).firstOrNull()
+                        val graphSelection = remember(selectedChannel) { PeqGraphSelection() }
+                        val tabState = rememberSaveable(selectedChannel) { mutableStateOf(OutputChannelTab.PEQ) }
+                        CompositionLocalProvider(LocalPeqGraphSelection provides graphSelection) {
+                            // No on-graph editing while the XO tab lists the crossover bands (macOS crossoverTabShown)
+                            val editable = selection is SidebarSelection.Input ||
+                                (selection is SidebarSelection.Output && tabState.value != OutputChannelTab.CROSSOVER)
+                            GraphView(
                                 bridge,
-                                sel.index,
-                                onNavigate,
-                                Modifier.padding(horizontal = 16.dp)
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                graphChannels(bridge, selection),
+                                editable = editable
                             )
+                            GraphResizeHandle(Modifier.padding(horizontal = 16.dp))
+                            when (val sel = selection) {
+                                SidebarSelection.Overview -> DashboardOverview(bridge, prefs)
+                                is SidebarSelection.Input -> InputChannelDetail(bridge, sel.ch, Modifier.padding(horizontal = 16.dp))
+                                is SidebarSelection.Output -> OutputChannelDetail(
+                                    bridge,
+                                    sel.index,
+                                    onNavigate,
+                                    Modifier.padding(horizontal = 16.dp),
+                                    tabState = tabState
+                                )
+                            }
                         }
                         Spacer(Modifier.height(16.dp))
                     }
@@ -150,8 +168,8 @@ fun ContentView(bridge: DspiBridge, onNavigate: (String) -> Unit, modifier: Modi
             } else {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     GraphHeader(bridge, onNavigate)
-                    GraphView(bridge, Modifier.fillMaxWidth().height(220.dp).padding(horizontal = 16.dp))
-                    Spacer(Modifier.height(12.dp))
+                    GraphView(bridge, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+                    GraphResizeHandle(Modifier.padding(horizontal = 16.dp))
                     Column(Modifier.background(c.sidebar)) {
                         SidebarChannels(bridge, SidebarSelection.Overview, onSelect = {
                             when (it) {
