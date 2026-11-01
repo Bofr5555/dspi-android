@@ -6,6 +6,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import kotlin.math.roundToInt
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.MacColors
 import se.bofr.dspi.ui.settings.AppSettings
 import se.bofr.dspi.ui.settings.AppSettingsStore
 
@@ -38,17 +39,17 @@ fun SpectrumSettingsTab(bridge: DspiBridge, appSettings: AppSettingsStore) {
                     "hidden " +
                     "and the analyser window closed the device stops it and spends nothing."
             ) {
-                SliderRow(
+                FormSliderRow(
                     "Spectrum Strength: ${(s.rtaGraphOpacity * 100).toInt()}%",
                     s.rtaGraphOpacity.toFloat(),
                     0.3f..1f,
                     steps = 13,
                     detail = "How far the fill comes forward behind the curves when the spectrum is drawn on the response graph."
                 ) { v -> set { it.copy(rtaGraphOpacity = (v * 20).roundToInt() / 20.0) } }
-                SwitchRow("Peak Hold", "A cap above each band marking its recent maximum", s.rtaShowPeakHold) { v ->
+                FormSwitchRow("Peak Hold", "A cap above each band marking its recent maximum", s.rtaShowPeakHold) { v ->
                     set { it.copy(rtaShowPeakHold = v) }
                 }
-                SwitchRow(
+                FormSwitchRow(
                     "Smoothing",
                     "Glides the spectrum between device frames the way the peak meters glide between polls. It matters most with several " +
                         "channels selected, where one channel refreshes only every few hundred milliseconds and the picture would " +
@@ -65,7 +66,7 @@ fun SpectrumSettingsTab(bridge: DspiBridge, appSettings: AppSettingsStore) {
                 ChoiceRow("Ceiling", null, listOf(0.0 to "0 dBFS", 6.0 to "+6 dBFS", 12.0 to "+12 dBFS"), s.rtaCeilingDB) { v ->
                     set { it.copy(rtaCeilingDB = v) }
                 }
-                Caption(
+                FormCaption(
                     "Six decibels of headroom above full scale is the default because upmix-derived rows and hot EQ can legitimately " +
                         "exceed 0 dBFS."
                 )
@@ -87,7 +88,7 @@ fun SpectrumSettingsTab(bridge: DspiBridge, appSettings: AppSettingsStore) {
                     caps != null &&
                     !supported
                 ) {
-                    WarningOrange
+                    MacColors.orange
                 } else {
                     androidx.compose.ui.graphics.Color.Unspecified
                 }

@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.DspiRoutes
+import se.bofr.dspi.ui.MacColors
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
 
@@ -185,7 +186,7 @@ private fun SettingsSidebar(
                         val dot =
                             (cat in hardwarePages && outputDirty) ||
                                 (cat == SettingsCategory.GLOBAL_PARAMS && edited && coordinator.globalDirty(state))
-                        if (dot) Text("●", color = WarningOrange)
+                        if (dot) Text("●", color = MacColors.orange)
                     }
                 }
             }

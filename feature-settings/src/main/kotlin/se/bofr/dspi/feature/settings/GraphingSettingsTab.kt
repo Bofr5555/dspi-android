@@ -16,13 +16,13 @@ fun GraphingSettingsTab(appSettings: AppSettingsStore) {
     SettingsForm {
         item {
             SettingsSection("Graph Appearance") {
-                SwitchRow("Graph Line Glow", "Add a neon glow effect to frequency response curves", s.showGraphGlow) { v ->
+                FormSwitchRow("Graph Line Glow", "Add a neon glow effect to frequency response curves", s.showGraphGlow) { v ->
                     set { it.copy(showGraphGlow = v) }
                 }
-                SwitchRow("Show Phase Response", "Overlay the selected channel's phase (degrees) as a dotted line", s.showPhase) { v ->
+                FormSwitchRow("Show Phase Response", "Overlay the selected channel's phase (degrees) as a dotted line", s.showPhase) { v ->
                     set { it.copy(showPhase = v) }
                 }
-                SwitchRow(
+                FormSwitchRow(
                     "Unwrap Phase",
                     "Show continuous phase instead of wrapping at ±180°",
                     s.phaseUnwrapped,
@@ -32,13 +32,13 @@ fun GraphingSettingsTab(appSettings: AppSettingsStore) {
         }
         item {
             SettingsSection("Response Curve") {
-                SliderRow(
+                FormSliderRow(
                     "Line Width: ${String.format(Locale.ROOT, "%.1f", s.graphLineWidth)}pt",
                     s.graphLineWidth.toFloat(),
                     1f..4f,
                     steps = 5
                 ) { v -> set { it.copy(graphLineWidth = (v * 2).roundToInt() / 2.0) } }
-                SliderRow(
+                FormSliderRow(
                     "Animation Speed: ${String.format(Locale.ROOT, "%.2f", s.graphAnimationSpeed)}s",
                     s.graphAnimationSpeed.toFloat(),
                     0.1f..0.5f,
@@ -48,23 +48,23 @@ fun GraphingSettingsTab(appSettings: AppSettingsStore) {
         }
         item {
             SettingsSection("Scale & Grid") {
-                SwitchRow("Show Frequency Grid", null, s.showFrequencyGrid) { v -> set { it.copy(showFrequencyGrid = v) } }
-                SwitchRow("Show Frequency Labels", null, s.showFrequencyLabels) { v -> set { it.copy(showFrequencyLabels = v) } }
-                SwitchRow("Show dB Grid", null, s.showDBGrid) { v -> set { it.copy(showDBGrid = v) } }
-                SwitchRow("Show dB Labels", null, s.showDBLabels) { v -> set { it.copy(showDBLabels = v) } }
-                SwitchRow("Show Frequency Readout", null, s.showFrequencyReadout) { v -> set { it.copy(showFrequencyReadout = v) } }
-                SwitchRow("Show Gain Readout", null, s.showLevelReadout) { v -> set { it.copy(showLevelReadout = v) } }
-                SliderRow(
+                FormSwitchRow("Show Frequency Grid", null, s.showFrequencyGrid) { v -> set { it.copy(showFrequencyGrid = v) } }
+                FormSwitchRow("Show Frequency Labels", null, s.showFrequencyLabels) { v -> set { it.copy(showFrequencyLabels = v) } }
+                FormSwitchRow("Show dB Grid", null, s.showDBGrid) { v -> set { it.copy(showDBGrid = v) } }
+                FormSwitchRow("Show dB Labels", null, s.showDBLabels) { v -> set { it.copy(showDBLabels = v) } }
+                FormSwitchRow("Show Frequency Readout", null, s.showFrequencyReadout) { v -> set { it.copy(showFrequencyReadout = v) } }
+                FormSwitchRow("Show Gain Readout", null, s.showLevelReadout) { v -> set { it.copy(showLevelReadout = v) } }
+                FormSliderRow(
                     "Grid Opacity: ${(s.graphGridOpacity * 100).roundToInt()}%",
                     s.graphGridOpacity.toFloat(),
                     0f..2f,
                     enabled = s.showFrequencyGrid || s.showDBGrid
                 ) { v -> set { it.copy(graphGridOpacity = v.toDouble()) } }
                 RowDivider()
-                SliderRow("Vertical Range: ${s.graphDBRange.toInt()} dB", s.graphDBRange.toFloat(), 10f..100f) { v ->
+                FormSliderRow("Vertical Range: ${s.graphDBRange.toInt()} dB", s.graphDBRange.toFloat(), 10f..100f) { v ->
                     set { it.copy(graphDBRange = v.roundToInt().toDouble()) }
                 }
-                SliderRow(centerLabel(s), s.graphDBCenter.toFloat(), -40f..20f) { v ->
+                FormSliderRow(centerLabel(s), s.graphDBCenter.toFloat(), -40f..20f) { v ->
                     set { it.copy(graphDBCenter = v.roundToInt().toDouble()) }
                 }
                 RowDivider()
@@ -85,7 +85,7 @@ fun GraphingSettingsTab(appSettings: AppSettingsStore) {
         item {
             // macOS "Pop-out Window": the pop-out graph is GraphScreen's full-screen view here
             SettingsSection("Pop-out Window") {
-                SwitchRow("Pop-out graph follows channel selection", null, s.popoutGraphFollowsSelection) { v ->
+                FormSwitchRow("Pop-out graph follows channel selection", null, s.popoutGraphFollowsSelection) { v ->
                     set { it.copy(popoutGraphFollowsSelection = v) }
                 }
             }

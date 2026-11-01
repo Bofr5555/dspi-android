@@ -29,6 +29,7 @@ import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.MASTER_VOLUME
 import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.MASTER_VOLUME_MODE_WITH_PRESET
 import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.OUTPUT_CONFIG_MODE_INDEPENDENT
 import se.bofr.dspi.feature.settings.GlobalSettingsDraft.Companion.OUTPUT_CONFIG_MODE_WITH_PRESET
+import se.bofr.dspi.ui.MacColors
 
 /**
  * Settings that live in the device's flash directory (board-level, not in
@@ -91,7 +92,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                         coordinator.editGlobal { it.copy(presetDefaultSlot = v) }
                     }
                 }
-                Caption("Choose which preset loads when the device powers on.")
+                FormCaption("Choose which preset loads when the device powers on.")
             }
         }
         if (state.dacMuteSupported) {
@@ -99,7 +100,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                 val m = draft.dacHwMuteConfig
                 SettingsSection("External Mute Control") {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.Top) {
-                        Text("⚠", color = WarningOrange)
+                        Text("⚠", color = MacColors.orange)
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text(
@@ -116,7 +117,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                             )
                         }
                     }
-                    SwitchRow(
+                    FormSwitchRow(
                         "Enable Automatic Mute",
                         "Briefly mute an external DAC or amplifier to suppress loud pops during system state changes.",
                         m.enabled
@@ -203,7 +204,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                     listOf(MASTER_VOLUME_MODE_INDEPENDENT to "Independent", MASTER_VOLUME_MODE_WITH_PRESET to "With Preset"),
                     draft.presetMasterVolumeMode
                 ) { v -> coordinator.editGlobal { it.copy(presetMasterVolumeMode = v) } }
-                Caption(
+                FormCaption(
                     if (draft.presetMasterVolumeMode == MASTER_VOLUME_MODE_INDEPENDENT) {
                         "Master volume is stored on the device independently of presets and applied at boot. Loading a preset never " +
                             "changes it."
@@ -221,7 +222,7 @@ fun GlobalSettingsTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator) 
                     listOf(OUTPUT_CONFIG_MODE_INDEPENDENT to "Independent", OUTPUT_CONFIG_MODE_WITH_PRESET to "With Preset"),
                     draft.presetOutputConfigMode
                 ) { v -> coordinator.editGlobal { it.copy(presetOutputConfigMode = v) } }
-                Caption(
+                FormCaption(
                     if (draft.presetOutputConfigMode == OUTPUT_CONFIG_MODE_INDEPENDENT) {
                         "Input and output configuration is stored on the device independently and applied at boot. Loading a preset " +
                             "never changes your wiring."

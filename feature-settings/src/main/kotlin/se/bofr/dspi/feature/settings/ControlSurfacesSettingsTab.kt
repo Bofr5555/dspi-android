@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.MacColors
 
 /** Which Control page (macOS `ControlSurfacesSettingsTab.Section`). */
 enum class CsSection { CONTROLS, GROUPS, MACROS, AUX }
@@ -41,15 +42,15 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
     SettingsForm {
         when {
             !connected -> {
-                item { SettingsSection(null) { Caption("No Device Connected. Control surfaces live on the device.") } }
+                item { SettingsSection(null) { FormCaption("No Device Connected. Control surfaces live on the device.") } }
                 return@SettingsForm
             }
             !loaded -> {
-                item { SettingsSection(null) { Caption("Reading control-surface capabilities from the device...") } }
+                item { SettingsSection(null) { FormCaption("Reading control-surface capabilities from the device...") } }
                 return@SettingsForm
             }
             !cs.supported -> {
-                item { SettingsSection(null) { Caption("The connected firmware has no control surfaces.") } }
+                item { SettingsSection(null) { FormCaption("The connected firmware has no control surfaces.") } }
                 return@SettingsForm
             }
         }
@@ -59,7 +60,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                 val slots = cs.bindings.withIndex().filter { it.value.configured && !CsModel.isAuxType(it.value.type) }
                 item {
                     SettingsSection("Controls") {
-                        if (slots.isEmpty()) Caption("No Controls Configured")
+                        if (slots.isEmpty()) FormCaption("No Controls Configured")
                         slots.forEach { (slot, b) ->
                             val name = cs.slotName(slot).ifEmpty { CsModel.typeName(b.type) }
                             SettingRow(
@@ -73,7 +74,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                     }
                 }
                 item {
-                    Caption(
+                    FormCaption(
                         "Buttons and switches wire between the GPIO and GND (internal pull-up); pots use an ADC pin (GPIO 26, 27, or 28) " +
                             "between " +
                             "3V3 and GND; encoders use two GPIOs with the common wired to GND. LEDs drive active-high by default. An IR " +
@@ -91,7 +92,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                 val groups = cs.groups.withIndex().filter { it.value.configured }
                 item {
                     SettingsSection("Channel Groups") {
-                        if (groups.isEmpty()) Caption("No Channel Groups Configured")
+                        if (groups.isEmpty()) FormCaption("No Channel Groups Configured")
                         groups.forEach { (g, grp) ->
                             val kind = when (grp.targetKind) {
                                 1 -> "Inputs"
@@ -109,7 +110,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                     }
                 }
                 item {
-                    Caption(
+                    FormCaption(
                         "A group is a named set of channels one control can drive as a unit: mute a zone, trim a stereo pair, light an " +
                             "LED when any " +
                             "member clips. Turn on \"Address a Group\" in a control, or in a macro step, to use one.\n\nRelative moves " +
@@ -126,7 +127,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                 val macros = cs.macros.withIndex().filter { it.value.configured }
                 item {
                     SettingsSection("Macros") {
-                        if (macros.isEmpty()) Caption("No Macros Configured")
+                        if (macros.isEmpty()) FormCaption("No Macros Configured")
                         macros.forEach { (i, m) ->
                             val running = cs.macroRunning == i
                             SettingRow(
@@ -140,7 +141,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                     }
                 }
                 item {
-                    Caption(
+                    FormCaption(
                         "A macro runs a short sequence of changes from a single press: select an input and load a preset, switch " +
                             "monitors, mute " +
                             "after a delay. Bind a button, switch, or remote key to \"Macro\" to fire one.\n\nEach step can wait before " +
@@ -155,7 +156,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                 val outs = cs.bindings.withIndex().filter { CsModel.isAuxType(it.value.type) }
                 item {
                     SettingsSection("Auxiliary Outputs") {
-                        if (outs.isEmpty()) Caption("No Auxiliary Outputs Configured")
+                        if (outs.isEmpty()) FormCaption("No Auxiliary Outputs Configured")
                         outs.forEach { (slot, b) ->
                             val on = cs.auxState.getOrElse(slot) { 0 } != 0
                             SettingRow(cs.auxName(slot), "${CsModel.typeName(b.type)} · GPIO ${b.gpio0}", onClick = { renaming = slot }) {
@@ -166,7 +167,7 @@ fun ControlSurfacesSettingsTab(section: CsSection, bridge: DspiBridge, coordinat
                     }
                 }
                 item {
-                    Caption(
+                    FormCaption(
                         "An on/off output follows its switch. A dimmable output follows its switch and its level, so one button and one " +
                             "knob can " +
                             "share a lamp. Turn on \"Active-Low Output\" for the relay and opto-isolator boards that switch when the pin " +
@@ -218,5 +219,5 @@ private fun gpioText(b: CsBinding): String = if (b.gpio1 != 0xFF && b.gpio1 != b
 
 @Composable
 private fun SlotPill(cs: CsModel, slot: Int) {
-    if (cs.isSlotActive(slot)) Pill("Active", OkGreen) else Pill("Inactive", WarningOrange)
+    if (cs.isSlotActive(slot)) Pill("Active", MacColors.green) else Pill("Inactive", MacColors.orange)
 }

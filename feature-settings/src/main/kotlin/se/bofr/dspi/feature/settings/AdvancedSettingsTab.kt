@@ -24,7 +24,7 @@ fun AdvancedSettingsTab(bridge: DspiBridge, appSettings: AppSettingsStore) {
         }
         item {
             SettingsSection("Diagnostics") {
-                SwitchRow("Show Debug Information", "Display additional diagnostic data in the UI", s.showDebugInfo) { v ->
+                FormSwitchRow("Show Debug Information", "Display additional diagnostic data in the UI", s.showDebugInfo) { v ->
                     appSettings.update { it.copy(showDebugInfo = v) }
                 }
             }

@@ -59,7 +59,12 @@ import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.core.SiggenCaps
 import se.bofr.dspi.core.SiggenConfig
 import se.bofr.dspi.core.SiggenStatus
+import se.bofr.dspi.ui.Caption
 import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.SectionLabel
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.SwitchRow
+import se.bofr.dspi.ui.ValueField
 import se.bofr.dspi.ui.WhileVisible
 
 /** Everything the Signal Generator draws (the Swift view's `vm.*` reads). */
@@ -418,7 +423,13 @@ private fun LevelSection(state: TestSignalsUiState, actions: TestSignalsActions)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("LEVEL", Modifier.weight(1f))
-            ValueField(state.draft.levelDb, "dB", state.controlsEnabled, width = 64.dp) { actions.setLevel(it) }
+            ValueField(
+                label = "dB",
+                value = state.draft.levelDb,
+                width = 64.dp,
+                enabled = state.controlsEnabled,
+                stripTrailingZeros = true
+            ) { actions.setLevel(it) }
         }
         Slider(
             value = state.draft.levelDb.coerceIn(SIGGEN_SLIDER_MIN_DB, SIGGEN_LEVEL_MAX_DB),
@@ -459,12 +470,13 @@ private fun ParametersSection(state: TestSignalsUiState, actions: TestSignalsAct
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(label, Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     ValueField(
-                        draft.p.getOrElse(i) { 0f },
-                        siggenUnitLabel(pd.semantic),
-                        state.controlsEnabled,
-                        minValue = pd.min,
-                        maxDecimals = siggenParamDecimals(pd.semantic)
-                    ) { actions.setParam(i, siggenClampParam(pd, it)) }
+                        label = siggenUnitLabel(pd.semantic),
+                        value = draft.p.getOrElse(i) { 0f },
+                        width = 72.dp,
+                        enabled = state.controlsEnabled,
+                        maxDecimals = siggenParamDecimals(pd.semantic),
+                        stripTrailingZeros = true
+                    ) { actions.setParam(i, siggenClampParam(pd, maxOf(it, pd.min))) }
                 }
             }
         }
@@ -497,18 +509,39 @@ private fun TimingSection(state: TestSignalsUiState, actions: TestSignalsActions
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel("TIMING")
         @Composable
-        fun seconds(min: Float) = ValueField(d.durationMs / 1000f, "s", enabled, minValue = min, maxDecimals = 2) {
+        fun seconds(min: Float) = ValueField(
+            label = "s",
+            value = d.durationMs / 1000f,
+            width = 72.dp,
+            enabled = enabled,
+            maxDecimals = 2,
+            stripTrailingZeros = true
+        ) {
             actions.setDurationMs((maxOf(min, it) * 1000).toLong())
         }
 
         @Composable
-        fun repeat() = ValueField(d.repeat.toFloat(), "", enabled, minValue = 0f, maxDecimals = 0) {
-            actions.setRepeat(Math.round(it).coerceIn(0, 65535))
+        fun repeat() = ValueField(
+            label = "",
+            value = d.repeat.toFloat(),
+            width = 72.dp,
+            enabled = enabled,
+            maxDecimals = 0,
+            stripTrailingZeros = true
+        ) {
+            actions.setRepeat(Math.round(maxOf(it, 0f)).coerceIn(0, 65535))
         }
 
         @Composable
-        fun gap() = ValueField(d.gapMs.toFloat(), "ms", enabled, minValue = 0f, maxDecimals = 0) {
-            actions.setGapMs(Math.round(it).coerceIn(0, 65535))
+        fun gap() = ValueField(
+            label = "ms",
+            value = d.gapMs.toFloat(),
+            width = 72.dp,
+            enabled = enabled,
+            maxDecimals = 0,
+            stripTrailingZeros = true
+        ) {
+            actions.setGapMs(Math.round(maxOf(it, 0f)).coerceIn(0, 65535))
         }
         when (state.desc.timing) {
             SIGGEN_TIMING_SWEEP -> {
@@ -558,14 +591,14 @@ private fun OptionsSection(state: TestSignalsUiState, actions: TestSignalsAction
     fun on(flag: Int) = d.flags and flag != 0
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SectionLabel("OPTIONS")
-        ToggleRow(
+        SwitchRow(
             "Bypass output EQ (RAW)",
             "Skips crossover and PEQ on the selected outputs. Trim, master volume, mute and delay still apply.",
             on(DspiConstants.SIGGEN_FLAG_RAW),
             enabled
         ) { actions.setFlag(DspiConstants.SIGGEN_FLAG_RAW, it) }
         if (d.signalType == SIGGEN_WHITE || d.signalType == SIGGEN_PINK) {
-            ToggleRow(
+            SwitchRow(
                 "Decorrelate channels",
                 "Independent noise per output instead of one copied signal.",
                 on(DspiConstants.SIGGEN_FLAG_DECORR),
@@ -573,14 +606,14 @@ private fun OptionsSection(state: TestSignalsUiState, actions: TestSignalsAction
             ) { actions.setFlag(DspiConstants.SIGGEN_FLAG_DECORR, it) }
         }
         if (d.signalType == SIGGEN_CHANNEL_ID) {
-            ToggleRow(
+            SwitchRow(
                 "Walk outputs one at a time",
                 "Channel ID always walks: each output plays its channel number as counted blips.",
                 checked = true,
                 enabled = false
             ) {}
         } else {
-            ToggleRow(
+            SwitchRow(
                 "Walk outputs one at a time",
                 "Plays the selected outputs sequentially instead of together.",
                 on(DspiConstants.SIGGEN_FLAG_WALK),

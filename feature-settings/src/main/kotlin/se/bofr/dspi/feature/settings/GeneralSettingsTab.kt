@@ -63,7 +63,7 @@ fun GeneralSettingsTab() {
         }
         item {
             SettingsSection("Links & Support") {
-                Caption(
+                FormCaption(
                     "DSPi Firmware and Console are free, open-source software that I develop in my spare time. " +
                         "Contributions of any kind - code, feedback, funding, or otherwise - are always immensely appreciated."
                 )

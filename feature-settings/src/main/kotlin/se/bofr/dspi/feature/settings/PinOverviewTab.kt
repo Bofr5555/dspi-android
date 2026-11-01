@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.ui.MacColors
 
 /**
  * A read-only map of every GPIO the device is holding. Only held pins are
@@ -63,7 +64,7 @@ fun PinOverviewTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator, onO
                 SettingsSection(
                     "Conflicts",
                     footer = "These pins are claimed by more than one feature.",
-                    footerColor = WarningOrange
+                    footerColor = MacColors.orange
                 ) {
                     conflicts.forEach { c ->
                         SettingRow(
@@ -71,7 +72,7 @@ fun PinOverviewTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator, onO
                             c.claimants.joinToString(" · ") {
                                 it.label
                             },
-                            detailColor = WarningOrange,
+                            detailColor = MacColors.orange,
                             onClick = { onOpen(c.claimants.last().page) }
                         )
                     }
@@ -79,7 +80,7 @@ fun PinOverviewTab(bridge: DspiBridge, coordinator: SettingsSaveCoordinator, onO
             }
         }
         if (assignments.isEmpty()) {
-            item { SettingsSection(null) { Caption("No GPIOs are currently claimed.") } }
+            item { SettingsSection(null) { FormCaption("No GPIOs are currently claimed.") } }
             return@SettingsForm
         }
         item {

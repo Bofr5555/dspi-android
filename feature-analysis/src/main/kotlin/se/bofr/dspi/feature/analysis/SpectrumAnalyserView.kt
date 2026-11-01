@@ -76,6 +76,7 @@ import se.bofr.dspi.core.RtaCapsInfo
 import se.bofr.dspi.core.RtaSnapshot
 import se.bofr.dspi.ui.ChannelPalette
 import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.SegmentedPicker
 import se.bofr.dspi.ui.WhileVisible
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
@@ -268,10 +269,10 @@ private fun SpectrumHeader(
                 options = listOf(DspiConstants.RTA_TAP_INPUT, DspiConstants.RTA_TAP_OUTPUT),
                 selected = sel.tap,
                 label = { if (it == DspiConstants.RTA_TAP_INPUT) "Inputs" else "Outputs" },
-                onSelect = onSide
+                onSelect = onSide,
+                modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.weight(1f))
-            SegmentedPicker(RtaDisplayMode.entries, state.mode, { it.label }, onMode)
+            SegmentedPicker(RtaDisplayMode.entries, state.mode, { it.label }, onMode, Modifier.weight(1f))
         }
         // The channels at this side: tap to analyse or drop one (the curves' legend too)
         Row(

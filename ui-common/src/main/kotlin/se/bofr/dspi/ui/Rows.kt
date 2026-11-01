@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -29,6 +30,7 @@ import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,14 +46,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** The 9-pt secondary explanation under a control. */
 @Composable
-fun Caption(text: String, modifier: Modifier = Modifier) {
-    Text(text, modifier, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 16.sp)
+fun Caption(text: String, modifier: Modifier = Modifier, color: Color = Color.Unspecified) {
+    Text(
+        text,
+        modifier,
+        fontSize = 12.sp,
+        color = if (color == Color.Unspecified) MaterialTheme.colorScheme.onSurfaceVariant else color,
+        lineHeight = 16.sp
+    )
 }
 
 /**
@@ -101,30 +111,63 @@ fun PullDownMenu(label: String, enabled: Boolean, items: List<Pair<String, () ->
     }
 }
 
-/** A labelled switch row ("Interaural Time Delay", "Lookahead", "Link output pairs"). */
+/**
+ * A labelled switch row (macOS `Toggle` in a form / `optionRow`: "Interaural
+ * Time Delay", "Lookahead", Settings and analyser options): title, optional
+ * [subtitle], the switch; a tap anywhere on the row toggles it, as a click on
+ * a macOS toggle's label does. [help] is the long-press tooltip.
+ */
 @Composable
 fun SwitchRow(
     title: String,
-    subtitle: String,
+    subtitle: String?,
     checked: Boolean,
-    enabled: Boolean,
-    onChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     help: String = "",
-    modifier: Modifier = Modifier
+    onChange: (Boolean) -> Unit
 ) {
     HelpTip(help, modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                Caption(subtitle)
+        Row(
+            Modifier.fillMaxWidth().toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = if (enabled) Color.Unspecified else Color.Gray)
+                if (!subtitle.isNullOrEmpty()) Caption(subtitle)
             }
-            Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+            Switch(checked = checked, onCheckedChange = null, enabled = enabled)
         }
     }
 }
 
-/** `Picker(.segmented)`. [values] are the tags in display order. */
+/** `Picker(.segmented)` over [options], each shown as [label]. */
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun <T> SegmentedPicker(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    fontSize: TextUnit = 13.sp
+) {
+    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
+        options.forEachIndexed { i, o ->
+            SegmentedButton(
+                selected = o == selected,
+                onClick = { if (o != selected) onSelect(o) },
+                shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                enabled = enabled,
+                icon = {},
+                label = { Text(label(o), maxLines = 1, fontSize = fontSize) }
+            )
+        }
+    }
+}
+
+/** `Picker(.segmented)` with Int tags: [labels] for [values] in display order. */
 @Composable
 fun SegmentedPicker(
     labels: List<String>,
@@ -133,18 +176,28 @@ fun SegmentedPicker(
     enabled: Boolean,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier
+) = SegmentedPicker(values, selected, { labels[values.indexOf(it)] }, onSelect, modifier, enabled)
+
+/**
+ * A label (with the live value) above a slider, for app preferences (macOS
+ * "Line Width: 2.0 pt" + Slider in Settings › Graphing and Graph Setup).
+ * Not for device values: those go through [ParameterRow] / [CustomSlider].
+ */
+@Composable
+fun SliderRow(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    steps: Int = 0,
+    enabled: Boolean = true,
+    detail: String? = null,
+    onChange: (Float) -> Unit
 ) {
-    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
-        labels.forEachIndexed { i, label ->
-            SegmentedButton(
-                selected = values[i] == selected,
-                onClick = { if (values[i] != selected) onSelect(values[i]) },
-                shape = SegmentedButtonDefaults.itemShape(i, labels.size),
-                enabled = enabled,
-                icon = {},
-                label = { Text(label, maxLines = 1, fontSize = 13.sp) }
-            )
-        }
+    Column(modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.45f)) {
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Slider(value = value, onValueChange = onChange, valueRange = range, steps = steps, enabled = enabled)
+        if (!detail.isNullOrEmpty()) Caption(detail)
     }
 }
 

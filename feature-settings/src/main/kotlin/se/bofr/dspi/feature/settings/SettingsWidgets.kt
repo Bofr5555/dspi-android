@@ -8,7 +8,6 @@ package se.bofr.dspi.feature.settings
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -23,11 +22,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,9 +40,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-internal val WarningOrange = Color(0xFFFF9F0A)
-internal val OkGreen = Color(0xFF32D74B)
+import se.bofr.dspi.ui.Caption
+import se.bofr.dspi.ui.MacColors
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.SliderRow
+import se.bofr.dspi.ui.SwitchRow
 
 /** A grouped-Form section: header label, card of rows, optional footer. */
 @Composable
@@ -118,12 +116,10 @@ internal fun SettingRow(
     }
 }
 
+/** A form row with a switch: ui-common's [SwitchRow] with the form's row insets. */
 @Composable
-internal fun SwitchRow(title: String, detail: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
-    SettingRow(title, detail, enabled = enabled, onClick = { onChange(!checked) }) {
-        Switch(checked = checked, onCheckedChange = if (enabled) onChange else null, enabled = enabled)
-    }
-}
+internal fun FormSwitchRow(title: String, detail: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) =
+    SwitchRow(title, detail, checked, enabled, Modifier.padding(horizontal = 16.dp, vertical = 10.dp), onChange = onChange)
 
 /** A value and its menu (macOS Picker in a Form row). */
 @Composable
@@ -171,7 +167,7 @@ internal fun PinRow(
     ChoiceRow(title, detail, all, pin, enabled, onSelect)
 }
 
-/** Segmented choice (macOS `.pickerStyle(.segmented)`), as chips. */
+/** Segmented choice (macOS `.pickerStyle(.segmented)`): ui-common's [SegmentedPicker] under a title. */
 @Composable
 internal fun <T> SegmentedRow(
     title: String,
@@ -186,22 +182,20 @@ internal fun <T> SegmentedRow(
         if (!detail.isNullOrEmpty()) {
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (value, text) ->
-                FilterChip(
-                    selected = value == selected,
-                    onClick = { if (value != selected) onSelect(value) },
-                    enabled = enabled,
-                    label = { Text(text) }
-                )
-            }
-        }
+        SegmentedPicker(
+            options.map { it.first },
+            selected,
+            { v -> options.first { it.first == v }.second },
+            onSelect,
+            Modifier.padding(top = 6.dp),
+            enabled
+        )
     }
 }
 
-/** Label with a live value above a slider (macOS "Line Width: 2.0pt" + Slider). */
+/** ui-common's [SliderRow] with the form's row insets. */
 @Composable
-internal fun SliderRow(
+internal fun FormSliderRow(
     label: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
@@ -209,15 +203,7 @@ internal fun SliderRow(
     enabled: Boolean = true,
     detail: String? = null,
     onChange: (Float) -> Unit
-) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).alpha(if (enabled) 1f else 0.45f)) {
-        Text(label, style = MaterialTheme.typography.bodyLarge)
-        Slider(value = value, onValueChange = onChange, valueRange = range, steps = steps, enabled = enabled)
-        if (!detail.isNullOrEmpty()) {
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
+) = SliderRow(label, value, range, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), steps, enabled, detail, onChange)
 
 @Composable
 internal fun RowDivider() =
@@ -228,26 +214,20 @@ internal fun RowDivider() =
 internal fun StatusLine(message: String?, isError: Boolean) {
     if (message.isNullOrEmpty()) return
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(if (isError) "⚠" else "✓", color = if (isError) WarningOrange else OkGreen, fontSize = 13.sp)
+        Text(if (isError) "⚠" else "✓", color = if (isError) MacColors.orange else MacColors.green, fontSize = 13.sp)
         Spacer(Modifier.width(6.dp))
         Text(
             message,
             style = MaterialTheme.typography.bodySmall,
-            color = if (isError) WarningOrange else MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (isError) MacColors.orange else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
-/** Caption text inside a section. */
+/** ui-common's [Caption] with the form's row insets. */
 @Composable
-internal fun Caption(text: String, color: Color = Color.Unspecified) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        color = if (color == Color.Unspecified) MaterialTheme.colorScheme.onSurfaceVariant else color,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-    )
-}
+internal fun FormCaption(text: String, color: Color = Color.Unspecified) =
+    Caption(text, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), color)
 
 /** A capsule label (macOS status pill / "Default" capsule). */
 @Composable

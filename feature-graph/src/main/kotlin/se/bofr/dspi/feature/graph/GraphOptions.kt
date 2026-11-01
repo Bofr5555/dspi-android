@@ -28,9 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,6 +50,8 @@ import java.util.Locale
 import kotlin.math.roundToInt
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.ui.SegmentedPicker
+import se.bofr.dspi.ui.SwitchRow
 import se.bofr.dspi.ui.settings.AppSettings
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
@@ -277,13 +277,10 @@ fun spectrumSummary(selection: RtaChannelSelection): String = when (selection.ch
     else -> "${selection.channels.size} channels"
 }
 
+/** The panel's switch row: ui-common's [SwitchRow] with the panel's insets. */
 @Composable
-private fun ToggleRow(title: String, on: Boolean, enabled: Boolean = true, set: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, modifier = Modifier.weight(1f), color = if (enabled) Color.Unspecified else Color.Gray)
-        Switch(checked = on, onCheckedChange = set, enabled = enabled)
-    }
-}
+private fun ToggleRow(title: String, on: Boolean, enabled: Boolean = true, set: (Boolean) -> Unit) =
+    SwitchRow(title, null, on, enabled, Modifier.padding(horizontal = 12.dp, vertical = 2.dp), onChange = set)
 
 @Composable
 private fun SectionTitle(text: String) {
@@ -296,20 +293,16 @@ private fun SectionTitle(text: String) {
     )
 }
 
+/** A titled segmented choice (ui-common's [SegmentedPicker]). */
 @Composable
 private fun ChoiceRow(title: String, options: List<Double>, value: Double, label: (Double) -> String, set: (Double) -> Unit) {
     Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
         Text(title, fontSize = 12.sp)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            for ((i, o) in options.withIndex()) {
-                SegmentedButton(selected = o == value, onClick = { set(o) }, shape = SegmentedButtonDefaults.itemShape(i, options.size)) {
-                    Text(label(o), fontSize = 10.sp, maxLines = 1)
-                }
-            }
-        }
+        SegmentedPicker(options, value, label, set, fontSize = 10.sp)
     }
 }
 
+/** ui-common's [SliderRow] with the panel's insets, over a Double preference. */
 @Composable
 private fun SliderRow(
     title: String,
@@ -318,12 +311,7 @@ private fun SliderRow(
     steps: Int = 0,
     enabled: Boolean = true,
     set: (Double) -> Unit
-) {
-    Column(Modifier.padding(horizontal = 12.dp)) {
-        Text(title, fontSize = 12.sp, color = if (enabled) Color.Unspecified else Color.Gray)
-        Slider(value = value.toFloat(), onValueChange = { set(it.toDouble()) }, valueRange = range, steps = steps, enabled = enabled)
-    }
-}
+) = se.bofr.dspi.ui.SliderRow(title, value.toFloat(), range, Modifier.padding(horizontal = 12.dp), steps, enabled) { set(it.toDouble()) }
 
 private fun hz(f: Double) = if (f >= 1000) "${(f / 1000).roundToInt()}k" else f.roundToInt().toString()
 
