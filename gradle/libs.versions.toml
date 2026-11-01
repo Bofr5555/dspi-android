@@ -15,8 +15,13 @@ jna = "5.17.0"
 junit = "4.13.2"
 ktlint = "1.5.0"
 
-compileSdk = "35"
-targetSdk = "35"
+# Google Play: new apps and updates must target API 36 from 2026-08-31
+# (developer.android.com/google/play/requirements/target-sdk). The SDK
+# platform + build-tools are baked into the container (container/Containerfile);
+# keep the three in sync with ANDROID_PLATFORM / ANDROID_BUILD_TOOLS there.
+compileSdk = "36"
+targetSdk = "36"
+buildTools = "36.0.0"
 minSdk = "26"
 
 [libraries]
