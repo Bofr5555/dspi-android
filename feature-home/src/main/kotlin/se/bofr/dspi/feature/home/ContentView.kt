@@ -328,11 +328,16 @@ private fun ChannelContextMenu(
     onDismiss: () -> Unit,
     onRename: () -> Unit
 ) {
-    // macOS siggenSupported, announced through the generator's caps probe.
-    bridge.siggen.caps.collectAsStateWithLifecycle().value
+    // Observed here and captured by the menu content, which is its own composition: a
+    // disconnect or the siggen caps probe landing while the menu is open updates it
+    // (review-stalestate #6). macOS siggenSupported = the generator's caps probe.
+    val siggenSupported = bridge.siggen.caps.collectAsStateWithLifecycle().value?.supported == true
+    val connected = bridge.observeStatus { it.connected }
+    // The paste buffer is a plain getter: re-read each time the menu opens (`expanded` flips).
+    val canPaste = expanded && bridge.canPaste()
     val canWrite = writesAllowed()
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        if (outputIndex != null && bridge.connected && bridge.siggenSupported) {
+        if (outputIndex != null && connected && siggenSupported) {
             DropdownMenuItem(text = { Text("Identify") }, enabled = canWrite, onClick = {
                 onDismiss()
                 bridge.siggen.identify(outputIndex)
@@ -348,7 +353,7 @@ private fun ChannelContextMenu(
             onDismiss()
             bridge.copyChannel(ch)
         })
-        DropdownMenuItem(text = { Text("Paste Parameters") }, enabled = canWrite && bridge.canPaste(), onClick = {
+        DropdownMenuItem(text = { Text("Paste Parameters") }, enabled = canWrite && canPaste, onClick = {
             onDismiss()
             bridge.pasteChannel(ch)
         })
@@ -432,9 +437,11 @@ private fun SidebarBottomPanel(bridge: DspiBridge, vm: HomeViewModel, prefs: App
 @Composable
 private fun SourceRow(bridge: DspiBridge, connected: Boolean) {
     val c = DspiTheme.colors
+    // Observed HERE: called with unchanged args, this row is skipped when the parent recomposes (H1).
+    val s = bridge.observeState()
     val sources = bridge.inputSources
     // macOS hides the picker when the firmware reports no usable source.
-    val current = sources.firstOrNull { it.id == bridge.inputSource } ?: return
+    val current = sources.firstOrNull { it.id == s.inputSource } ?: return
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Source", style = DspiType.caption2, color = c.secondaryLabel)
         Spacer(Modifier.weight(1f))

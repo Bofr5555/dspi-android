@@ -227,3 +227,14 @@ data class HardwareCaps(
     /** Stereo pairs crossfeed can use (4 on RP2350, 2 on RP2040); 0 while not usable. */
     val crossfeedPairCount: Int = 0
 )
+
+/** The bit masks [DspiBridge.toggleMaskBit] flips one bit of (tool output chips). */
+enum class MaskField {
+    LOUDNESS_OUTPUTS,
+    CROSSFEED_PAIRS,
+    PSYBASS_OUTPUTS,
+    LEVELLER_DETECTOR,
+    LEVELLER_APPLY,
+    SUBHARM_OUTPUTS,
+    TUBE_OUTPUTS
+}

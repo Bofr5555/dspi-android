@@ -16,10 +16,22 @@ import se.bofr.dspi.bridge.ChannelMap
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspState
 
-/** stateChanged: the full state; recomposes on every applied change. */
+/**
+ * stateChanged: the full state; recomposes on every applied change.
+ *
+ * Also reads [DspiBridge.stateRevision]: some getters change with no new
+ * DspState (input links, preamp/delay limits), and an equal DspState does
+ * not re-emit on [DspiBridge.state] (the demo core returns the same
+ * instance), while every publish bumps the revision. A composable that
+ * calls this and then reads plain getters therefore always recomposes when
+ * they may have changed (reviews/stale-state-audit.md H2).
+ */
 @Composable
 internal fun DspiBridge.observeState(): DspState {
     val s by state.collectAsStateWithLifecycle()
+    val rev by stateRevision.collectAsStateWithLifecycle()
+    @Suppress("UNUSED_EXPRESSION")
+    rev // subscribe: this scope is invalidated by every publish
     return s
 }
 

@@ -455,7 +455,8 @@ internal fun BodePlotView(bridge: DspiBridge, modifier: Modifier, channels: Set<
     val caps by bridge.rta.caps.collectAsStateWithLifecycle()
     val spectrum = rememberSpectrumSelection(bridge, store, activeEq)
     // The page's channels, from their explicit inputs (settings, analyser caps, device state).
-    val spectrumSelection = remember(spectrum, spectrum.pageKey, settings, caps, stateRev) { spectrum.value }
+    val liveInputs = bridge.observeLiveInputs()
+    val spectrumSelection = remember(spectrum, spectrum.pageKey, settings, caps, stateRev, liveInputs) { spectrum.value }
 
     Box(
         modifier
@@ -710,8 +711,9 @@ fun GraphLegend(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val connected by connectedFlow.collectAsStateWithLifecycle(bridge.connected)
     // Faded rather than removed without a device (a pure crossfade, 0.3 s), and inert while faded.
     val fade by animateFloatAsState(if (connected) 1f else 0f, tween(300), label = "legend")
+    val liveInputs = bridge.observeLiveInputs()
     val pills =
-        remember(stateRev, magRev) {
+        remember(stateRev, magRev, liveInputs) {
             val inputs = (0 until bridge.liveInputCount()).map { bridge.inputAppId(it) }
             val outputs =
                 (0 until bridge.numOutputChannels)
@@ -726,13 +728,14 @@ fun GraphLegend(bridge: DspiBridge, modifier: Modifier = Modifier) {
     ) {
         for (ch in pills) {
             val isVisible = remember(magRev, ch) { bridge.channelVisible(ch) }
+            // The tap flips the CURRENT value, not the composed isVisible (audit G4).
             val color = channelColour(bridge, ch)
             Row(
                 Modifier
                     .clip(CircleShape)
                     .background(if (isVisible) color.copy(alpha = 0.15f) else Color.Gray.copy(alpha = 0.1f))
                     .border(1.dp, if (isVisible) color.copy(alpha = 0.5f) else Color.Transparent, CircleShape)
-                    .clickable(enabled = connected) { bridge.setChannelVisible(ch, !isVisible) }
+                    .clickable(enabled = connected) { bridge.setChannelVisible(ch, !bridge.channelVisible(ch)) }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

@@ -135,8 +135,8 @@ fun TestSignalsView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val siggen = bridge.siggen
     val bridgeStatus by bridge.status.collectAsState()
 
-    @Suppress("UNUSED_VARIABLE")
-    val revision by bridge.stateRevision.collectAsState() // names and matrix enables
+    // Read, so this scope subscribes (an unused `by` delegate never does): names and matrix enables (audit A1)
+    bridge.stateRevision.collectAsState().value
     val caps by siggen.caps.collectAsState()
     val draft by siggen.draft.collectAsState()
     val status by siggen.status.collectAsState()

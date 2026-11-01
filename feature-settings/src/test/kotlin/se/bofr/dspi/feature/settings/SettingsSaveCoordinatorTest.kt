@@ -74,8 +74,12 @@ class SettingsSaveCoordinatorTest {
         assertFalse(r.bridge.dangerousOps.isValid(token!!))
     }
 
+    /**
+     * Review S6 + review-stalestate #1: a gate refusal is never a plain "Failed to set" row and
+     * never escapes the launched job (no crash); it is logged and shown as an internal error.
+     */
     @Test
-    fun aDangerousOpNotConfirmedIsRethrownNotReported() = runTest {
+    fun aDangerousOpNotConfirmedIsShownAsAnInternalErrorNotThrown() = runTest {
         val r = rig()
         var caught: Throwable? = null
         val handler = kotlinx.coroutines.CoroutineExceptionHandler { _, e -> caught = e }
@@ -85,8 +89,40 @@ class SettingsSaveCoordinatorTest {
             HardwareChange("bad", "p", "Bad", "a", "b", apply = { throw DangerousOpNotConfirmed(DangerousOp.HARDWARE_APPLY, "spent") })
         )
         runCurrent()
-        assertTrue(caught is DangerousOpNotConfirmed)
-        assertNull(c.hardwareStatus.value)
+        assertNull(caught)
+        assertEquals("Bad not applied: confirmation refused (internal error)" to true, c.hardwareStatus.value)
+    }
+
+    /** review-stalestate #1: a pick queued behind a long sequence outlives its token: ask again, no crash. */
+    @Test
+    fun aPickWhoseConfirmationTimedOutInTheQueueAsksAgain() = runTest {
+        val r = rig()
+        var caught: Throwable? = null
+        val handler = kotlinx.coroutines.CoroutineExceptionHandler { _, e -> caught = e }
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + StandardTestDispatcher(testScheduler) + handler)
+        val c = SettingsSaveCoordinator(r.bridge, scope)
+        val ttl = r.bridge.dangerousOps.ttlMs
+        var secondRan = false
+        c.applyHardware(
+            HardwareChange("slow", "p", "Slow", "a", "b", apply = {
+                kotlinx.coroutines.delay(ttl + 1_000)
+                0
+            })
+        )
+        c.applyHardwareLatest { _, _ ->
+            listOf(
+                HardwareChange("next", "p", "Next", "a", "b", apply = {
+                    secondRan = true
+                    0
+                })
+            )
+        }
+        runCurrent()
+        testScheduler.advanceTimeBy(ttl + 2_000)
+        runCurrent()
+        assertNull(caught)
+        assertFalse(secondRan)
+        assertEquals(SettingsSaveCoordinator.CONFIRMATION_TIMED_OUT to true, c.hardwareStatus.value)
     }
 
     @Test
@@ -118,6 +154,18 @@ class SettingsSaveCoordinatorTest {
         val c = r.coordinator
         assertNull(c.applyHardware(c.hardwareChanges.outputPin(c.deviceSnapshot(), 0, 6)))
         assertFalse(r.bridge.outputConfigDirty.value)
+    }
+
+    /** Audit S3: a second pick made before the first applied diffs against the first's result. */
+    @Test
+    fun aSecondPickBeforeTheFirstLandedEndsOnTheSecond() = runTest {
+        val r = rig()
+        val c = r.coordinator
+        assertEquals(1, c.deviceSnapshot().spdifEnabledCount)
+        c.applyHardwareLatest { d, _ -> c.hardwareChanges.spdifInputCount(d, 3) }
+        c.applyHardwareLatest { d, _ -> c.hardwareChanges.spdifInputCount(d, 2) } // same frame: the page still shows 1
+        runCurrent()
+        assertEquals(2, c.deviceSnapshot().spdifEnabledCount)
     }
 
     @Test

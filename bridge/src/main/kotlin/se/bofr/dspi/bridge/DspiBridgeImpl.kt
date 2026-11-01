@@ -1249,6 +1249,33 @@ class DspiBridgeImpl(
 
     override fun setCrossfeedOutputPairMask(mask: Int) = fire("setCrossfeedOutputPairMask") { core.setCrossfeedOutputs(mask and 0xFF) }
 
+    /**
+     * Atomic: the read-modify-write runs on the serialized FFI thread from the
+     * core's own state, which already holds every earlier queued write (T1).
+     */
+    override fun toggleMaskBit(field: MaskField, bit: Int, whenUnreported: Int) {
+        if (bit !in 0 until 32) return
+        val flip = 1 shl bit
+        fire("toggleMaskBit") {
+            val st = core.getState()
+            fun param(list: List<Float>, id: Int) = list.getOrNull(id)?.toInt() ?: whenUnreported
+            when (field) {
+                MaskField.LOUDNESS_OUTPUTS -> core.setLoudnessMask((st.loudnessOutputMask xor flip) and 0xFFFF)
+                MaskField.CROSSFEED_PAIRS -> core.setCrossfeedOutputs((st.crossfeedOutputPairMask xor flip) and 0xFF)
+                MaskField.PSYBASS_OUTPUTS -> core.setPsybassMask(st.psybassOutputMask xor flip)
+                MaskField.LEVELLER_DETECTOR -> core.setLevellerMasks(st.levellerDetectorMask xor flip, st.levellerApplyMask)
+                MaskField.LEVELLER_APPLY -> core.setLevellerMasks(st.levellerDetectorMask, st.levellerApplyMask xor flip)
+                MaskField.SUBHARM_OUTPUTS ->
+                    core.setSubharmParam(
+                        DspiConstants.SUBHARM_PARAM_MASK,
+                        (param(st.subharm, DspiConstants.SUBHARM_PARAM_MASK) xor flip).toFloat()
+                    )
+                MaskField.TUBE_OUTPUTS ->
+                    core.setTubeParam(DspiConstants.TUBE_PARAM_MASK, (param(st.tube, DspiConstants.TUBE_PARAM_MASK) xor flip).toFloat())
+            }
+        }
+    }
+
     override fun setCrossfeedPairMap(map: List<Int>) {
         val name = "setCrossfeedPairMap"
         if (writeRefused(name)) return
@@ -1265,6 +1292,29 @@ class DspiBridgeImpl(
     override fun setMatrixRoute(input: Int, output: Int, enabled: Boolean, gain: Float, invert: Boolean, sendOnly: Boolean) {
         if (input !in 0 until current.numInputChannels) return
         fire("setMatrixRoute", live(sendOnly)) { core.setMatrixRoute(input, output, enabled, gain, invert) }
+    }
+
+    /** Atomic against queued writes, as [toggleMaskBit] (T2). */
+    override fun toggleMatrixRoute(input: Int, output: Int, polarity: Boolean) {
+        if (!inRange(input, output) || input !in 0 until current.numInputChannels) return
+        fire("toggleMatrixRoute") {
+            val st = core.getState()
+            val on = st.matrixRouting.getOrNull(input)?.getOrNull(output) ?: return@fire
+            val inv = st.matrixInvert.getOrNull(input)?.getOrNull(output) ?: return@fire
+            val gain = st.matrixGain.getOrNull(input)?.getOrNull(output) ?: return@fire
+            core.setMatrixRoute(input, output, if (polarity) on else !on, gain, if (polarity) !inv else inv)
+        }
+    }
+
+    /** Atomic against queued writes, as [toggleMatrixRoute]; emits as [setMatrixRoute] (review-stalestate #2). */
+    override fun setMatrixGain(input: Int, output: Int, gain: Float, sendOnly: Boolean) {
+        if (!inRange(input, output) || input !in 0 until current.numInputChannels) return
+        fire("setMatrixGain", live(sendOnly)) {
+            val st = core.getState()
+            val on = st.matrixRouting.getOrNull(input)?.getOrNull(output) ?: return@fire
+            val inv = st.matrixInvert.getOrNull(input)?.getOrNull(output) ?: return@fire
+            core.setMatrixRoute(input, output, on, gain, inv)
+        }
     }
 
     override suspend fun setOutputEnable(output: Int, enabled: Boolean): Boolean {

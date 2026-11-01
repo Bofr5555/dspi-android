@@ -5,8 +5,11 @@
 // sequences and the hardware controls' apply (E1b gating, E9 scope).
 package se.bofr.dspi.feature.settings
 
+import android.util.Log
+import androidx.compose.runtime.mutableStateOf
 import java.lang.ref.WeakReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import se.bofr.dspi.bridge.ConfirmationToken
 import se.bofr.dspi.bridge.DangerousOp
 import se.bofr.dspi.bridge.DangerousOpNotConfirmed
@@ -48,9 +53,20 @@ class SettingsSaveCoordinator(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 ) {
     // ── Category B: global parameters ──
-    private val storedDraft = MutableStateFlow(GlobalSettingsDraft.from(bridge.state.value))
+    // Snapshot state, not a StateFlow: globalDraft()/globalDirty()/pendingSummary() are read during
+    // composition (Global tab, save bar, sidebar dot) and must recompose on EVERY edit, not only the
+    // first one that flips globalUserEdited (reviews/stale-state-audit.md S2).
+    private val storedDraft = mutableStateOf(GlobalSettingsDraft.from(bridge.state.value))
     private val _globalUserEdited = MutableStateFlow(false)
     val globalUserEdited: StateFlow<Boolean> = _globalUserEdited.asStateFlow()
+
+    // The same flag as snapshot state, for the composition-time readers below (S2).
+    private val userEdited = mutableStateOf(false)
+
+    private fun setUserEdited(on: Boolean) {
+        userEdited.value = on
+        _globalUserEdited.value = on
+    }
 
     val hardwareChanges = HardwareChanges(bridge)
 
@@ -85,10 +101,10 @@ class SettingsSaveCoordinator(
 
     /** The Global page's values: the device's until the user edits. */
     fun globalDraft(state: DspState = bridge.state.value): GlobalSettingsDraft =
-        if (_globalUserEdited.value) storedDraft.value else GlobalSettingsDraft.from(state)
+        if (userEdited.value) storedDraft.value else GlobalSettingsDraft.from(state)
 
     fun globalDirty(state: DspState = bridge.state.value): Boolean =
-        _globalUserEdited.value && storedDraft.value != GlobalSettingsDraft.from(state)
+        userEdited.value && storedDraft.value != GlobalSettingsDraft.from(state)
 
     /** macOS `outputDirty`: the bridge's `outputConfigDirty` only (never `hardwareUnsaved`, review S1). */
     fun outputDirty(): Boolean = bridge.outputConfigDirty.value
@@ -118,40 +134,100 @@ class SettingsSaveCoordinator(
      * (macOS's own where it has one). Main thread.
      */
     fun applyHardware(changes: List<HardwareChange>, successText: String? = null): Job? {
-        val todo = HardwareChangeOrder.topoSort(changes.filter { it.oldDisplay != it.newDisplay })
-        if (todo.isEmpty()) return null
+        if (changes.none { it.oldDisplay != it.newDisplay }) return null
+        return launchHardware(successText) { changes }
+    }
+
+    /**
+     * As [applyHardware], but [build] runs once every earlier hardware sequence
+     * has finished, against the device's LATEST config and pins — not the
+     * snapshot the page was composed with — so a second pick made before the
+     * first one landed diffs against what the first one did
+     * (reviews/stale-state-audit.md S3: S/PDIF 1 -> 3 -> 2 must end on 2).
+     *
+     * Unlike [applyHardware], it cannot know before [build] runs whether
+     * anything differs, so it always mints a HARDWARE_APPLY token at the tap
+     * (E1b) and launches a job; a no-op pick takes the lock, makes no device
+     * call and revokes the token. [DspiBridge.beginOutputEdit] likewise runs
+     * inside the job, after the earlier sequences, and only when the diff is
+     * non-empty, so `outputConfigDirty` flips a little later than with the
+     * list form (review-stalestate #4). A token that idled out while queued
+     * ends the sequence with [CONFIRMATION_TIMED_OUT] instead of a crash.
+     * There is deliberately no per-call timeout: the macOS client has none
+     * (its USB transfers carry their own), and an expiry mid-sequence is
+     * reported the same way.
+     */
+    fun applyHardwareLatest(successText: String? = null, build: (OutputConfigSnapshot, PinContext) -> List<HardwareChange>): Job =
+        launchHardware(successText) {
+            val state = bridge.state.value
+            build(deviceSnapshot(state), pinContext(state))
+        }
+
+    /** Hardware sequences run one at a time, in tap order. */
+    private val hardwareLock = Mutex()
+
+    private fun launchHardware(successText: String?, build: () -> List<HardwareChange>): Job {
+        // E1b: minted by the tap; the sequence may then wait behind earlier ones (hardwareLock)
         val token = bridge.dangerousOps.confirm(DangerousOp.HARDWARE_APPLY)
-        bridge.beginOutputEdit()
         // macOS transport.generation: a re-plug, even of the same unit, aborts the sequence
         val generation = bridge.deviceGeneration.value
-        return scope.launch {
+        return scope.launch(hardwareGuard) {
             try {
-                for (c in todo) {
-                    if (bridge.deviceGeneration.value != generation) return@launch
-                    val st = try {
-                        c.apply(token)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: DangerousOpNotConfirmed) {
-                        // A programming error: never turned into a status line (review S6)
-                        throw e
-                    } catch (e: Exception) {
-                        -1
-                    }
-                    if (st != 0) {
-                        _hardwareStatus.value = (c.statusText?.invoke(st) ?: "Failed to set ${c.fieldLabel}") to true
+                hardwareLock.withLock {
+                    // The token idles out after DangerousOps.ttlMs; a long queue of earlier sequences
+                    // can outlast it. Not an error: ask for the pick again (review-stalestate #1).
+                    if (!bridge.dangerousOps.isValid(token)) {
+                        _hardwareStatus.value = CONFIRMATION_TIMED_OUT to true
                         return@launch
                     }
+                    val todo = HardwareChangeOrder.topoSort(build().filter { it.oldDisplay != it.newDisplay })
+                    if (todo.isEmpty()) return@launch
+                    bridge.beginOutputEdit()
+                    for (c in todo) {
+                        if (bridge.deviceGeneration.value != generation) return@launch
+                        val st = try {
+                            c.apply(token)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: DangerousOpNotConfirmed) {
+                            // Never a plain "Failed to set" row (review S6), and never a crash of the
+                            // launched job (review-stalestate #1): an expiry mid-sequence asks again,
+                            // anything else is a programming error, logged and shown as such.
+                            _hardwareStatus.value = notConfirmed(c, token, e) to true
+                            return@launch
+                        } catch (e: Exception) {
+                            -1
+                        }
+                        if (st != 0) {
+                            _hardwareStatus.value = (c.statusText?.invoke(st) ?: "Failed to set ${c.fieldLabel}") to true
+                            return@launch
+                        }
+                    }
+                    val one = todo.singleOrNull()
+                    val text =
+                        successText ?: one?.successText
+                            ?: if (one != null) "${one.fieldLabel} set to ${one.newDisplay}" else "${todo.size} changes applied"
+                    _hardwareStatus.value = if (text.isEmpty()) null else text to false
                 }
-                val one = todo.singleOrNull()
-                val text =
-                    successText ?: one?.successText
-                        ?: if (one != null) "${one.fieldLabel} set to ${one.newDisplay}" else "${todo.size} changes applied"
-                _hardwareStatus.value = if (text.isEmpty()) null else text to false
             } finally {
                 bridge.dangerousOps.revoke(token)
             }
         }
+    }
+
+    /**
+     * Last line of defence for a hardware job (in production scopes, whose
+     * SupervisorJob lets a child's handler run): log and show, never crash.
+     */
+    private val hardwareGuard = CoroutineExceptionHandler { _, e ->
+        logError("hardware change failed", e)
+        _hardwareStatus.value = "Hardware change failed: ${e.message ?: e::class.simpleName}" to true
+    }
+
+    private fun notConfirmed(c: HardwareChange, token: ConfirmationToken, e: DangerousOpNotConfirmed): String {
+        if (!bridge.dangerousOps.isValid(token)) return CONFIRMATION_TIMED_OUT
+        logError("${c.fieldLabel}: hardware change refused by the confirmation gate", e)
+        return "${c.fieldLabel} not applied: confirmation refused (internal error)"
     }
 
     fun applyHardware(change: HardwareChange): Job? = applyHardware(listOf(change))
@@ -161,7 +237,7 @@ class SettingsSaveCoordinator(
     /** Edit a global field; marks the draft user-edited (macOS `draftBinding`). Works offline. */
     fun editGlobal(transform: (GlobalSettingsDraft) -> GlobalSettingsDraft) {
         storedDraft.value = transform(globalDraft())
-        _globalUserEdited.value = true
+        setUserEdited(true)
         _lastResult.value = null
     }
 
@@ -249,7 +325,7 @@ class SettingsSaveCoordinator(
                     val st = bridge.cs.save(csToken!!)
                     if (st != 0) messages += "Control surfaces: ${bridge.cs.statusMessage(st)}"
                 }
-                if (stillCurrent()) _globalUserEdited.value = false
+                if (stillCurrent()) setUserEdited(false)
                 return SaveResult(messages).also { _lastResult.value = it }
             } finally {
                 if (doCs) endCsOperation()
@@ -268,7 +344,7 @@ class SettingsSaveCoordinator(
      */
     suspend fun revert(token: ConfirmationToken?) {
         try {
-            if (globalDirty()) _globalUserEdited.value = false
+            if (globalDirty()) setUserEdited(false)
             _lastResult.value = null
             if (csDirty()) revertControlSurfaces()
             if (token != null && outputDirty()) bridge.revertOutputConfig(token)
@@ -328,7 +404,7 @@ class SettingsSaveCoordinator(
         val last = lastDeviceSerial
         lastDeviceSerial = serial
         if (last != null && last != serial) {
-            _globalUserEdited.value = false
+            setUserEdited(false)
             _lastResult.value = null
             _hardwareStatus.value = null
             _csStatus.value = null
@@ -336,6 +412,12 @@ class SettingsSaveCoordinator(
     }
 
     companion object {
+        const val CONFIRMATION_TIMED_OUT = "Not applied: the confirmation timed out. Pick again."
+
+        private fun logError(msg: String, e: Throwable) {
+            runCatching { Log.e("DspiSettings", msg, e) }
+        }
+
         /** One app bridge: a single slot, so a replaced bridge (tests) is not kept alive (review S17). */
         private var cached: Pair<WeakReference<DspiBridge>, SettingsSaveCoordinator>? = null
 

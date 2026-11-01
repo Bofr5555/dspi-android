@@ -4,7 +4,13 @@
 // and RtaChannelSelection (SpectrumAnalyserView.swift l.611).
 package se.bofr.dspi.feature.graph
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.ui.settings.AppSettings
 import se.bofr.dspi.ui.settings.RtaSpectrumView
@@ -73,4 +79,18 @@ class RtaChannelSelection(val tap: Int, channels: List<Int>) {
             return RtaChannelSelection(tap, chans)
         }
     }
+}
+
+/**
+ * The polled active-input count (status only; it never bumps stateRevision),
+ * observed: a key for anything built on `liveInputCount()` /
+ * `rta.availableChannels(INPUT)` (reviews/stale-state-audit.md G2).
+ */
+@Composable
+internal fun DspiBridge.observeLiveInputs(): Int {
+    val flow =
+        remember(this) {
+            status.map { it.activeInputChannels }.distinctUntilChanged()
+        }
+    return flow.collectAsStateWithLifecycle(status.value.activeInputChannels).value
 }

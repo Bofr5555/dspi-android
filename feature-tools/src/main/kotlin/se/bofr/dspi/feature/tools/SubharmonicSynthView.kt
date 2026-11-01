@@ -54,6 +54,7 @@ import kotlin.math.sqrt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.bridge.MaskField
 import se.bofr.dspi.core.DspiConstants
 import se.bofr.dspi.feature.tools.SubharmParameters.Companion.SUBHARM_BOOST_HZ
 import se.bofr.dspi.feature.tools.SubharmParameters.Companion.SUBHARM_BOOST_MAX
@@ -116,6 +117,8 @@ fun SubharmonicSynthView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val connected = status.connected
     val subharm = SubharmParameters.from(st)
     val outputCount = st.numOutputChannels
+    // Names are plain getters: read here, where `st` is observed, not inside the skippable column lambdas (audit T3).
+    val outputNames = (0 until outputCount).map { bridge.channelName(2 + it) }
     val supported = ToolFirmware.supportsSubharm(st.formatVersion)
     val extended = ToolFirmware.supportsSubharmExtended(st.formatVersion)
     val graphLive =
@@ -389,9 +392,11 @@ fun SubharmonicSynthView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                         ChannelChips(
                             count = outputCount,
                             isOn = { ToolMasks.isOn(subharm.outputMask, it) },
-                            names = (0 until outputCount).map { bridge.channelName(2 + it) },
+                            names = outputNames,
                             enabled = connected,
-                            onToggle = { setParam(DspiConstants.SUBHARM_PARAM_MASK, ToolMasks.toggled(subharm.outputMask, it).toFloat()) },
+                            onToggle = {
+                                bridge.toggleMaskBit(MaskField.SUBHARM_OUTPUTS, it, SubharmParameters.SUBHARM_DEFAULT_OUTPUT_MASK)
+                            },
                             below = if (extended) {
                                 { out, on ->
                                     LevelBar(
