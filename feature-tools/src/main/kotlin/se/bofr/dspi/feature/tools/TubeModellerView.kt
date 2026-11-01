@@ -6,7 +6,6 @@
 // follows the loudest routed output from the status peaks (bridge.status).
 package se.bofr.dspi.feature.tools
 
-import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,7 +47,6 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
@@ -82,6 +80,7 @@ import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_XFMR_DAMPING_MAX
 import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_XFMR_DAMPING_MIN
 import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_XFMR_RES_MAX
 import se.bofr.dspi.feature.tools.TubeParameters.Companion.TUBE_XFMR_RES_MIN
+import se.bofr.dspi.ui.settings.LocalAppSettings
 
 // MARK: - Shaper Model
 
@@ -165,9 +164,6 @@ data class TubeShaper(
     }
 }
 
-private const val PREFS = "dspi_tools"
-private const val KEY_ADVANCED = "tubeModellerAdvanced"
-
 /**
  * TubeModellerView: Basic (showcase | TUBE shelf, Drive/Mix, OUTPUTS) or
  * Advanced (TRANSFER CURVE, STAGE, OUTPUTS | CHARACTER, OUTPUT STAGE).
@@ -180,10 +176,9 @@ fun TubeModellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
     val tube = TubeParameters.from(st)
     val outputCount = st.numOutputChannels
     val supported = ToolFirmware.supportsTube(st.formatVersion)
-    val context = LocalContext.current
-    val prefs = remember(context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
-    // Basic shows the tube and the two controls most people need; remembered across launches.
-    var advanced by remember { mutableStateOf(runCatching { prefs.getBoolean(KEY_ADVANCED, false) }.getOrDefault(false)) }
+    val appSettings = LocalAppSettings.current
+    // Basic shows the tube and the two controls most people need; remembered across launches (@AppStorage "tubeModellerAdvanced").
+    val advanced = appSettings.settings.collectAsState().value.tubeModellerAdvanced
     // What the transfer graph follows during a drag: the committed shaper with one parameter replaced.
     var liveShaper by remember { mutableStateOf<TubeShaper?>(null) }
     val base = tube.shaper()
@@ -277,10 +272,7 @@ fun TubeModellerView(bridge: DspiBridge, modifier: Modifier = Modifier) {
                     listOf(0, 1),
                     if (advanced) 1 else 0,
                     true,
-                    { v ->
-                        advanced = v == 1
-                        runCatching { prefs.edit().putBoolean(KEY_ADVANCED, advanced).apply() }
-                    },
+                    { v -> appSettings.update { it.copy(tubeModellerAdvanced = v == 1) } },
                     Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)
                 )
                 if (!advanced) {
