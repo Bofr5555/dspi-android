@@ -6,6 +6,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.ui.settings.AppSettings
 
 class SpectrumAnalyserTest {
     private val out = DspiConstants.RTA_TAP_OUTPUT
@@ -113,18 +114,15 @@ class SpectrumAnalyserTest {
 
     @Test
     fun preferencesReadTheMacKeys() {
-        assertEquals(RtaPreferences(), rtaPreferencesFrom { null })
-        val store =
-            InMemoryRtaSettingsStore(
-                mutableMapOf(
-                    "rtaFloorDB" to -120.0,
-                    "rtaSmoothingOn" to false,
-                    "rtaBarColumns" to 3,
-                    "rtaFftOrder" to 12,
-                    "rtaDashboardShowBars" to true
-                )
-            )
-        val p = store.load()
+        assertEquals(RtaPreferences(), AppSettings().rtaPreferences())
+        val p =
+            AppSettings(
+                rtaFloorDB = -120.0,
+                rtaSmoothingOn = false,
+                rtaBarColumns = 3,
+                rtaFftOrder = 12,
+                rtaDashboardShowBars = true
+            ).rtaPreferences()
         assertEquals(-120.0, p.floorDb, 0.0)
         assertEquals(0.0, p.smoothing, 0.0)
         assertEquals(3, p.barColumns)
@@ -132,8 +130,7 @@ class SpectrumAnalyserTest {
         assertEquals(RtaDisplayMode.BOTH, rtaInitialMode(p.dashboardShowGraph, p.dashboardShowBars))
         assertEquals(RtaDisplayMode.CURVES, rtaInitialMode(RtaPreferences().dashboardShowGraph, RtaPreferences().dashboardShowBars))
         assertEquals(RtaDisplayMode.BARS, rtaInitialMode(false, true))
-        store.putString(RtaSettingsKeys.DASHBOARD_SOURCE, "out:0,2")
-        assertEquals(RtaChannelSelection.of(out, listOf(0, 2)), RtaChannelSelection.fromStorageKey(store.string("rtaDashboardSource")))
+        assertEquals(RtaChannelSelection.of(out, listOf(0, 2)), RtaChannelSelection.fromStorageKey("out:0,2"))
     }
 
     @Test
