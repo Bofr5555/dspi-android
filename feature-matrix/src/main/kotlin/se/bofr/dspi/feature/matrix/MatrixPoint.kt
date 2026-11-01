@@ -74,7 +74,15 @@ fun MatrixPoint(
 ) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         if (isConnected) {
-            CompactGainField(gain, onGainLive, onGainCommit, enabled = enabled, title = "Gain", modifier = Modifier.padding(top = 6.dp))
+            CompactGainField(
+                gain,
+                onGainLive,
+                onGainCommit,
+                enabled = enabled,
+                title = "Gain",
+                quantized = false,
+                modifier = Modifier.padding(top = 6.dp)
+            )
         } else {
             Spacer(Modifier.height(22.dp))
         }

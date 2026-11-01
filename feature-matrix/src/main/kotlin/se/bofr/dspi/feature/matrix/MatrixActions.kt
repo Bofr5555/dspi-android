@@ -3,21 +3,42 @@
 // commitRename, the alert's switchToPDM/switchFromPDM, the header menu) and
 // `Commands.swift` setOutputEnable/applyDirectRouting/clearAllRoutes @ v1.1.6-beta5,
 // driving DSPi-Console-Linux's bridge calls as qt/qml/MatrixMixerWindow.qml does
-// (setMatrixRoute, setOutput*, directRouting, clearRouting,
-// enableOutputResolvingConflict) @ 4683a2c.
+// (setMatrixRoute, setOutput*, directRouting, clearRouting) @ 4683a2c.
 package se.bofr.dspi.feature.matrix
 
+import java.util.WeakHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.Throttle
 
 /**
- * What the matrix UI does to the device. Live drags go through one [Throttle]
- * per control (first value at once, then the latest every 30 ms, `sendOnly`
- * where the bridge has it); the release cancels the throttle and commits once.
+ * The matrix screen's controller: what the UI does to the device, plus the
+ * open alert/dialog state (decision E9: device sequences and open alerts
+ * survive configuration changes, so this lives as long as the bridge — see
+ * [forBridge] — and never in a composition scope).
+ *
+ * Live drags go through one [Throttle] per control (first value at once, then
+ * the latest every 30 ms, `sendOnly` where the bridge has it); the release
+ * cancels the throttle and commits once.
+ *
+ * [isOverviewMode]: macOS `DSPViewModel.isOverviewMode` (graph showing the
+ * dashboard rather than one channel page). Graph visibility follows ENABLE
+ * only in overview mode, as Commands.swift setOutputEnable does. Nothing
+ * exposes that mode to features yet, so it defaults to "not known" = false
+ * and the matrix leaves graph visibility alone (contract request in the
+ * package report).
  */
-class MatrixActions(private val bridge: DspiBridge, private val scope: CoroutineScope) {
+class MatrixActions(
+    private val bridge: DspiBridge,
+    private val scope: CoroutineScope,
+    private val isOverviewMode: () -> Boolean = { false }
+) {
     private val throttles = HashMap<String, Throttle<Float>>()
     private val routeThrottles = HashMap<Long, Throttle<MatrixRoute>>()
 
@@ -36,9 +57,10 @@ class MatrixActions(private val bridge: DspiBridge, private val scope: Coroutine
         bridge.setMatrixRoute(row, col, route.isConnected, route.gain, !route.isInverted)
 
     /**
-     * matrixGainBinding during a drag. The contract's `setMatrixRoute` has no
-     * sendOnly flag, so live values are throttled full writes
-     * (contract change request in the package report).
+     * matrixGainBinding during a drag.
+     * TODO(E4): switch to `setMatrixRoute(..., sendOnly = true)` once the
+     * coordinator's contract batch lands; until then live values are
+     * throttled full writes.
      */
     fun matrixGainLive(row: Int, col: Int, route: MatrixRoute, db: Float) = routeThrottles
         .getOrPut(routeKey(row, col)) {
@@ -85,26 +107,72 @@ class MatrixActions(private val bridge: DspiBridge, private val scope: Coroutine
 
     fun setOutputMute(output: Int, muted: Boolean) = bridge.setOutputMute(output, muted)
 
-    /**
-     * Commands.swift setOutputEnable: the output, then (macOS overview mode)
-     * its graph visibility follows the enable state.
-     */
+    /** ENABLE tapped without a conflict (macOS requestOutputEnable -> vm.setOutputEnable). */
     fun setOutputEnable(output: Int, enabled: Boolean) {
-        scope.launch {
-            bridge.setOutputEnable(output, enabled)
-            bridge.setChannelVisible(output + 2, enabled)
-        }
+        scope.launch { outputEnable(output, enabled) }
     }
 
     /**
-     * The alert's primary button (macOS switchToPDM / switchFromPDM): switch
-     * Core 1 to [output]'s side, disabling the outputs on the other side.
+     * Commands.swift setOutputEnable: the output, then — in overview mode and
+     * only if the device took it — its graph visibility follows.
      */
-    fun resolveConflict(conflict: PendingConflict) {
-        val off = bridge.core1ConflictOutputs(conflict.output)
-        bridge.enableOutputResolvingConflict(conflict.output)
-        for (o in off) bridge.setChannelVisible(o + 2, false)
-        bridge.setChannelVisible(conflict.output + 2, true)
+    private suspend fun outputEnable(output: Int, enabled: Boolean): Boolean {
+        val ok = bridge.setOutputEnable(output, enabled)
+        if (ok && isOverviewMode()) bridge.setChannelVisible(output + 2, enabled)
+        return ok
+    }
+
+    // ═══ PDM conflict alert (state survives rotation, E9) ═══
+
+    private val _pendingConflict = MutableStateFlow<PendingConflict?>(null)
+
+    /** macOS `@State pendingConflict`: the open "Warning" alert, if any. */
+    val pendingConflict: StateFlow<PendingConflict?> = _pendingConflict.asStateFlow()
+
+    /** macOS requestOutputEnable: disable at once, enable directly or ask first. */
+    fun requestOutputEnable(state: MatrixMixerState, output: Int) {
+        when (val a = state.requestOutputEnable(output)) {
+            is EnableAction.Set -> setOutputEnable(output, a.enabled)
+            is EnableAction.Confirm -> _pendingConflict.value = a.conflict
+        }
+    }
+
+    fun dismissConflict() {
+        _pendingConflict.value = null
+    }
+
+    /**
+     * The alert's primary button: macOS switchToPDM (every EQ-worker output
+     * off, then PDM on) or switchFromPDM (PDM off, then [PendingConflict.output]
+     * on). Each step is a confirmed setOutputEnable; the bridge's snapshot
+     * after each call is the macOS read-back.
+     */
+    fun resolveConflict(conflict: PendingConflict, eqWorkerRange: IntRange, pdmOutputIndex: Int) {
+        _pendingConflict.value = null
+        scope.launch {
+            if (conflict.isPDM) {
+                for (i in eqWorkerRange) outputEnable(i, false)
+                outputEnable(pdmOutputIndex, true)
+            } else {
+                outputEnable(pdmOutputIndex, false)
+                outputEnable(conflict.output, true)
+            }
+        }
+    }
+
+    // ═══ Rename dialog (state survives rotation, E9) ═══
+
+    private val _renamingOutput = MutableStateFlow<Int?>(null)
+
+    /** macOS `@State renamingOutput`. */
+    val renamingOutput: StateFlow<Int?> = _renamingOutput.asStateFlow()
+
+    fun startRename(output: Int) {
+        _renamingOutput.value = output
+    }
+
+    fun cancelRename() {
+        _renamingOutput.value = null
     }
 
     // ═══ ROUTING band (8-channel) ═══
@@ -119,6 +187,7 @@ class MatrixActions(private val bridge: DspiBridge, private val scope: Coroutine
 
     /** macOS commitRename: trimmed; an empty name is ignored. */
     fun commitRename(output: Int, text: String) {
+        _renamingOutput.value = null
         val trimmed = text.trim()
         if (trimmed.isNotEmpty()) bridge.setChannelName(output + 2, trimmed)
     }
@@ -138,6 +207,17 @@ class MatrixActions(private val bridge: DspiBridge, private val scope: Coroutine
 
     companion object {
         const val THROTTLE_MS = 30L
+
+        private val controllers = WeakHashMap<DspiBridge, MatrixActions>()
+
+        /**
+         * The app-scoped controller for [bridge] (one per bridge, as long as
+         * the bridge lives): its scope outlives the screen, so a rotation
+         * never cuts a multi-call sequence short. Main thread only.
+         */
+        fun forBridge(bridge: DspiBridge): MatrixActions = controllers.getOrPut(bridge) {
+            MatrixActions(bridge, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
+        }
 
         /** README: "Names can be up to 31 characters". */
         const val MAX_NAME_LENGTH = 31

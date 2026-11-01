@@ -155,13 +155,17 @@ Reference: macOS `MatrixMixerView.swift` (+ the matrix helpers of
 2. **Compact fields on touch.** macOS: click to type, plain scroll wheel to
    adjust. Here: tap opens a small editor (unit optional, a decimal comma is
    accepted; non-numbers are ignored as on macOS); long-press then drag
-   (up/right = more) replaces the scroll wheel: 0.1 dB per 3 dp, delay 1 ms
-   per 4 dp. Drags are live through `Throttle` (30 ms) and commit once on
-   release: output gain via `sendOutputGainToDevice` → `setOutputGain`,
-   delay via `sendOutputDelayToDevice` → `setOutputDelay`, input trim via
-   `setInputPreamp(sendOnly = true)` → `sendOnly = false`. Crosspoint gain has
-   no sendOnly in the contract (`setMatrixRoute`), so its live values are
-   throttled full writes and the release writes once more.
+   (up/right = more) replaces the scroll wheel at 0.1 dB per 3 dp (delay
+   1 ms per 4 dp). Crosspoint gain moves unquantised, like the macOS wheel
+   (the core quantises on the wire); output gain and input trim snap to
+   0.1 dB, which the Swift setters round to anyway. Drags are live through
+   `Throttle` (30 ms) and commit once on release: output gain via
+   `sendOutputGainToDevice` → `setOutputGain`, delay via
+   `sendOutputDelayToDevice` → `setOutputDelay`, input trim via
+   `setInputPreamp(sendOnly = true)` → `sendOnly = false`. Crosspoint gain
+   has no sendOnly in the contract yet (E4), so its live values are
+   throttled full `setMatrixRoute` writes and the release writes once more
+   (TODO in `MatrixActions.matrixGainLive`).
 3. **Rounding as macOS:** output gain 0.1 dB, output delay whole ms
    (README: "Applied in whole milliseconds"); delay max 42 ms (RP2040) /
    85 ms (RP2350) as `CompactDelayField(maxDelay:)`. Gain fields −60…+12 dB.
@@ -179,10 +183,22 @@ Reference: macOS `MatrixMixerView.swift` (+ the matrix helpers of
    format; Android has no equivalent, so the device-reported active input
    count is used (macOS's own fallback, Qt's behaviour). S/PDIF, I2S and ADAT
    follow macOS `effectiveInputChannels`.
-7. **PDM conflict.** Same alert text and buttons; the confirm calls the
-   bridge's `enableOutputResolvingConflict` (one batch on the FFI thread)
-   instead of macOS's switchToPDM/switchFromPDM + read-backs. Graph
-   visibility follows ENABLE and the conflict switch as macOS overview mode
-   does (`setChannelVisible`); Direct 1:1 leaves visibility alone.
+7. **PDM conflict and graph visibility.** Same alert text and buttons; the
+   confirm runs macOS switchToPDM (every EQ-worker output off, then PDM on)
+   or switchFromPDM (PDM off, then the output on) as confirmed
+   `setOutputEnable` calls; the bridge's snapshot after each call stands in
+   for the macOS read-backs. As Commands.swift setOutputEnable, graph
+   visibility follows ENABLE only in the graph's overview mode, and only
+   when the device accepted the change. No component exposes overview mode
+   to features yet, so the matrix currently never touches visibility
+   (`MatrixActions(isOverviewMode = …)` is the hook). Direct 1:1 visibility
+   is the bridge's (E5).
 8. **Icons** ("power", speaker) are drawn locally (no icon library in the
    build); disabled crosspoints are greyed (macOS `.saturation(0)`) and dimmed.
+9. **Lifecycle (E9).** The screen's controller (`MatrixActions.forBridge`)
+   lives as long as the bridge on an app scope: enable/conflict sequences,
+   the open "Warning" alert and the rename dialog survive rotation. Typed
+   text in the dialogs is saved across rotation.
+10. **8-channel extras** (Direct 1:1, Clear, input trims) need RP2350, the
+    client's exact wire format (`WIRE_FORMAT_VERSION`) and 8 inputs, as macOS
+    `supports8chInput`.

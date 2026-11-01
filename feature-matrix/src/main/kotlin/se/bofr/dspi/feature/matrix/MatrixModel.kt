@@ -139,7 +139,7 @@ data class MatrixMixerState(
             return MatrixMixerState(
                 platformName = platform,
                 connected = connected,
-                is8ch = supports8chInput(platform, numIn),
+                is8ch = supports8chInput(platform, numIn, s.formatVersion),
                 numMatrixInputs = eff,
                 visibleOutputs = outs,
                 matrixInputs = inputs,
@@ -199,9 +199,13 @@ const val INPUT_SOURCE_SPDIF4 = 6
 internal val INPUT_PALETTE = listOf("#4A8FE3", "#F57373", "#73C78C", "#EDB34D", "#998CEB", "#E68CC7", "#66C7D1", "#CCB86B")
 internal const val ACCENT = "#0A84FF"
 
-/** macOS `supports8chInput` (the wire-version check is the bridge's compat gate). */
-fun supports8chInput(platformName: String, numInputChannels: Int): Boolean =
-    platformName == "RP2350" && numInputChannels == MAX_MATRIX_INPUTS
+/**
+ * macOS `supports8chInput`: RP2350, firmware wire format == the client's
+ * (`WIRE_FORMAT_VERSION`), and 8 inputs reported.
+ */
+fun supports8chInput(platformName: String, numInputChannels: Int, wireFormatVersion: Int): Boolean = platformName == "RP2350" &&
+    wireFormatVersion == DspiConstants.WIRE_FORMAT_VERSION &&
+    numInputChannels == MAX_MATRIX_INPUTS
 
 /** macOS `chOut1`: 2 on RP2040, 8 on RP2350. */
 fun chOut1(platformName: String): Int = if (platformName == "RP2040") BASE_MATRIX_INPUTS else MAX_MATRIX_INPUTS

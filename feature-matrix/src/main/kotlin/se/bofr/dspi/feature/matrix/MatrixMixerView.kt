@@ -45,12 +45,12 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,9 +92,8 @@ fun MatrixMixerView(bridge: DspiBridge, onNavigate: (String) -> Unit, onBack: ()
     val siggenCaps by bridge.siggen.caps.collectAsStateWithLifecycle()
     val siggenSupported = siggenCaps?.supported == true
     val state = remember(bridge, rev, active, connected) { MatrixMixerState.from(bridge, active, connected) }
-    val scope = rememberCoroutineScope()
-    val actions = remember(bridge, scope) { MatrixActions(bridge, scope) }
-    DisposableEffect(actions) { onDispose { actions.cancelAll() } }
+    // App-scoped controller (E9): sequences and open alerts survive rotation.
+    val actions = remember(bridge) { MatrixActions.forBridge(bridge) }
 
     MatrixMixerContent(state, actions, siggenSupported, onBack, modifier)
 }
@@ -109,20 +108,15 @@ fun MatrixMixerContent(
     modifier: Modifier = Modifier,
     forceGrid: Boolean? = null
 ) {
-    var pendingConflict by remember { mutableStateOf<PendingConflict?>(null) }
-    var renamingOutput by remember { mutableStateOf<Int?>(null) }
+    val pendingConflict by actions.pendingConflict.collectAsStateWithLifecycle()
+    val renamingOutput by actions.renamingOutput.collectAsStateWithLifecycle()
     val ui =
         MatrixUi(
             state = state,
             actions = actions,
             siggenSupported = siggenSupported,
-            requestOutputEnable = { o ->
-                when (val a = state.requestOutputEnable(o)) {
-                    is EnableAction.Set -> actions.setOutputEnable(o, a.enabled)
-                    is EnableAction.Confirm -> pendingConflict = a.conflict
-                }
-            },
-            startRename = { renamingOutput = it }
+            requestOutputEnable = { o -> actions.requestOutputEnable(state, o) },
+            startRename = actions::startRename
         )
 
     Column(modifier.fillMaxSize()) {
@@ -138,26 +132,22 @@ fun MatrixMixerContent(
     pendingConflict?.let { conflict ->
         val alert = state.conflictAlert(conflict)
         AlertDialog(
-            onDismissRequest = { pendingConflict = null },
+            onDismissRequest = actions::dismissConflict,
             title = { Text(alert.title) },
             text = { Text(alert.message) },
             confirmButton = {
                 TextButton(onClick = {
-                    pendingConflict = null
-                    actions.resolveConflict(conflict)
+                    actions.resolveConflict(conflict, state.eqWorkerRange, state.pdmOutputIndex)
                 }) { Text(alert.confirm) }
             },
-            dismissButton = { TextButton(onClick = { pendingConflict = null }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = actions::dismissConflict) { Text("Cancel") } }
         )
     }
     renamingOutput?.let { idx ->
         RenameDialog(
             initial = state.visibleOutputs.getOrNull(idx)?.name.orEmpty(),
-            onDismiss = { renamingOutput = null },
-            onCommit = {
-                renamingOutput = null
-                actions.commitRename(idx, it)
-            }
+            onDismiss = actions::cancelRename,
+            onCommit = { actions.commitRename(idx, it) }
         )
     }
 }
@@ -333,7 +323,9 @@ private fun conflictOutline(s: MatrixMixerState, outIndex: Int): Color? =
 
 @Composable
 private fun RenameDialog(initial: String, onDismiss: () -> Unit, onCommit: (String) -> Unit) {
-    var text by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length))) }
+    var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length)))
+    }
     val focus = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -588,7 +580,8 @@ private fun PhoneRouteRow(ui: MatrixUi, row: MatrixInput, out: MatrixOutput) {
                         gain = route.gain,
                         onLive = { ui.actions.matrixGainLive(row.index, out.index, route, it) },
                         onCommit = { ui.actions.matrixGainCommit(row.index, out.index, route, it) },
-                        title = "${row.name} → ${out.name}"
+                        title = "${row.name} → ${out.name}",
+                        quantized = false
                     )
                 }
             }

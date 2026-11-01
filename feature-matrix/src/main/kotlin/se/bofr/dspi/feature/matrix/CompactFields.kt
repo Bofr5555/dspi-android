@@ -33,6 +33,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -121,14 +122,20 @@ fun roundOutputDelay(ms: Float): Float {
 
 /**
  * Value after dragging [dragDp] dp (positive = up/right) from [start].
- * Gain: 0.1 dB per [GAIN_DP_PER_STEP] dp, snapped to 0.1 dB. Delay: 1 ms per
+ * Gain: 0.1 dB per [GAIN_DP_PER_STEP] dp (snapped to 0.1 dB unless unquantised). Delay: 1 ms per
  * [DELAY_DP_PER_STEP] dp, snapped to whole ms (what the device applies).
  */
 object CompactDrag {
     const val GAIN_DP_PER_STEP = 3f
     const val DELAY_DP_PER_STEP = 4f
 
-    fun gain(start: Float, dragDp: Float, min: Float = COMPACT_GAIN_MIN, max: Float = COMPACT_GAIN_MAX): Float {
+    /**
+     * [quantized]: snap to 0.1 dB (output gain and input trim, which the
+     * Swift setters round). Crosspoint gain stays unquantised like the macOS
+     * scroll wheel (`gain + delta`); the core quantises on the wire.
+     */
+    fun gain(start: Float, dragDp: Float, min: Float = COMPACT_GAIN_MIN, max: Float = COMPACT_GAIN_MAX, quantized: Boolean = true): Float {
+        if (!quantized) return (start + dragDp / GAIN_DP_PER_STEP * 0.1f).coerceIn(min, max)
         val steps = roundHalfAwayFromZero(dragDp / GAIN_DP_PER_STEP)
         val v = roundHalfAwayFromZero((start + steps * 0.1f) * 10f) / 10f
         return (if (v == 0f) 0f else v).coerceIn(min, max)
@@ -154,7 +161,8 @@ fun CompactGainField(
     modifier: Modifier = Modifier,
     width: Dp = 62.dp,
     enabled: Boolean = true,
-    title: String = "Gain"
+    title: String = "Gain",
+    quantized: Boolean = true
 ) {
     CompactValueField(
         signed = true,
@@ -162,7 +170,7 @@ fun CompactGainField(
         display = ::compactGainDisplay,
         editText = ::compactGainEditText,
         parse = ::parseCompactGain,
-        drag = { start, dp -> CompactDrag.gain(start, dp) },
+        drag = { start, dp -> CompactDrag.gain(start, dp, quantized = quantized) },
         onLive = onLive,
         onCommit = onCommit,
         modifier = modifier,
@@ -221,7 +229,7 @@ private fun CompactValueField(
     val density = LocalDensity.current
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(value) }
-    var editing by remember { mutableStateOf(false) }
+    var editing by rememberSaveable { mutableStateOf(false) }
     val current by rememberUpdatedState(value)
     val live by rememberUpdatedState(onLive)
     val commit by rememberUpdatedState(onCommit)
@@ -310,7 +318,9 @@ internal fun CompactValueEditor(
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit
 ) {
-    var text by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length))) }
+    var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length)))
+    }
     val focus = remember { FocusRequester() }
     AlertDialog(
         onDismissRequest = onDismiss,

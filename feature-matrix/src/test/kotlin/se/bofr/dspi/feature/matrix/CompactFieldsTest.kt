@@ -71,6 +71,9 @@ class CompactFieldsTest {
         assertEquals(-7f, CompactDrag.gain(-6f, -30f), 1e-6f)
         assertEquals(12f, CompactDrag.gain(11f, 3000f), 0f)
         assertEquals(-60f, CompactDrag.gain(-59f, -3000f), 0f)
+        // crosspoint gain: unquantised like the macOS scroll wheel
+        assertEquals(-5.95f, CompactDrag.gain(-6f, 1.5f, quantized = false), 1e-6f)
+        assertEquals(12f, CompactDrag.gain(11f, 3000f, quantized = false), 0f)
         // 1 ms per 4 dp, whole ms
         assertEquals(15f, CompactDrag.delay(10f, 20f, 85f), 0f)
         assertEquals(0f, CompactDrag.delay(1f, -40f, 85f), 0f)

@@ -4,14 +4,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import se.bofr.dspi.core.DspiConstants
 
 /** macOS DSPViewModel matrix helpers and MatrixMixerView reducers. */
 class MatrixModelTest {
     @Test
-    fun supports8chInputOnlyOnRp2350WithEightInputs() {
-        assertTrue(supports8chInput("RP2350", 8))
-        assertFalse(supports8chInput("RP2350", 2))
-        assertFalse(supports8chInput("RP2040", 2))
+    fun supports8chInputOnlyOnRp2350WithEightInputsAndTheClientsWireFormat() {
+        val v = DspiConstants.WIRE_FORMAT_VERSION
+        assertTrue(supports8chInput("RP2350", 8, v))
+        assertFalse(supports8chInput("RP2350", 8, v - 1))
+        assertFalse(supports8chInput("RP2350", 2, v))
+        assertFalse(supports8chInput("RP2040", 2, v))
     }
 
     @Test

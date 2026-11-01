@@ -19,13 +19,13 @@ import se.bofr.dspi.fake.FakeDspiCore
 class MatrixActionsTest {
     private class Rig(val core: FakeDspiCore, val bridge: DspiBridgeImpl, val actions: MatrixActions)
 
-    private suspend fun TestScope.rig(): Rig {
+    private suspend fun TestScope.rig(overview: Boolean = false): Rig {
         val core = FakeDspiCore.seeded()
         val d = StandardTestDispatcher(testScheduler)
         val bridge = DspiBridgeImpl(core, backgroundScope, ffi = d, main = d, clock = { testScheduler.currentTime })
         bridge.attachDevice(42, core.serial, DspiConstants.VENDOR_ID)
         runCurrent()
-        val actions = MatrixActions(bridge, backgroundScope)
+        val actions = MatrixActions(bridge, backgroundScope, isOverviewMode = { overview })
         core.calls.clear()
         return Rig(core, bridge, actions)
     }
@@ -138,20 +138,77 @@ class MatrixActionsTest {
     }
 
     @Test
-    fun enableAndPdmConflictResolution() = runTest {
-        val r = rig()
+    fun enableOutsideOverviewModeLeavesGraphVisibilityAlone() = runTest {
+        val r = rig(overview = false)
+        val before = r.bridge.channelVisible(4)
+        r.actions.setOutputEnable(2, !r.bridge.outputEnabled(2))
+        runCurrent()
+        assertEquals(before, r.bridge.channelVisible(4))
+    }
+
+    @Test
+    fun enableInOverviewModeFollowsOnlyWhenTheDeviceTookIt() = runTest {
+        val r = rig(overview = true)
         r.actions.setOutputEnable(2, true)
         runCurrent()
         assertTrue(r.bridge.outputEnabled(2))
         assertTrue(r.bridge.channelVisible(4))
-        val s = MatrixMixerState.from(r.bridge, 2, true)
-        val action = s.requestOutputEnable(8)
-        assertEquals(EnableAction.Confirm(PendingConflict(8, true)), action)
-        r.actions.resolveConflict((action as EnableAction.Confirm).conflict)
+        // PDM on while OUT3 runs on Core 1: the device refuses, visibility stays
+        r.bridge.setChannelVisible(10, false)
+        r.actions.setOutputEnable(8, true)
         runCurrent()
+        assertFalse(r.bridge.outputEnabled(8))
+        assertFalse(r.bridge.channelVisible(10))
+    }
+
+    @Test
+    fun pdmConflictAlertAndSwitchToPdm() = runTest {
+        val r = rig(overview = true)
+        r.actions.setOutputEnable(2, true)
+        runCurrent()
+        val s = MatrixMixerState.from(r.bridge, 2, true)
+        r.actions.requestOutputEnable(s, 8)
+        assertEquals(PendingConflict(8, true), r.actions.pendingConflict.value)
+        r.core.calls.clear()
+        r.actions.resolveConflict(r.actions.pendingConflict.value!!, s.eqWorkerRange, s.pdmOutputIndex)
+        assertEquals(null, r.actions.pendingConflict.value)
+        runCurrent()
+        // macOS switchToPDM: every EQ-worker output off, then PDM on
+        assertEquals((2..7).map { "setOutputEnable($it, false)" } + "setOutputEnable(8, true)", r.calls("setOutputEnable"))
         assertTrue(r.bridge.outputEnabled(8))
         assertFalse(r.bridge.outputEnabled(2))
         assertTrue(r.bridge.outputEnabled(0))
+        assertFalse(r.bridge.channelVisible(4))
+        assertTrue(r.bridge.channelVisible(10))
+    }
+
+    @Test
+    fun switchFromPdm() = runTest {
+        val r = rig()
+        r.actions.setOutputEnable(8, true)
+        runCurrent()
+        assertTrue(r.bridge.outputEnabled(8))
+        val s = MatrixMixerState.from(r.bridge, 2, true)
+        r.actions.requestOutputEnable(s, 4)
+        assertEquals(PendingConflict(4, false), r.actions.pendingConflict.value)
+        r.core.calls.clear()
+        r.actions.resolveConflict(PendingConflict(4, false), s.eqWorkerRange, s.pdmOutputIndex)
+        runCurrent()
+        assertEquals(listOf("setOutputEnable(8, false)", "setOutputEnable(4, true)"), r.calls("setOutputEnable"))
+        assertTrue(r.bridge.outputEnabled(4))
+        assertFalse(r.bridge.outputEnabled(8))
+    }
+
+    @Test
+    fun dismissAndRenameStateLiveInTheController() = runTest {
+        val r = rig()
+        val s = MatrixMixerState.from(r.bridge, 2, true)
+        r.actions.requestOutputEnable(s, 0) // enabled -> disable at once, no alert
+        assertEquals(null, r.actions.pendingConflict.value)
+        r.actions.startRename(3)
+        assertEquals(3, r.actions.renamingOutput.value)
+        r.actions.cancelRename()
+        assertEquals(null, r.actions.renamingOutput.value)
     }
 
     @Test
@@ -170,7 +227,9 @@ class MatrixActionsTest {
     @Test
     fun renameTrimsAndIgnoresEmpty() = runTest {
         val r = rig()
+        r.actions.startRename(0)
         r.actions.commitRename(0, "   ")
+        assertEquals(null, r.actions.renamingOutput.value)
         r.actions.commitRename(0, "  Left Tweeter ")
         runCurrent()
         assertEquals(1, r.calls("setChannelName").size)
