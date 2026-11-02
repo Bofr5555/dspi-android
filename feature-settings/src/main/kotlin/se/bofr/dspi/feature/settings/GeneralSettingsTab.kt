@@ -1,6 +1,8 @@
 // Port of DSPi-Console-b5:DSPi Console/DSPi_ConsoleApp.swift `GeneralSettingsTab` ("About").
+// Android additions: the port credit and the Licence section (LicensesView, NOTICE.md).
 package se.bofr.dspi.feature.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,7 +11,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,8 +33,25 @@ internal val SUPPORT_LINKS = listOf(
     Triple("Ko-fi", "https://ko-fi.com/weeblabs", Color(0xFF719EBC))
 )
 
+/** The About page's own sub-pages: null = About, [LICENSES] = overview, else a bundled text's asset name. */
+private const val LICENSES = "licenses"
+
 @Composable
 fun GeneralSettingsTab() {
+    var page by rememberSaveable { mutableStateOf<String?>(null) }
+    BackHandler(enabled = page != null) { page = if (page == LICENSES) null else LICENSES }
+    when (val p = page) {
+        null -> AboutPage(onOpenLicenses = { page = LICENSES })
+        LICENSES -> LicensesView(onOpenText = { page = it.asset })
+        else -> {
+            val text = (THIRD_PARTY.mapNotNull { it.text } + GPL3).firstOrNull { it.asset == p }
+            if (text == null) page = LICENSES else LicenseTextView(text, onBack = { page = LICENSES })
+        }
+    }
+}
+
+@Composable
+private fun AboutPage(onOpenLicenses: () -> Unit) {
     val context = LocalContext.current
     val uri = LocalUriHandler.current
     val version = remember {
@@ -57,6 +80,11 @@ fun GeneralSettingsTab() {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Text(
+                            "Android port by Bofr5555",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -72,6 +100,12 @@ fun GeneralSettingsTab() {
                         Text("●", color = color)
                     }
                 }
+            }
+        }
+        item {
+            SettingsSection("Licence") {
+                SettingRow("Licences", "GPL-3.0 with additional terms · third-party notices", onClick = onOpenLicenses)
+                SettingRow("Source code", APP_SOURCE_URL, onClick = { runCatching { uri.openUri(APP_SOURCE_URL) } })
             }
         }
     }

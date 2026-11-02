@@ -8,44 +8,33 @@ done by an agent.
 Checked 2026-11-01. Play policies change; re-check the linked pages before
 each step.
 
-## 0. Before anything else: the blockers
+## 0. Licensing and name: status
 
-Do not make the app public until all three are settled. Internal testing
-(step 6) is fine before that, because it is not public distribution.
+Settled with Weeb Labs (2026-11-02): the app may be published; the
+DSPi-Console-Linux core and the consoles are MIT per the author (the core's
+LICENSE file is still pending upstream — keep the written OK until it lands;
+GitHub currently shows the macOS DSPi-Console repo as GPL-3.0, which the app
+satisfies either way).
 
-1. **The core has no licence.** The Rust core comes from
-   `third_party/DSPi-Console-Linux` (https://github.com/WeebLabs/DSPi-Console-Linux).
-   That repository has no LICENSE file; its Arch package says
-   `license=('unknown')`. With no licence, all rights are reserved and you
-   need the author's permission to distribute a binary built from it. **Ask
-   WeebLabs** for permission, or better, ask them to add a licence (GPL-3.0
-   would match their other repositories).
-2. **GPL-3.0 obligations.** The app bundles the official DSPi firmware UF2s
-   (WeebLabs/DSPi, GPL-3.0) and the AutoEQ database taken from the macOS client
-   repository (WeebLabs/DSPi-Console, GPL-3.0; the AutoEQ data itself is MIT,
-   jaakkopasanen/AutoEq). Large parts of the UI are ports of the GPL-3.0 macOS
-   client (`docs/PORT-MAP.md`), so the app as a whole should be treated as
-   GPL-3.0 too. Shipping on Play is compatible with the GPL, but you must:
-   - publish the app's complete source under GPL-3.0 (this repository is
-     private today; a public mirror of the released tag is enough) and add a
-     LICENSE file;
-   - for the firmware, point to its corresponding source: the
-     `v1.1.6-beta5` tag of https://github.com/WeebLabs/DSPi;
-   - show the licences and source links in the app (an "About / licences"
-     screen) and in the store listing.
-3. **The name "DSPi".** DSPi is WeebLabs' project name. A Play listing called
-   "DSPi" by someone else can be rejected or removed under Play's
-   impersonation policy. Either get WeebLabs' written OK (ideally as part of
-   the same conversation as point 1), or name the app e.g. "Controller for
-   DSPi (unofficial)" and say in the description that it is not affiliated
-   with WeebLabs.
+The app is **GPL-3.0 with additional terms** (`LICENSE`, `NOTICE.md`):
+attributions kept, modified versions marked and renamed, no trademark rights to
+"DSPi" / the icon (GPL-3.0 §7 b, c, e). That does not forbid paid or ad-filled
+copies — the GPL allows charging — but such copies must publish their source,
+cannot use the name or icon, and a copy that does can be reported to Google
+Play (impersonation / IP complaint).
 
-Suggested message to WeebLabs: you have built an Android port of DSPi Console
-that uses DSPi-Console-Linux's core unchanged (plus two small patches,
-`third_party/patches/`) and bundles the official firmware and AutoEQ database;
-you would like to publish it on Google Play for free under GPL-3.0 with full
-source; you ask (a) what licence DSPi-Console-Linux is under / for permission
-to distribute it, and (b) whether they are OK with the name and listing text.
+Remaining before a public release:
+- make the source public for each released version (this repository, or a
+  public mirror of the release tag) — the in-app "Source code" link and the
+  store listing point to https://github.com/Bofr5555/dspi-android;
+- keep the third-party notices current: `tools/ci.sh settings` fails when
+  `assets/licenses/rust-crates.txt` is stale
+  (`tools/dev.sh python3 tools/gen_third_party_licenses.py` regenerates it);
+  update `THIRD_PARTY` in `LicensesView.kt` and `NOTICE.md` when a JVM
+  dependency or bundled asset changes;
+- firmware source: the bundled UF2s are WeebLabs/DSPi `v1.1.6-beta5`; bump the
+  link with the images;
+- store listing: say the app is GPL-3.0, link the source, credit Weeb Labs.
 
 ## 1. Play Console account **(owner)**
 

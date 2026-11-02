@@ -1,0 +1,1 @@
+Controller for DSPi USB audio DSP devices. Requires DSPi hardware.

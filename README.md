@@ -94,7 +94,10 @@ app ID, Play App Signing, testing tracks, store listing, privacy and licensing �
 ## Credits and licensing
 
 DSPi firmware and the official consoles are by **Weeb Labs** — all protocol knowledge, the core and
-the UI design come from their work. This app bundles the official firmware images and the macOS
-console's AutoEQ database (both GPL-3.0) and links the DSPi-Console-Linux core, which currently has
-no licence file; **no public distribution until the licensing is agreed with Weeb Labs.** A licence
-for this repository will be added once that is settled.
+the UI design come from their work. Android port by **Bofr5555**.
+
+This app is free software under the **GNU GPL v3.0** ([`LICENSE`](LICENSE)) with additional terms
+under section 7 ([`NOTICE.md`](NOTICE.md)): keep the attributions, mark modified versions and give
+them their own name, app ID and icon, and no trademark rights to "DSPi" or the icon. Third-party
+components (the Weeb Labs core, firmware and AutoEQ database, libusb, UniFFI, Rust crates, AndroidX…)
+and their licences are listed in `NOTICE.md` and in the app under Settings › About › Licences.

@@ -85,7 +85,11 @@ pkg_graph() { feature graph; }
 pkg_matrix() { feature matrix; }
 pkg_tools() { feature tools; }
 pkg_presets() { feature presets; }
-pkg_settings() { feature settings; }
+pkg_settings() {
+  feature settings
+  step "settings: third-party notices up to date"; python3 tools/gen_third_party_licenses.py --check
+}
+pkg_licenses() { step "licenses"; python3 tools/gen_third_party_licenses.py --check; }
 pkg_analysis() { feature analysis; }
 pkg_firmware() { feature firmware; }
 
