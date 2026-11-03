@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- BG in store/play/tools/make_graphics.py -->
+    <color name="ic_launcher_background">#181B20</color>
+</resources>

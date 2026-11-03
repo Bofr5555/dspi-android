@@ -2,7 +2,9 @@
 """Google Play store graphics: 512x512 icon and 1024x500 feature graphic.
 
 A terminal window with the prompt ">DSPi_". Rendered 4x and downscaled for
-smooth edges. Font: Noto Sans Mono (SIL OFL). Usage: make_graphics.py <outdir>
+smooth edges. Font: Noto Sans Mono (SIL OFL).
+Usage: make_graphics.py <outdir> [app/src/main/res]  (the second argument also writes
+the adaptive launcher icon layers into mipmap-*/)
 """
 import sys
 from pathlib import Path
@@ -93,8 +95,51 @@ def feature(out):
     im.resize((W, H), Image.LANCZOS).save(out / "feature-1024x500.png", optimize=True)
 
 
+LAUNCHER_DENSITIES = {"mdpi": 108, "hdpi": 162, "xhdpi": 216, "xxhdpi": 324, "xxxhdpi": 432}
+
+
+def launcher(res):
+    """Adaptive launcher icon layers (108 dp; drawn at xxxhdpi, 4 px/dp).
+
+    The background is the colour resource ic_launcher_background (BG). The
+    window stays inside the 66 dp safe circle that every launcher mask keeps.
+    The monochrome layer (Android 13 themed icons) is a window outline plus
+    the prompt, in white on transparent.
+    """
+    W = 432
+    box = (112, 140, 320, 292)  # 52 x 38 dp, corners within the 33 dp safe radius
+    bar, size = 36, 48
+    tw = prompt_width(size)
+    baseline = (box[1] + bar + box[3]) / 2 + size * 0.36
+
+    fg = Image.new("RGBA", (s(W), s(W)), (0, 0, 0, 0))
+    d = ImageDraw.Draw(fg)
+    console(d, box, 20, bar, 6.4)
+    prompt(d, (W - tw) / 2, baseline, size)
+
+    mono = Image.new("RGBA", (s(W), s(W)), (0, 0, 0, 0))
+    m = ImageDraw.Draw(mono)
+    white = (255, 255, 255, 255)
+    x0, y0, x1, y1 = box
+    m.rounded_rectangle([s(x0), s(y0), s(x1), s(y1)], s(20), outline=white, width=s(10))
+    m.rectangle([s(x0), s(y0 + bar - 5), s(x1), s(y0 + bar + 5)], fill=white)
+    f = ImageFont.truetype(BOLD, s(size))
+    adv = f.getlength("M") / SS
+    m.text((s((W - tw) / 2), s(baseline)), ">DSPi", font=f, fill=white, anchor="ls")
+    cx = (W - tw) / 2 + adv * 5
+    m.rectangle([s(cx + adv * 0.06), s(baseline - size * 0.12), s(cx + adv * 0.94), s(baseline)], fill=white)
+
+    for dpi, px in LAUNCHER_DENSITIES.items():
+        d_ = res / f"mipmap-{dpi}"
+        d_.mkdir(parents=True, exist_ok=True)
+        fg.resize((px, px), Image.LANCZOS).save(d_ / "ic_launcher_foreground.png", optimize=True)
+        mono.resize((px, px), Image.LANCZOS).save(d_ / "ic_launcher_monochrome.png", optimize=True)
+
+
 if __name__ == "__main__":
     out = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
     out.mkdir(parents=True, exist_ok=True)
     icon(out)
     feature(out)
+    if len(sys.argv) > 2:  # app/src/main/res: the launcher icon layers
+        launcher(Path(sys.argv[2]))

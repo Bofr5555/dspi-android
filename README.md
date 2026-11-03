@@ -101,3 +101,5 @@ under section 7 ([`NOTICE.md`](NOTICE.md)): keep the attributions, mark modified
 them their own name, app ID and icon, and no trademark rights to "DSPi" or the icon. Third-party
 components (the Weeb Labs core, firmware and AutoEQ database, libusb, UniFFI, Rust crates, AndroidX…)
 and their licences are listed in `NOTICE.md` and in the app under Settings › About › Licences.
+
+Privacy: the app collects no data and has no network access — see [`PRIVACY.md`](PRIVACY.md).

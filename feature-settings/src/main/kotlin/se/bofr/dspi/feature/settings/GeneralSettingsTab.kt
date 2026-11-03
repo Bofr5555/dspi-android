@@ -106,6 +106,11 @@ private fun AboutPage(onOpenLicenses: () -> Unit) {
             SettingsSection("Licence") {
                 SettingRow("Licences", "GPL-3.0 with additional terms · third-party notices", onClick = onOpenLicenses)
                 SettingRow("Source code", APP_SOURCE_URL, onClick = { runCatching { uri.openUri(APP_SOURCE_URL) } })
+                SettingRow(
+                    "Privacy policy",
+                    "No data collected; no network access",
+                    onClick = { runCatching { uri.openUri(PRIVACY_POLICY_URL) } }
+                )
             }
         }
     }

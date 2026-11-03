@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal const val APP_SOURCE_URL = "https://github.com/Bofr5555/dspi-android"
+internal const val PRIVACY_POLICY_URL = "https://github.com/Bofr5555/dspi-android/blob/main/PRIVACY.md"
 
 private const val APP_LICENSE_FOOTER =
     "Copyright © 2026 Bofr5555. Free software: you may use, study, change and share it, also for a fee, " +

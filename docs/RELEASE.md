@@ -48,24 +48,15 @@ Remaining before a public release:
    start enforcing in 2026–2027 for apps installed from anywhere:
    https://support.google.com/android-developer-console/answer/16561738.
 
-## 2. App ID: decide once **(owner)**
+## 2. App ID: decided
 
-The application ID is `se.bofr.dspi` (`app/build.gradle.kts`,
-`applicationId`). It is a placeholder chosen from your domain `bofr.se`.
-
-**It can never change after the first upload to Play.** Play identifies the
-app by it, forever: another ID is another app with no users, no reviews and no
-update path. It is also the package name you register for developer
-verification. Decide now. Reasonable options:
-
-- `se.bofr.dspi` (keep): fine if you own `bofr.se` long term.
-- something that does not imply the app is official, e.g.
-  `se.bofr.dspicontrol`, if WeebLabs might one day publish their own
-  Android app and would want an ID like `com.weeblabs.dspi`.
-
-Changing it before the first upload is one line (`applicationId`); the
-`namespace` values (`se.bofr.dspi.*`, the Kotlin packages) do not need to
-change.
+The application ID is **`se.bofr.dspi_console_android`** (`app/build.gradle.kts`,
+`applicationId`), registered in Play Console on 2026-11-03 with the app name
+"DSPi Console for Android". **It can never change after the first upload:**
+Play identifies the app by it, forever. The `namespace` values
+(`se.bofr.dspi.*`, the Kotlin packages) are internal and stay as they are.
+Builds with the old ID `se.bofr.dspi` (test releases up to 0.1.0-hil5) are a
+different app on a phone: uninstall them before installing a newer build.
 
 ## 3. Create the upload key and back it up **(owner)**
 
@@ -164,13 +155,11 @@ community). Organisation accounts skip this.
 Answers specific to this app. Verify each against the build you upload
 (`tools/ci.sh release` prints the permissions and the foreground service).
 
-- **Privacy policy (URL required).** Host a short public page, e.g.:
-  "DSPi for Android does not collect, store off-device or share any personal
-  data. It has no internet access (it does not request the INTERNET
-  permission). It talks only to a DSPi audio processor connected over USB.
-  Settings and presets are stored on the device; files are read or written
-  only where you choose them in the system file picker. Android backup is
-  disabled." Plus a contact email.
+- **Privacy policy (URL required, in the listing and in the app).** Done:
+  [`PRIVACY.md`](../PRIVACY.md), public at
+  https://github.com/Bofr5555/dspi-android/blob/main/PRIVACY.md; the app links
+  it from Settings › About › Licence. Enter that URL in Play Console (App
+  content → Privacy policy). Keep it in step with what the app does.
 - **Data safety.** "Does your app collect or share any of the required user
   data types?" → **No**. Justification: the merged manifest has no
   `android.permission.INTERNET` (CI checks this), so nothing can leave the
