@@ -1,1 +1,1 @@
-Controller for DSPi USB audio DSP devices. Requires DSPi hardware.
+Control EQ, crossovers and routing of your DSPi audio processor over USB.

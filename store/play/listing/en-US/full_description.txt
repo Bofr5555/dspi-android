@@ -1,22 +1,3 @@
-REQUIRES A DSPi DEVICE. This app is only a controller: it configures and monitors a DSPi USB audio DSP (a Raspberry Pi Pico or Pico 2 running the DSPi firmware by Weeb Labs) connected to your phone or tablet over USB. It does not process or play audio on its own and is of no use without DSPi hardware.
+REQUIRES A DSPi DEVICE. This app is a controller for the DSPi USB audio DSP (a Raspberry Pi Pico or Pico 2 running the DSPi firmware by Weeb Labs). It does not process or play audio on its own; without DSPi hardware you can explore it in Demo mode.
 
-DSPi Console for Android brings the official desktop DSPi Console to your phone, including while the phone is the USB audio source playing into the DSPi. The app only claims the DSPi's control interface, so your music keeps playing through Android's USB audio or the player of your choice.
-
-What you can do with a connected DSPi:
-• Parametric EQ per channel with an interactive response graph (drag filters with your fingers)
-• Crossovers, gains, delays, polarity and input routing
-• Matrix mixer for any input-to-output routing
-• Loudness compensation, headphone crossfeed, volume leveller, psychoacoustic bass, subharmonic synthesiser, tube modeller, stereo upmixer and output limiters
-• Live level meters, spectrum analyser, signal generator and system statistics
-• Presets on the device, import/export, filter files and AutoEQ headphone profiles
-• Hardware settings: pins, outputs, I2S, inputs, control interfaces and control surfaces
-• Firmware updates for the DSPi
-• Demo mode to look around without a device
-
-Requirements:
-• A DSPi device running DSPi firmware v1.1.6. With other firmware versions the app connects read-only and offers a firmware update.
-• Android 8.0 or newer with USB host (OTG) support, and a USB cable or adapter for your phone.
-
-DSPi, its firmware and the desktop consoles are made by Weeb Labs (github.com/WeebLabs). This Android port is by Bofr5555, published with Weeb Labs' permission.
-
-Free and open source: GPL-3.0, no ads, no tracking. Source code: https://github.com/Bofr5555/dspi-android
+It is an Android port of the official DSPi Console for macOS (and parts of the Linux version), made by Bofr5555 and published with Weeb Labs' permission. It needs DSPi firmware v1.1.6 for full features; with other versions it connects read-only.
