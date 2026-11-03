@@ -14,7 +14,28 @@ The app is a faithful port of the official clients rather than a re-implementati
   page; the Qt bridge (`DSPiBridge.cpp`) is ported 1:1 as `DspiBridge`. Every deliberate difference is
   listed in [`docs/UPSTREAM-DEVIATIONS.md`](docs/UPSTREAM-DEVIATIONS.md).
 
-> Status: **test builds** (pre-release). Used daily on one RP2350 board; expect rough edges.
+> Status: **closed test on Google Play** (0.9.0). Testers wanted — see [Join the Google Play test](#join-the-google-play-test).
+
+## Join the Google Play test
+
+**DSPi Console for Android** is in a closed test on Google Play. Google requires **at least 12 testers
+to stay opted in for 14 days** before the app can be published to everyone, so every tester helps.
+
+1. **Join the tester group** with the same Google account you use for the Play Store on your phone:
+   <https://groups.google.com/a/bofr.se/g/dspi-console-android-testers> (click **Join group**).
+2. **Opt in to the test:** <https://play.google.com/apps/testing/se.bofr.dspi_console_android>
+3. **Install "DSPi Console for Android"** from the Play Store link on that page.
+4. **Stay opted in for at least 14 days** (leaving and rejoining restarts the count).
+
+What you need: an Android phone or tablet with Android 8.0 or newer. **No DSPi required** — the app
+has a Demo mode, so every screen can be tried without hardware. With a DSPi: firmware **v1.1.6** for
+full features (other versions connect read-only) and a USB-C/OTG cable or adapter.
+
+If the Play Store says the app is not available, check that the group, the opt-in page and the
+Play Store all use the same Google account.
+
+Feedback — bugs, crashes, anything that behaves differently from the desktop console — is very
+welcome in [Issues](../../issues) or on the DSPi Discord.
 
 ## Features
 
@@ -37,7 +58,7 @@ next preset, and the app claims only the DSPi's vendor control interface, so aud
   firmware versions the app connects **read-only**: it shows a banner, disables every control and
   never writes to the device (the firmware updater stays available).
 
-## Installing a test build
+## Installing a test build without Google Play
 
 Download the `.apk` from [Releases](../../releases) and sideload it (allow installs from your browser
 or file manager). Test builds are debug-signed; a future Play-signed build will need the test build
