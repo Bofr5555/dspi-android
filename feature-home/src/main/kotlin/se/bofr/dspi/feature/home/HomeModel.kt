@@ -86,15 +86,21 @@ object HomeModel {
      * match against a bundled firmware, so the banner is shown for the two
      * incompatible states; [expected] is the firmware this Console targets.
      */
-    fun firmwareBannerMessage(compat: Int, device: String, expected: String): String? = when (compat) {
+    fun firmwareBannerMessage(compat: Int, device: String, expected: String, displayOnly: Boolean = false): String? = when (compat) {
         DspiConstants.COMPAT_FIRMWARE_TOO_NEW ->
             "This device runs firmware ${device.ifEmpty { "unknown" }}, which is newer than DSPi Console $expected. " +
                 "Some of its features may not be shown. $READ_ONLY_NOTE"
         DspiConstants.COMPAT_FIRMWARE_TOO_OLD -> "This device runs firmware ${device.ifEmpty {
             "unknown"
-        }}; DSPi Console expects $expected. $READ_ONLY_NOTE"
+        }}; DSPi Console expects $expected. " + (if (displayOnly) "$OLDER_FEATURES_NOTE " else "") + READ_ONLY_NOTE
         else -> null
     }
+
+    /**
+     * Core patch 0003: an older firmware's settings were decoded; the tools
+     * and settings it does not have are hidden.
+     */
+    const val OLDER_FEATURES_NOTE = "Features that firmware does not have are hidden."
 
     /**
      * Decision G1 (owner, deliberate deviation): the sentence the banner adds

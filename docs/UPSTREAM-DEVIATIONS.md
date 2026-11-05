@@ -971,3 +971,34 @@ adds, ONLY when `HardwareCaps.crossfeedPairMapSupported`:
 
 Tests: `feature-tools/…/CrossfeedPairMapUiTest.kt` (FakeDspiCore).
 
+
+## WIRE-FORMAT COMPAT, READ ONLY (wip/wire-compat, owner request 2026-11-05)
+
+Prototype; design and survey in `../docs/WIRE-FORMAT-COMPAT.md` (dspi-mobile).
+No official client shows an older firmware's settings: macOS and Qt require an
+exact V32 image; Windows parses V20+ by version and length but writes
+regardless of version.
+
+1. **Core patch** `third_party/patches/0003-wire-compat-read.patch` (after
+   0002): new `wirecompat` module maps a V16..V31 bulk image onto the V32
+   layout and keeps the V32 prefix of a newer one (plausibility-checked);
+   the chunked read follows the header's `payload_length` (before, an older
+   firmware STALLed the read past its end and the app showed "settings could
+   not be read"). `DspState.wire_read` / `wire_features`. For such images
+   `compat` stays TOO_OLD / TOO_NEW and `bulk_valid` false, so nothing is
+   written; notifications re-read the image instead of patching offsets.
+2. **FFI/contract:** `DspState.wireRead`, `DspState.wireFeatures`;
+   `core-api` `WireCompat` mirrors the patch's constants (checked by
+   `rust/dspi-ffi/tests/wire_compat.rs`).
+3. **Bridge:** G1 unchanged (`writesAllowed` false). `displayOnly` lets
+   `hardwareCaps` and `upmixSupported` follow the firmware's features so the
+   read-only views show what that firmware has; `compatMessage` says the
+   settings are shown read-only.
+4. **UI:** the HOME banner adds "Features that firmware does not have are
+   hidden."; the Tools list hides Psychoacoustic Bass (V23), Subharmonic
+   Synthesizer (V29), Tube Modeller (V31) and Stereo Upmixer (V26) on older
+   firmware (macOS `firmwareSupports*` versions).
+
+Tests: `rust/dspi-ffi/tests/wire_compat.rs` (fixtures in `fixtures/wire/`),
+`wirecompat` unit tests in the patch, `ReadOnlyTest` (display-only states stay
+read-only), `ToolGatingTest`, `HomeModelTest`.

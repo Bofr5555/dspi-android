@@ -1,0 +1,572 @@
+Best-effort reading of other wire formats (display only) for dspi-core.
+
+Why: the core reads exactly V32. Against any other firmware the app showed
+nothing: an older image is shorter than 6136 bytes, so the chunked read ran
+past its end, the firmware STALLed it and fetch_all failed outright ("settings
+could not be read", compat stayed UNKNOWN); a newer image was cut at 6136
+bytes (leaving the device's snapshot session open) and rejected as TOO_NEW.
+The firmware's layout history since the V16 break is small and regular
+(sections appended; reserved bytes claimed; two in-place growths, V18 leveller
++4 and V28 input-config S/PDIF pin array +1), so older images can be mapped
+onto the V32 layout exactly, and a newer image's V32 prefix can be shown.
+Design and survey: ../docs/WIRE-FORMAT-COMPAT.md (dspi-mobile).
+
+NOTHING here enables a write. compat stays TOO_OLD/TOO_NEW for these images
+(every existing gate keeps refusing writes), bulk_valid stays false (so
+apply_all_params refuses; it now also checks the version), and notifications
+only trigger a re-read, never an offset patch.
+
+Hunks:
+1. core/src/wirecompat.rs (new): WIRE_READ_*, WIRE_FEAT_* + wire_features(v),
+   bulk_size(v), image_length(header), normalize(image) (V16..V31 -> V32
+   layout; newer -> V32 prefix after a plausibility check),
+   decode_bulk_compat(); unit tests.
+2. core/src/protocol.rs: decode_bulk keeps its strict V32 contract; its body
+   moves to decode_image() so wirecompat can reuse it. Sets wire_read/features.
+3. core/src/state.rs: DspState.wire_read, DspState.wire_features.
+4. core/src/commands.rs: read_bulk_chunked reads the header's payload_length
+   (unchanged for V32); fetch_all decodes any supported version and, for a
+   display-only image, reads only the preset directory and names on top;
+   apply_all_params refuses a non-V32 state.
+5. core/src/notify.rs: display-only state: a PARAM_CHANGED or invalidation
+   re-reads the image (no capture_baseline).
+6. core/src/lib.rs: pub mod wirecompat.
+
+Upstream form: identical, separable (one new module plus small hooks); the
+C ABI gains the two DspState fields (repr(C), regenerate the Qt header).
+
+diff -ruN a/core/src/commands.rs b/core/src/commands.rs
+--- a/core/src/commands.rs	2026-11-05 22:38:34.790351069 +0100
++++ b/core/src/commands.rs	2026-11-05 22:41:16.842921304 +0100
+@@ -13,6 +13,7 @@
+ use crate::state::*;
+ use crate::types::*;
+ use crate::usb::{Result, UsbError};
++use crate::wirecompat::{self, decode_bulk_compat, WIRE_READ_EXACT, WIRE_READ_NEWER};
+ use crate::DspiCore;
+ 
+ impl DspiCore {
+@@ -67,7 +68,22 @@
+ 
+         self.fetch_platform()?;
+         match self.fetch_all_params() {
+-            Ok(()) => self.state.compat = COMPAT_OK,
++            Ok(WIRE_READ_EXACT) => self.state.compat = COMPAT_OK,
++            Ok(read) => {
++                // Another wire format, decoded for display only (wirecompat):
++                // still incompatible, so nothing is written. Only the preset
++                // directory and names are read on top (same requests since V16).
++                self.state.compat = if read == WIRE_READ_NEWER {
++                    COMPAT_FIRMWARE_TOO_NEW
++                } else {
++                    COMPAT_FIRMWARE_TOO_OLD
++                };
++                self.fetch_preset_directory_internal();
++                for slot in 0..MAX_PRESETS as u8 {
++                    self.fetch_preset_name_internal(slot);
++                }
++                return Ok(());
++            }
+             Err(FetchError::Usb(e)) => return Err(e),
+             Err(FetchError::Bulk(BulkError::UnsupportedVersion(v))) => {
+                 self.state.format_version = v;
+@@ -115,16 +131,17 @@
+     }
+ 
+     /// Read the whole bulk image in chunks and decode it into state.
+-    fn fetch_all_params(&mut self) -> std::result::Result<(), FetchError> {
++    /// Returns `WIRE_READ_*` (EXACT for this core's own wire format).
++    fn fetch_all_params(&mut self) -> std::result::Result<u8, FetchError> {
+         let data = self.read_bulk_chunked().map_err(FetchError::Usb)?;
+-        decode_bulk(&data, &mut self.state).map_err(FetchError::Bulk)
++        decode_bulk_compat(&data, &mut self.state).map_err(FetchError::Bulk)
+     }
+ 
+     /// Re-read every parameter after the device changed state on its own
+     /// (preset load, factory reset).
+     pub fn refresh_params(&mut self) -> Result<()> {
+         match self.fetch_all_params() {
+-            Ok(()) => Ok(()),
++            Ok(_) => Ok(()),
+             Err(FetchError::Usb(e)) => Err(e),
+             Err(FetchError::Bulk(_)) => Err(UsbError::ShortRead { expected: BULK_PARAMS_SIZE, actual: 0 }),
+         }
+@@ -136,22 +153,32 @@
+         let bus = self.conn()?.bus();
+         let _session = bus.lock().unwrap_or_else(|e| e.into_inner());
+         let mut out = Vec::with_capacity(BULK_PARAMS_SIZE);
+-        while out.len() < BULK_PARAMS_SIZE {
++        let mut total = BULK_PARAMS_SIZE;
++        while out.len() < total {
+             let off = out.len();
+-            let n = BULK_CHUNK_SIZE.min(BULK_PARAMS_SIZE - off);
++            let n = BULK_CHUNK_SIZE.min(total - off);
+             let chunk = self.get(REQ_GET_ALL_PARAMS_CHUNK, off as u16, WINDEX_OUTPUT, n as u16)?;
+             if chunk.is_empty() {
+-                return Err(UsbError::ShortRead { expected: BULK_PARAMS_SIZE, actual: off });
++                return Err(UsbError::ShortRead { expected: total, actual: off });
+             }
+             out.extend_from_slice(&chunk);
++            if off == 0 {
++                // Read as much as this firmware's header says: an older image
++                // is shorter (reading past its end STALLs), a newer one longer
++                // (stopping early leaves the device's snapshot session open).
++                total = wirecompat::image_length(&out).min(u16::MAX as usize);
++            }
+         }
++        out.truncate(total);
+         Ok(out)
+     }
+ 
+     /// Write the whole state to the device (REQ_SET_ALL_PARAMS_CHUNK). The
+     /// device applies it in its main loop once the last byte lands.
+     pub fn apply_all_params(&mut self) -> Result<()> {
+-        if !self.state.bulk_valid {
++        // Never re-encode a state read from another wire format (wirecompat
++        // leaves bulk_valid false for those; the version check is a backstop).
++        if !self.state.bulk_valid || self.state.format_version != WIRE_FORMAT_VERSION {
+             return Err(UsbError::NotConnected);
+         }
+         let data = encode_bulk(&self.state);
+diff -ruN a/core/src/lib.rs b/core/src/lib.rs
+--- a/core/src/lib.rs	2026-11-05 22:38:34.789519910 +0100
++++ b/core/src/lib.rs	2026-11-05 22:40:57.311952963 +0100
+@@ -26,6 +26,7 @@
+ pub mod state;
+ pub mod types;
+ pub mod usb;
++pub mod wirecompat;
+ 
+ use std::ffi::{c_char, c_void, CStr};
+ use std::sync::Mutex;
+diff -ruN a/core/src/notify.rs b/core/src/notify.rs
+--- a/core/src/notify.rs	2026-10-10 16:11:36.000000000 +0200
++++ b/core/src/notify.rs	2026-11-05 22:41:16.842982737 +0100
+@@ -209,6 +209,10 @@
+         let mut refresh = overflow;
+         let mut rebaseline = false;
+         let usable = self.state.bulk_valid && self.state.compat == COMPAT_OK;
++        // A display-only image from another wire format (wirecompat): its
++        // offsets are not ours, so a change is never patched in; re-read it.
++        let display_only = !usable
++            && matches!(self.state.wire_read, crate::wirecompat::WIRE_READ_OLDER | crate::wirecompat::WIRE_READ_NEWER);
+         // The patched image starts from the state, not the last raw image:
+         // the setters change the state only, and decoding a stale image
+         // would undo them.
+@@ -222,6 +226,10 @@
+                 EVT_PARAM_CHANGED if p.len() >= 12 => {
+                     let off = read_u16_le(p, 4) as usize;
+                     let size = read_u16_le(p, 6) as usize;
++                    if display_only && p[8] != SRC_HOST_SET {
++                        refresh = true;
++                        continue;
++                    }
+                     // Our own writes are already in the state.
+                     if p[8] == SRC_HOST_SET || !usable || 12 + size > p.len() {
+                         continue;
+@@ -264,11 +272,11 @@
+             }
+         }
+ 
+-        if refresh && usable {
++        if refresh && (usable || display_only) {
+             // Supersedes any patches.
+             if self.refresh_params().is_ok() {
+                 self.fetch_preset_directory_internal();
+-                if rebaseline {
++                if rebaseline && usable {
+                     self.capture_baseline();
+                 }
+                 r.flags |= NOTIFY_STATE | NOTIFY_CURVES | NOTIFY_REFRESHED;
+diff -ruN a/core/src/protocol.rs b/core/src/protocol.rs
+--- a/core/src/protocol.rs	2026-11-05 22:38:34.790617180 +0100
++++ b/core/src/protocol.rs	2026-11-05 22:40:57.311796863 +0100
+@@ -666,11 +666,21 @@
+     if version != WIRE_FORMAT_VERSION {
+         return Err(BulkError::UnsupportedVersion(version));
+     }
++    decode_image(data, state);
++    state.wire_read = crate::wirecompat::WIRE_READ_EXACT;
++    state.wire_features = crate::wirecompat::WIRE_FEATURES_ALL;
++    Ok(())
++}
++
++/// Decode an image in the V32 layout (at least BULK_PARAMS_SIZE bytes) into
++/// `state`, whatever its version byte says (`wirecompat` maps other versions
++/// onto this layout first).
++pub(crate) fn decode_image(data: &[u8], state: &mut DspState) {
+     let d = data;
+     let s = state;
+ 
+     // Header
+-    s.format_version = version;
++    s.format_version = d[OFF_HEADER];
+     s.platform_id = d[OFF_HEADER + 1];
+     s.num_channels = d[OFF_HEADER + 2].min(MAX_CHANNELS as u8);
+     s.num_output_channels = d[OFF_HEADER + 3].min(MAX_OUTPUTS as u8);
+@@ -868,7 +878,6 @@
+ 
+     s.bulk_raw.copy_from_slice(&d[..BULK_PARAMS_SIZE]);
+     s.bulk_valid = true;
+-    Ok(())
+ }
+ 
+ /// Encode `state` as a V32 bulk image for REQ_SET_ALL_PARAMS. Starts from the
+diff -ruN a/core/src/state.rs b/core/src/state.rs
+--- a/core/src/state.rs	2026-11-05 22:38:34.790726538 +0100
++++ b/core/src/state.rs	2026-11-05 22:40:57.312004293 +0100
+@@ -35,6 +35,12 @@
+     pub fw_beta: u8,
+     /// `COMPAT_*`.
+     pub compat: u8,
++    /// `wirecompat::WIRE_READ_*`: how the last bulk image was decoded. With
++    /// OLDER/NEWER (compat is then TOO_OLD/TOO_NEW) the parameters below are
++    /// the device's, mapped from its own wire format, for display only.
++    pub wire_read: u8,
++    /// `wirecompat::WIRE_FEAT_*` bits the connected firmware's wire format carries.
++    pub wire_features: u32,
+ 
+     // ── Global ──────────────────────────────────────────────────────
+     /// Legacy global preamp (mirrors input 0's preamp on current firmware).
+@@ -226,6 +232,8 @@
+             fw_patch: 0,
+             fw_beta: 0,
+             compat: COMPAT_UNKNOWN,
++            wire_read: 0,
++            wire_features: 0,
+             preamp_db: 0.0,
+             bypass: false,
+             input_preamp_db: [0.0; MAX_INPUTS],
+diff -ruN a/core/src/wirecompat.rs b/core/src/wirecompat.rs
+--- a/core/src/wirecompat.rs	1970-01-01 01:00:00.000000000 +0100
++++ b/core/src/wirecompat.rs	2026-11-05 22:40:57.311844550 +0100
+@@ -0,0 +1,329 @@
++//! Best-effort reading of bulk images in other wire format versions.
++//!
++//! The core models wire format V32 (`WIRE_FORMAT_VERSION`). Since the V16
++//! break the firmware changed the bulk layout only in these ways (firmware
++//! `bulk_params.h` version log, checked against the struct of every shipped
++//! release):
++//!
++//! - sections appended at the end: V17 ADAT output, V23 psybass, V25 upmixer,
++//!   V29 subharmonic synth (16 bytes; V30 grew it, then still the last
++//!   section, to 36), V31 tube, V32 limiter;
++//! - reserved bytes claimed in place, size unchanged: V19 loudness mask, V20
++//!   crossfeed pair mask, V21 I2S clock mode / S/PDIF 2-3 / clock-pin mode,
++//!   V22 Linkwitz Transform Q, V24 ADAT input, V26 upmixer presence;
++//! - two in-place growths that MOVE later bytes: V18 grew the leveller from
++//!   16 to 20 bytes (every later section moves by 4), V28 grew the input
++//!   config's S/PDIF pin array from 2 to 3 (the fields after it move by 1
++//!   inside the section, whose size is unchanged).
++//!
++//! [`normalize`] maps an image of V16..V31 onto the V32 layout (fields the
++//! firmware did not have yet stay zero, which is also the firmware's own
++//! "absent" encoding for the claimed bytes), and keeps the V32 prefix of a
++//! newer image after a plausibility check. The result is for DISPLAY only:
++//! [`decode_bulk_compat`] leaves `bulk_valid` false for anything but an exact
++//! V32 image, so `apply_all_params` never sends a re-encoded image to a
++//! firmware of another version (it would refuse it anyway, or worse, a newer
++//! one could accept a V32 image and zero the sections appended after V32).
++
++use crate::protocol::*;
++use crate::state::DspState;
++use crate::types::{CHANNEL_NAME_LEN, MAX_CHANNELS, MAX_INPUTS, MAX_OUTPUTS};
++
++/// No bulk image decoded.
++pub const WIRE_READ_NONE: u8 = 0;
++/// The image is this core's own wire format.
++pub const WIRE_READ_EXACT: u8 = 1;
++/// An older image (V16..V31) mapped onto the V32 layout, for display only.
++pub const WIRE_READ_OLDER: u8 = 2;
++/// The V32 prefix of a newer image (appended sections ignored), for display only.
++pub const WIRE_READ_NEWER: u8 = 3;
++
++/// ADAT output section (V17).
++pub const WIRE_FEAT_ADAT_OUT: u32 = 1 << 0;
++/// Leveller detector/apply masks (V18).
++pub const WIRE_FEAT_LEVELLER_MASKS: u32 = 1 << 1;
++/// Per-output loudness mask (V19).
++pub const WIRE_FEAT_LOUDNESS_MASK: u32 = 1 << 2;
++/// Crossfeed output-pair mask (V20).
++pub const WIRE_FEAT_CROSSFEED_MASK: u32 = 1 << 3;
++/// I2S clock master/slave, S/PDIF inputs 2-3, I2S clock-pin mode (V21).
++pub const WIRE_FEAT_I2S_CLOCK_MODE: u32 = 1 << 4;
++/// Linkwitz Transform target Q in the band bytes (V22).
++pub const WIRE_FEAT_LINKWITZ: u32 = 1 << 5;
++/// Psychoacoustic bass (V23).
++pub const WIRE_FEAT_PSYBASS: u32 = 1 << 6;
++/// ADAT input (V24).
++pub const WIRE_FEAT_ADAT_IN: u32 = 1 << 7;
++/// Stereo upmixer (V25; the official clients need V26, see UPMIX_PRESENCE).
++pub const WIRE_FEAT_UPMIX: u32 = 1 << 8;
++/// Upmixer presence bell (V26).
++pub const WIRE_FEAT_UPMIX_PRESENCE: u32 = 1 << 9;
++/// Fourth S/PDIF input; first-order low/high pass filter types (V28).
++pub const WIRE_FEAT_SPDIF_IN4: u32 = 1 << 10;
++/// Subharmonic synthesizer (V29).
++pub const WIRE_FEAT_SUBHARM: u32 = 1 << 11;
++/// Subharmonic third band, selectivity, ceiling, pair link (V30).
++pub const WIRE_FEAT_SUBHARM_EXT: u32 = 1 << 12;
++/// Tube modeller (V31).
++pub const WIRE_FEAT_TUBE: u32 = 1 << 13;
++/// Output limiter (V32).
++pub const WIRE_FEAT_LIMITER: u32 = 1 << 14;
++/// Every feature the V32 layout carries.
++pub const WIRE_FEATURES_ALL: u32 = (1 << 15) - 1;
++
++/// (feature, first wire format that carries it)
++const FEATURE_SINCE: [(u32, u8); 15] = [
++    (WIRE_FEAT_ADAT_OUT, 17),
++    (WIRE_FEAT_LEVELLER_MASKS, 18),
++    (WIRE_FEAT_LOUDNESS_MASK, 19),
++    (WIRE_FEAT_CROSSFEED_MASK, 20),
++    (WIRE_FEAT_I2S_CLOCK_MODE, 21),
++    (WIRE_FEAT_LINKWITZ, 22),
++    (WIRE_FEAT_PSYBASS, 23),
++    (WIRE_FEAT_ADAT_IN, 24),
++    (WIRE_FEAT_UPMIX, 25),
++    (WIRE_FEAT_UPMIX_PRESENCE, 26),
++    (WIRE_FEAT_SPDIF_IN4, 28),
++    (WIRE_FEAT_SUBHARM, 29),
++    (WIRE_FEAT_SUBHARM_EXT, 30),
++    (WIRE_FEAT_TUBE, 31),
++    (WIRE_FEAT_LIMITER, 32),
++];
++
++/// `WIRE_FEAT_*` bits a firmware of wire format `version` carries in its bulk
++/// image (0 below V16; every known bit for V32 and newer).
++pub fn wire_features(version: u8) -> u32 {
++    if version < MIN_WIRE_FORMAT_VERSION {
++        return 0;
++    }
++    FEATURE_SINCE.iter().filter(|(_, v)| version >= *v).fold(0, |m, (f, _)| m | f)
++}
++
++/// sizeof(WireBulkParams) of wire format `version` (V16..V32).
++pub fn bulk_size(version: u8) -> Option<usize> {
++    Some(match version {
++        16 => 5864,
++        17 => 5872,
++        18..=22 => 5876,
++        23 | 24 => 5900,
++        25..=28 => 5944,
++        29 => 5960,
++        30 => 5980,
++        31 => 6028,
++        32 => BULK_PARAMS_SIZE,
++        _ => return None,
++    })
++}
++
++/// How many bytes to read for the image whose first bytes are `head`: the
++/// header's payload_length (older firmware STALLs a chunk read past its end,
++/// newer firmware appends), the V32 size for a V32 image or an implausible
++/// length.
++pub fn image_length(head: &[u8]) -> usize {
++    if head.len() < OFF_HEADER + 8 || head[OFF_HEADER] == WIRE_FORMAT_VERSION {
++        return BULK_PARAMS_SIZE;
++    }
++    let len = read_u16_le(head, OFF_HEADER + 6) as usize;
++    if len < OFF_GLOBAL {
++        BULK_PARAMS_SIZE
++    } else {
++        len
++    }
++}
++
++/// Map `data` onto the V32 layout. Returns the V32-sized image (its header
++/// still carries the device's version and length) and `WIRE_READ_*`.
++pub fn normalize(data: &[u8]) -> Result<(Vec<u8>, u8), BulkError> {
++    if data.len() < OFF_GLOBAL {
++        return Err(BulkError::TooShort);
++    }
++    let v = data[OFF_HEADER];
++    if v < MIN_WIRE_FORMAT_VERSION {
++        return Err(BulkError::UnsupportedVersion(v));
++    }
++    if v >= WIRE_FORMAT_VERSION {
++        if data.len() < BULK_PARAMS_SIZE {
++            return Err(if v == WIRE_FORMAT_VERSION {
++                BulkError::TooShort
++            } else {
++                // A newer image shorter than V32 broke the append-only rule.
++                BulkError::UnsupportedVersion(v)
++            });
++        }
++        let img = data[..BULK_PARAMS_SIZE].to_vec();
++        if v == WIRE_FORMAT_VERSION {
++            return Ok((img, WIRE_READ_EXACT));
++        }
++        if !plausible_prefix(&img) {
++            return Err(BulkError::UnsupportedVersion(v));
++        }
++        return Ok((img, WIRE_READ_NEWER));
++    }
++
++    let size = bulk_size(v).ok_or(BulkError::UnsupportedVersion(v))?;
++    if data.len() < size {
++        return Err(BulkError::TooShort);
++    }
++    let mut out = vec![0u8; BULK_PARAMS_SIZE];
++    // Header through the first 16 leveller bytes: same offsets in every version.
++    out[..OFF_LEVELLER + 16].copy_from_slice(&data[..OFF_LEVELLER + 16]);
++    // V18 grew the leveller by 4 (detector/apply masks); older images have
++    // every later section 4 bytes earlier.
++    let shift = if v < 18 { 4 } else { 0 };
++    if v >= 18 {
++        out[OFF_LEVELLER + 16..OFF_PREAMP].copy_from_slice(&data[OFF_LEVELLER + 16..OFF_PREAMP]);
++    }
++    // Preamp .. crossovers, plus the ADAT output section from V17.
++    let end = if v >= 17 { OFF_ADAT + 8 } else { OFF_ADAT };
++    out[OFF_PREAMP..end].copy_from_slice(&data[OFF_PREAMP - shift..end - shift]);
++    // V28 grew spdif_rx_pin_ext from 2 to 3 entries: before it, the enable
++    // mask, I2S clock mode and the three ADAT input bytes sat one byte earlier.
++    if v < 28 {
++        let ic = OFF_INPUT_CONFIG;
++        let tail: [u8; 5] = out[ic + 10..ic + 15].try_into().unwrap();
++        out[ic + 10] = 0; // S/PDIF 4 pin: absent
++        out[ic + 11..ic + 16].copy_from_slice(&tail);
++    }
++    // Appended sections (all after V18, so unshifted).
++    let mut tail = |since: u8, off: usize, len: usize| {
++        if v >= since {
++            out[off..off + len].copy_from_slice(&data[off..off + len]);
++        }
++    };
++    tail(23, OFF_PSYBASS, OFF_UPMIX - OFF_PSYBASS);
++    tail(25, OFF_UPMIX, OFF_SUBHARM - OFF_UPMIX);
++    tail(29, OFF_SUBHARM, if v == 29 { 16 } else { OFF_TUBE - OFF_SUBHARM });
++    tail(31, OFF_TUBE, OFF_LIMITER - OFF_TUBE);
++    Ok((out, WIRE_READ_OLDER))
++}
++
++/// Checks that a newer image's V32 prefix still lines up: the header counts,
++/// the channel names (NUL-terminated, middle of the image) and the limiter
++/// records (its end). A newer firmware that grew a section in place, as V18
++/// and V28 did, fails here instead of being shown garbled.
++fn plausible_prefix(d: &[u8]) -> bool {
++    let h = |k: usize| d[OFF_HEADER + k];
++    if h(2) as usize > MAX_CHANNELS || h(3) as usize > MAX_OUTPUTS || h(4) as usize > MAX_INPUTS || h(5) != 12 {
++        return false;
++    }
++    let names_ok = (0..MAX_CHANNELS).all(|ch| {
++        let off = OFF_CHANNEL_NAMES + ch * CHANNEL_NAME_LEN;
++        d[off..off + CHANNEL_NAME_LEN].contains(&0)
++    });
++    let limiter_ok = (0..MAX_OUTPUTS).all(|o| {
++        let off = OFF_LIMITER + o * 12;
++        d[off] <= 1 && d[off + 1] <= 4 && d[off + 2] == 0 && d[off + 3] == 0
++    });
++    names_ok && limiter_ok
++}
++
++/// Decode a bulk image of any supported wire format into `state`. Returns
++/// `WIRE_READ_*`. For anything but `WIRE_READ_EXACT` the state is for display
++/// only: `bulk_valid` stays false (no bulk write-back) and `wire_features`
++/// says which features the firmware has.
++pub fn decode_bulk_compat(data: &[u8], state: &mut DspState) -> Result<u8, BulkError> {
++    let (img, read) = normalize(data)?;
++    decode_image(&img, state);
++    state.wire_read = read;
++    state.wire_features = if read == WIRE_READ_OLDER { wire_features(data[OFF_HEADER]) } else { WIRE_FEATURES_ALL };
++    if read != WIRE_READ_EXACT {
++        state.bulk_valid = false;
++    }
++    Ok(read)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn sizes_follow_the_version_log() {
++        // Appended sections: ADAT 8, psybass 24, upmix 44, subharm 16 -> 36, tube 48, limiter 108.
++        assert_eq!(bulk_size(17).unwrap() - bulk_size(16).unwrap(), 8);
++        assert_eq!(bulk_size(18).unwrap() - bulk_size(17).unwrap(), 4); // leveller 16 -> 20
++        assert_eq!(bulk_size(23).unwrap() - bulk_size(22).unwrap(), OFF_UPMIX - OFF_PSYBASS);
++        assert_eq!(bulk_size(25).unwrap() - bulk_size(24).unwrap(), OFF_SUBHARM - OFF_UPMIX);
++        assert_eq!(bulk_size(30).unwrap(), OFF_TUBE);
++        assert_eq!(bulk_size(31).unwrap(), OFF_LIMITER);
++        assert_eq!(bulk_size(32), Some(BULK_PARAMS_SIZE));
++        assert_eq!(bulk_size(15), None);
++        assert_eq!(bulk_size(33), None);
++    }
++
++    #[test]
++    fn features_by_version() {
++        assert_eq!(wire_features(15), 0);
++        assert_eq!(wire_features(16), 0);
++        assert_eq!(wire_features(17), WIRE_FEAT_ADAT_OUT);
++        assert_eq!(wire_features(28) & WIRE_FEAT_SPDIF_IN4, WIRE_FEAT_SPDIF_IN4);
++        assert_eq!(wire_features(28) & WIRE_FEAT_SUBHARM, 0);
++        assert_eq!(wire_features(32), WIRE_FEATURES_ALL);
++        assert_eq!(wire_features(40), WIRE_FEATURES_ALL);
++    }
++
++    #[test]
++    fn image_length_uses_the_header() {
++        let mut h = [0u8; 16];
++        h[0] = 28;
++        write_u16_le(&mut h, 6, 5944);
++        assert_eq!(image_length(&h), 5944);
++        h[0] = 32;
++        write_u16_le(&mut h, 6, 1);
++        assert_eq!(image_length(&h), BULK_PARAMS_SIZE); // V32 never trusts the field
++        h[0] = 33;
++        write_u16_le(&mut h, 6, 6200);
++        assert_eq!(image_length(&h), 6200);
++        write_u16_le(&mut h, 6, 3);
++        assert_eq!(image_length(&h), BULK_PARAMS_SIZE);
++        assert_eq!(image_length(&h[..4]), BULK_PARAMS_SIZE);
++    }
++
++    #[test]
++    fn rejects_what_it_cannot_map() {
++        let mut d = vec![0u8; 6200];
++        d[0] = 15;
++        assert_eq!(normalize(&d), Err(BulkError::UnsupportedVersion(15)));
++        d[0] = 28;
++        assert_eq!(normalize(&d[..5000]).unwrap_err(), BulkError::TooShort);
++        d[0] = 33; // shorter than V32: not append-only any more
++        assert_eq!(normalize(&d[..6000]).unwrap_err(), BulkError::UnsupportedVersion(33));
++        d[5] = 12;
++        d[OFF_LIMITER] = 7; // a limiter "enabled" byte that is not 0/1: misaligned prefix
++        assert_eq!(normalize(&d).unwrap_err(), BulkError::UnsupportedVersion(33));
++        d[OFF_LIMITER] = 1;
++        assert_eq!(normalize(&d).unwrap().1, WIRE_READ_NEWER);
++    }
++
++    #[test]
++    fn v17_tail_moves_by_four_and_input_config_by_one() {
++        let size = bulk_size(17).unwrap();
++        let mut d: Vec<u8> = (0..size).map(|i| (i % 251) as u8 | 1).collect();
++        d[0] = 17;
++        let (img, read) = normalize(&d).unwrap();
++        assert_eq!(read, WIRE_READ_OLDER);
++        assert_eq!(&img[OFF_LEVELLER + 16..OFF_PREAMP], &[0, 0, 0, 0]); // no masks yet
++        assert_eq!(&img[OFF_PREAMP..OFF_INPUT_CONFIG], &d[OFF_PREAMP - 4..OFF_INPUT_CONFIG - 4]);
++        let ic = OFF_INPUT_CONFIG;
++        assert_eq!(&img[ic..ic + 10], &d[ic - 4..ic + 6]);
++        assert_eq!(img[ic + 10], 0);
++        assert_eq!(&img[ic + 11..ic + 16], &d[ic + 6..ic + 11]);
++        assert_eq!(&img[OFF_ADAT..OFF_ADAT + 8], &d[OFF_ADAT - 4..OFF_ADAT + 4]);
++        assert!(img[OFF_ADAT + 8..].iter().all(|&b| b == 0)); // nothing appended yet
++    }
++
++    #[test]
++    fn compat_decode_is_display_only() {
++        let mut s = DspState::default();
++        let mut d = vec![0u8; bulk_size(28).unwrap()];
++        d[0] = 28;
++        d[2] = 17;
++        d[3] = 9;
++        d[4] = 8;
++        write_f32_le(&mut d, OFF_MASTER_VOLUME, -12.0);
++        assert_eq!(decode_bulk_compat(&d, &mut s), Ok(WIRE_READ_OLDER));
++        assert_eq!(s.format_version, 28);
++        assert_eq!(s.master_volume_db, -12.0);
++        assert!(!s.bulk_valid);
++        assert_eq!(s.wire_features, wire_features(28));
++    }
++}

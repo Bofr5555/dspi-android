@@ -16,6 +16,7 @@ import se.bofr.dspi.core.FilterParams
 import se.bofr.dspi.core.FlashStatus
 import se.bofr.dspi.core.PinConfigStatus
 import se.bofr.dspi.core.PresetStatus
+import se.bofr.dspi.core.WireCompat
 import se.bofr.dspi.fake.FakeDspiCore
 import se.bofr.dspi.fake.demoDspState
 
@@ -28,6 +29,35 @@ import se.bofr.dspi.fake.demoDspState
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReadOnlyTest {
     private fun tooOld() = FakeDspiCore(demoDspState().copy(compat = DspiConstants.COMPAT_FIRMWARE_TOO_OLD))
+
+    /**
+     * Core patch 0003: firmware 1.1.5 (wire V28) whose settings the core
+     * decoded for display. Still TOO_OLD, so still read-only (G1 unchanged).
+     */
+    private fun olderDisplayOnly(features: Long = V28_FEATURES, version: Int = 28) = FakeDspiCore(
+        demoDspState().copy(
+            compat = DspiConstants.COMPAT_FIRMWARE_TOO_OLD,
+            formatVersion = version,
+            fwPatch = 5,
+            fwBeta = 0,
+            wireRead = WireCompat.WIRE_READ_OLDER,
+            wireFeatures = features,
+            bulkValid = false
+        )
+    )
+
+    /** Core patch 0003: a newer firmware (V33) whose V32 prefix the core decoded. */
+    private fun newerDisplayOnly() = FakeDspiCore(
+        demoDspState().copy(
+            compat = DspiConstants.COMPAT_FIRMWARE_TOO_NEW,
+            formatVersion = 33,
+            fwPatch = 7,
+            fwBeta = 1,
+            wireRead = WireCompat.WIRE_READ_NEWER,
+            wireFeatures = WireCompat.ALL,
+            bulkValid = false
+        )
+    )
 
     private val peq = FilterParams(DspiConstants.FILTER_PEAKING, false, 1000f, 3f, 1f, 0.707f)
 
@@ -185,8 +215,59 @@ class ReadOnlyTest {
     }
 
     @Test
-    fun everyWritePathIsRefusedBeforeAnyCoreWrite() = runTest {
-        val core = tooOld()
+    fun everyWritePathIsRefusedBeforeAnyCoreWrite() = runTest { assertEveryWriteRefused(tooOld()) }
+
+    @Test
+    fun everyWritePathIsRefusedForADisplayOnlyOlderImage() = runTest { assertEveryWriteRefused(olderDisplayOnly()) }
+
+    @Test
+    fun everyWritePathIsRefusedForADisplayOnlyNewerImage() = runTest { assertEveryWriteRefused(newerDisplayOnly()) }
+
+    @Test
+    fun displayOnlyOlderImageShowsWhatThatFirmwareHas() = runTest {
+        val core = olderDisplayOnly()
+        val b = newBridge(core)
+        attach(b, core)
+        assertFalse(b.writesAllowed.value)
+        assertTrue(b.displayOnly)
+        val caps = b.hardwareCaps
+        assertTrue(caps.inputSourceSupported)
+        assertTrue(caps.multiSpdifSupported)
+        assertEquals(4, caps.spdifInputCount) // V28: S/PDIF 4
+        assertTrue(caps.adatInputSupported) // V24+, RP2350
+        assertFalse("no limiter before V32", caps.limiterSupported)
+        assertTrue(b.upmixSupported) // V26+
+        assertTrue(b.compatMessage, b.compatMessage.contains("shown read-only"))
+
+        // firmware 1.1.5-beta5 (V24): three S/PDIF inputs, no upmixer yet
+        val v24 = olderDisplayOnly(features = (1L shl 8) - 1, version = 24)
+        val b24 = newBridge(v24)
+        attach(b24, v24)
+        assertEquals(3, b24.hardwareCaps.spdifInputCount)
+        assertFalse(b24.upmixSupported)
+    }
+
+    @Test
+    fun displayOnlyNewerImageKeepsEveryKnownFeature() = runTest {
+        val core = newerDisplayOnly()
+        val b = newBridge(core)
+        attach(b, core)
+        assertFalse(b.writesAllowed.value)
+        assertTrue(b.hardwareCaps.limiterSupported)
+        assertEquals(4, b.hardwareCaps.spdifInputCount)
+        assertTrue(b.compatMessage, b.compatMessage.contains("knows are shown read-only"))
+    }
+
+    @Test
+    fun anUnreadableImageShowsNothing() = runTest {
+        val core = tooOld() // wireRead stays EXACT in the demo state, but compat says TOO_OLD: no display-only state
+        val b = newBridge(core)
+        attach(b, core)
+        assertFalse(b.displayOnly)
+        assertEquals(HardwareCaps(), b.hardwareCaps)
+    }
+
+    private suspend fun TestScope.assertEveryWriteRefused(core: FakeDspiCore) {
         val b = newBridge(core)
         attach(b, core)
         assertTrue(b.connected)
@@ -331,6 +412,9 @@ class ReadOnlyTest {
     }
 
     companion object {
+        /** WIRE_FEAT_* of wire V28 (firmware 1.1.5): everything up to S/PDIF 4. */
+        const val V28_FEATURES: Long = (1L shl 11) - 1
+
         /** Members that read, are local to the app, manage the connection, or are exempt (enterBootloader). */
         val READ_MEMBERS =
             setOf(

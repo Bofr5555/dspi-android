@@ -16,6 +16,7 @@ import se.bofr.dspi.core.DspiConstants.MAX_XOVER_BANDS
 import se.bofr.dspi.core.FilterParams
 import se.bofr.dspi.core.I2cConfig
 import se.bofr.dspi.core.UartConfig
+import se.bofr.dspi.core.WireCompat
 
 /** `FilterParams::default()` (types.rs). */
 fun defaultFilterParams() = FilterParams(filterType = FILTER_FLAT, bypass = false, freq = 1000f, q = DEFAULT_Q, gain = 0f, qp = DEFAULT_Q)
@@ -36,6 +37,8 @@ fun defaultDspState(): DspState = DspState(
     fwPatch = 0,
     fwBeta = 0,
     compat = COMPAT_UNKNOWN,
+    wireRead = WireCompat.WIRE_READ_NONE,
+    wireFeatures = 0L,
     preampDb = 0f,
     bypass = false,
     inputPreampDb = List(MAX_INPUTS) { 0f },
@@ -240,6 +243,8 @@ fun demoDspState(): DspState {
         fwPatch = 6,
         fwBeta = 5,
         compat = DspiConstants.COMPAT_OK,
+        wireRead = WireCompat.WIRE_READ_EXACT,
+        wireFeatures = WireCompat.ALL,
         masterVolumeDb = -12f,
         filters = filters,
         xover = xover,

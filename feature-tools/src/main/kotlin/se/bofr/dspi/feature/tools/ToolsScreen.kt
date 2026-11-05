@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.core.DspState
 import se.bofr.dspi.core.DspiConstants
+import se.bofr.dspi.core.WireCompat
 import se.bofr.dspi.ui.Caption
 import se.bofr.dspi.ui.DspiRoutes
 
@@ -57,6 +58,19 @@ enum class ToolRoute(val route: String, val title: String, val subtitle: String)
         TUBE -> s.tube.getOrElse(DspiConstants.TUBE_PARAM_ENABLED) { 0f } != 0f
         UPMIX -> s.upmix.getOrElse(DspiConstants.UPMIX_PARAM_ENABLED) { 0f } != 0f
         LEVELLER -> s.levellerEnabled
+    }
+
+    /**
+     * Whether the connected firmware has this tool (core patch 0003: only an
+     * older firmware, decoded for display, hides anything; macOS gates the
+     * same tools on the same wire versions, `firmwareSupports*`).
+     */
+    fun supported(s: DspState): Boolean = when (this) {
+        PSYBASS -> WireCompat.has(s, WireCompat.PSYBASS)
+        SUBHARM -> WireCompat.has(s, WireCompat.SUBHARM)
+        TUBE -> WireCompat.has(s, WireCompat.TUBE)
+        UPMIX -> WireCompat.has(s, WireCompat.UPMIX_PRESENCE)
+        LOUDNESS, CROSSFEED, LEVELLER -> true
     }
 
     companion object {
@@ -106,7 +120,7 @@ private fun ToolList(bridge: DspiBridge, onOpen: (ToolRoute) -> Unit, onNavigate
         Text("Tools", Modifier.padding(16.dp), fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
         ListRow("Matrix Mixer", "Routing patch bay", null) { onNavigate(DspiRoutes.MATRIX) }
         HorizontalDivider()
-        ToolRoute.entries.forEach { t ->
+        ToolRoute.entries.filter { it.supported(st) }.forEach { t ->
             ListRow(t.title, t.subtitle, t.isOn(st)) { onOpen(t) }
             HorizontalDivider()
         }

@@ -9,6 +9,8 @@
   "fwPatch": 0,
   "fwBeta": 0,
   "compat": 0,
+  "wireRead": 0,
+  "wireFeatures": 0,
   "preampDb": 0.0,
   "bypass": false,
   "inputPreampDb": [

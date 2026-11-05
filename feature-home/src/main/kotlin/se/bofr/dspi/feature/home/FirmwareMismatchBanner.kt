@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.core.WireCompat
 import se.bofr.dspi.ui.DspiIcons
 import se.bofr.dspi.ui.DspiTheme
 import se.bofr.dspi.ui.HorizontalRule
@@ -38,7 +39,8 @@ fun FirmwareMismatchBanner(bridge: DspiBridge, onUpdate: () -> Unit, modifier: M
     val connected = bridge.observeStatus { it.connected }
     val hidden by HomeSession.bannerHidden
     val compat = if (connected) bridge.compat else 0
-    val message = HomeModel.firmwareBannerMessage(compat, bridge.firmwareVersion, HomeModel.EXPECTED_FIRMWARE)
+    val displayOnly = connected && WireCompat.isDisplayOnly(bridge.state.value)
+    val message = HomeModel.firmwareBannerMessage(compat, bridge.firmwareVersion, HomeModel.EXPECTED_FIRMWARE, displayOnly)
     AnimatedVisibility(visible = message != null && !hidden, modifier = modifier) {
         Column(Modifier.fillMaxWidth().background(c.orange.copy(alpha = 0.12f).compositeOver(c.windowBackground))) {
             Row(

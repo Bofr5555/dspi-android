@@ -143,6 +143,16 @@ data class DspState(
      * `COMPAT_*` (0 unknown, 1 ok, 2 firmware too old, 3 too new).
      */
     val compat: Int,
+    /**
+     * How the bulk image was decoded (core patch 0003, `wirecompat::WIRE_READ_*`):
+     * 0 none, 1 exact (V32), 2 older / 3 newer firmware, mapped onto V32 for
+     * display only (compat stays TOO_OLD / TOO_NEW: read-only).
+     */
+    val wireRead: Int,
+    /**
+     * `wirecompat::WIRE_FEAT_*` bits the firmware's wire format carries (patch 0003).
+     */
+    val wireFeatures: Long,
     val preampDb: Float,
     val bypass: Boolean,
     val inputPreampDb: List<Float>,

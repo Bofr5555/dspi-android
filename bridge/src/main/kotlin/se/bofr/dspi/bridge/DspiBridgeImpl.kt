@@ -48,6 +48,7 @@ import se.bofr.dspi.core.PinConfigStatus
 import se.bofr.dspi.core.PresetStatus
 import se.bofr.dspi.core.UartConfig
 import se.bofr.dspi.core.UpmixStatus
+import se.bofr.dspi.core.WireCompat
 import se.bofr.dspi.core.statusOf
 
 /**
@@ -807,14 +808,27 @@ class DspiBridgeImpl(
         get() = when (compat) {
             DspiConstants.COMPAT_FIRMWARE_TOO_OLD ->
                 "This DSPi runs firmware ${firmwareVersion.ifEmpty { "older than 1.1.6" }}, which is too old for this Console. " +
+                    (if (displayOnly) "Its settings are shown read-only; features it lacks are hidden. " else "") +
                     "Update it to firmware 1.1.6."
             DspiConstants.COMPAT_FIRMWARE_TOO_NEW ->
-                "This DSPi runs firmware $firmwareVersion, which is newer than this Console understands. Update the Console."
+                "This DSPi runs firmware $firmwareVersion, which is newer than this Console understands. " +
+                    (if (displayOnly) "The settings this Console knows are shown read-only. " else "") +
+                    "Update the Console."
             else -> ""
         }
 
     /** Connected to compatible firmware (Qt usable()). */
     internal val usable: Boolean get() = connected && current.compat == COMPAT_OK
+
+    /**
+     * Core patch 0003: connected to firmware of another wire format whose
+     * settings were decoded for display. G1 still applies (writes refused:
+     * compat is TOO_OLD / TOO_NEW); this only lets read-only views show them.
+     */
+    internal val displayOnly: Boolean get() = connected && !usable && WireCompat.isDisplayOnly(current)
+
+    /** The firmware has [feature] (always true unless an older image was decoded). */
+    private fun has(feature: Long): Boolean = WireCompat.has(current, feature)
 
     override val maxDelayMs: Float get() = maxDelay
     override val preampDB: Float get() = current.inputPreampDb[0]
@@ -885,7 +899,7 @@ class DspiBridgeImpl(
     override val psybassCharacter: Float get() = current.psybassCharacterPct
     override val psybassOriginal: Float get() = current.psybassOriginalDb
     override val psybassOutputMask: Int get() = current.psybassOutputMask
-    override val upmixSupported: Boolean get() = usable && current.platformId == 1
+    override val upmixSupported: Boolean get() = (usable || displayOnly) && current.platformId == 1 && has(WireCompat.UPMIX_PRESENCE)
     override val upmixParams: List<Float> get() = current.upmix
     override val subharmParams: List<Float> get() = current.subharm
     override val subharmSolo: Boolean get() = current.subharmSolo
@@ -2248,22 +2262,29 @@ class DspiBridgeImpl(
 
     override val hardwareCaps: HardwareCaps
         get() {
-            if (!usable) return HardwareCaps()
+            if (!usable && !displayOnly) return HardwareCaps()
             val rp2350 = current.platformId == 1
-            val v32 = current.formatVersion >= DspiConstants.WIRE_FORMAT_VERSION
+            // V32 (usable), or a display-only image of another wire format
+            // (core patch 0003): then the firmware's own features decide.
+            val v32 = usable && current.formatVersion >= DspiConstants.WIRE_FORMAT_VERSION || displayOnly
+            val v21 = v32 && has(WireCompat.I2S_CLOCK_MODE)
             return HardwareCaps(
                 // macOS bulk apply: V21+ image -> inputSourceSupported / lgSoundSyncSupported
                 inputSourceSupported = v32,
                 lgSoundSyncSupported = v32,
-                multiSpdifSupported = v32,
-                spdifInputCount = if (v32) 4 else 1,
+                multiSpdifSupported = v21,
+                spdifInputCount = when {
+                    !v21 -> 1
+                    has(WireCompat.SPDIF_IN4) -> 4
+                    else -> 3
+                },
                 i2sInputSupported = v32,
                 i2sMultichannelInput = v32 && rp2350,
-                i2sClockModeSupported = v32,
-                i2sClockPinModeSupported = v32,
-                adatOutSupported = rp2350,
-                adatInputSupported = rp2350,
-                limiterSupported = v32,
+                i2sClockModeSupported = v21,
+                i2sClockPinModeSupported = v21,
+                adatOutSupported = rp2350 && has(WireCompat.ADAT_OUT),
+                adatInputSupported = rp2350 && has(WireCompat.ADAT_IN),
+                limiterSupported = v32 && has(WireCompat.LIMITER),
                 crossfeedPairMapSupported = crossfeedPairMapSupported,
                 crossfeedPairCount = CrossfeedPairs.pairCount(current.numOutputChannels)
             )

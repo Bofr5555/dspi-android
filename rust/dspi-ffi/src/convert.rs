@@ -167,6 +167,8 @@ impl From<&state::DspState> for DspState {
             fw_patch: s.fw_patch,
             fw_beta: s.fw_beta,
             compat: s.compat,
+            wire_read: s.wire_read,
+            wire_features: s.wire_features,
             preamp_db: s.preamp_db,
             bypass: s.bypass,
             input_preamp_db: s.input_preamp_db.to_vec(),

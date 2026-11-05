@@ -836,6 +836,7 @@ open class FakeDspiCore(
                 platformId = live.platformId, numChannels = live.numChannels, numInputChannels = live.numInputChannels,
                 numOutputChannels = live.numOutputChannels, formatVersion = live.formatVersion, fwMajor = live.fwMajor,
                 fwMinor = live.fwMinor, fwPatch = live.fwPatch, fwBeta = live.fwBeta, compat = live.compat,
+                wireRead = live.wireRead, wireFeatures = live.wireFeatures,
                 presetOccupied = live.presetOccupied, presetNames = live.presetNames, activePresetSlot = slot,
                 presetStartupMode = live.presetStartupMode, presetDefaultSlot = live.presetDefaultSlot,
                 masterVolumeMode = live.masterVolumeMode, outputConfigMode = live.outputConfigMode,
@@ -1389,7 +1390,8 @@ open class FakeDspiCore(
         fun factoryOf(s: DspState): DspState = defaultDspState().copy(
             platformId = s.platformId, numChannels = s.numChannels, numInputChannels = s.numInputChannels,
             numOutputChannels = s.numOutputChannels, formatVersion = s.formatVersion, fwMajor = s.fwMajor, fwMinor = s.fwMinor,
-            fwPatch = s.fwPatch, fwBeta = s.fwBeta, compat = s.compat, numPinOutputs = s.numPinOutputs, outputPins = s.outputPins,
+            fwPatch = s.fwPatch, fwBeta = s.fwBeta, compat = s.compat, wireRead = s.wireRead, wireFeatures = s.wireFeatures,
+            numPinOutputs = s.numPinOutputs, outputPins = s.outputPins,
             dacMuteSupported = s.dacMuteSupported, ctrlIfaceSupported = s.ctrlIfaceSupported, bulkValid = s.bulkValid, bulkRaw = s.bulkRaw,
             outputEnabled = List(MAX_OUTPUTS) { it < 2 },
             matrixRouting = List(MAX_INPUTS) { i -> List(MAX_OUTPUTS) { o -> i < 2 && o == i } }

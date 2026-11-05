@@ -150,6 +150,12 @@ pub struct DspState {
     pub fw_beta: u8,
     /// `COMPAT_*` (0 unknown, 1 ok, 2 firmware too old, 3 too new).
     pub compat: u8,
+    /// How the bulk image was decoded (core patch 0003, `wirecompat::WIRE_READ_*`):
+    /// 0 none, 1 exact (V32), 2 older / 3 newer firmware, mapped onto V32 for
+    /// display only (compat stays TOO_OLD / TOO_NEW: read-only).
+    pub wire_read: u8,
+    /// `wirecompat::WIRE_FEAT_*` bits the firmware's wire format carries (patch 0003).
+    pub wire_features: u32,
     // Global
     pub preamp_db: f32,
     pub bypass: bool,

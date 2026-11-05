@@ -67,7 +67,8 @@ internal object FakeFiles {
             doc.copy(
                 platformId = s.platformId, numChannels = s.numChannels, numInputChannels = s.numInputChannels,
                 numOutputChannels = s.numOutputChannels, formatVersion = s.formatVersion, fwMajor = s.fwMajor, fwMinor = s.fwMinor,
-                fwPatch = s.fwPatch, fwBeta = s.fwBeta, compat = s.compat, presetOccupied = s.presetOccupied,
+                fwPatch = s.fwPatch, fwBeta = s.fwBeta, compat = s.compat, wireRead = s.wireRead, wireFeatures = s.wireFeatures,
+                presetOccupied = s.presetOccupied,
                 presetNames = s.presetNames, activePresetSlot = s.activePresetSlot, bulkValid = s.bulkValid, bulkRaw = s.bulkRaw
             )
         if (!volumes) n = n.copy(masterVolumeDb = s.masterVolumeDb, userVolumeDb = s.userVolumeDb, userMute = s.userMute)

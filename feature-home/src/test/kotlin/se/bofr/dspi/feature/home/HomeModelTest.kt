@@ -69,6 +69,12 @@ class HomeModelTest {
             "no banner while compat is still unknown",
             HomeModel.firmwareBannerMessage(DspiConstants.COMPAT_UNKNOWN, "", "1.1.6-beta5")
         )
+        assertEquals(
+            "This device runs firmware 1.1.5; DSPi Console expects 1.1.6-beta5. " +
+                "Features that firmware does not have are hidden. " +
+                "Until the firmware matches, this app is read-only: settings are shown but cannot be changed.",
+            HomeModel.firmwareBannerMessage(DspiConstants.COMPAT_FIRMWARE_TOO_OLD, "1.1.5", "1.1.6-beta5", displayOnly = true)
+        )
         assertEquals("Details...", HomeModel.firmwareBannerButton(DspiConstants.COMPAT_FIRMWARE_TOO_NEW))
         assertEquals("DSPi (E6614103)", HomeModel.deviceDisplayName("DEMO0000E6614103"))
     }
