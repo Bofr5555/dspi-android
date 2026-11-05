@@ -17,10 +17,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -84,32 +89,37 @@ private fun DspiNavHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator
 @Composable
 private fun DspiRoutesHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?) {
     val nav = rememberNavController()
-    val go: (String) -> Unit = { nav.navigate(it) }
-    val back: () -> Unit = { nav.popBackStack() }
     NavHost(navController = nav, startDestination = DspiRoutes.HOME) {
-        composable(DspiRoutes.HOME) { HomeScreen(bridge, go, back) }
-        composable(
-            DspiRoutes.CHANNEL,
-            arguments = listOf(navArgument("ch") { type = NavType.IntType })
-        ) { entry ->
+        // Each screen's back/navigate act only while its own entry is current (EntryNavigator)
+        screen(nav, DspiRoutes.HOME) { _, go, back -> HomeScreen(bridge, go, back) }
+        screen(nav, DspiRoutes.CHANNEL, listOf(navArgument("ch") { type = NavType.IntType })) { entry, go, back ->
             ChannelScreen(bridge, entry.arguments?.getInt("ch") ?: 0, go, back)
         }
-        composable(DspiRoutes.GRAPH) { GraphScreen(bridge, go, back) }
-        composable(DspiRoutes.MATRIX) { MatrixMixerView(bridge, go, back) }
-        composable(DspiRoutes.TOOLS) { ToolsScreen(bridge, go, back) }
-        composable(
-            DspiRoutes.LIMITER,
-            arguments = listOf(navArgument("out") { type = NavType.IntType })
-        ) { entry ->
+        screen(nav, DspiRoutes.GRAPH) { _, go, back -> GraphScreen(bridge, go, back) }
+        screen(nav, DspiRoutes.MATRIX) { _, go, back -> MatrixMixerView(bridge, go, back) }
+        screen(nav, DspiRoutes.TOOLS) { _, go, back -> ToolsScreen(bridge, go, back) }
+        screen(nav, DspiRoutes.LIMITER, listOf(navArgument("out") { type = NavType.IntType })) { entry, go, back ->
             OutputLimiterView(bridge, entry.arguments?.getInt("out") ?: 0, go, back)
         }
-        composable(DspiRoutes.PRESETS) { PresetsScreen(bridge, go, back) }
-        composable(DspiRoutes.SETTINGS) { SettingsScreen(bridge, go, back) }
-        composable(DspiRoutes.ANALYSIS) { AnalysisScreen(bridge, go, back) }
-        composable(DspiRoutes.FIRMWARE) {
+        screen(nav, DspiRoutes.PRESETS) { _, go, back -> PresetsScreen(bridge, go, back) }
+        screen(nav, DspiRoutes.SETTINGS) { _, go, back -> SettingsScreen(bridge, go, back) }
+        screen(nav, DspiRoutes.ANALYSIS) { _, go, back -> AnalysisScreen(bridge, go, back) }
+        screen(nav, DspiRoutes.FIRMWARE) { _, go, back ->
             // The firmware update path stays usable read-only (G1: enterBootloader is the one write the bridge allows)
             WritesExempt { FirmwareUpdateView(bridge, go, back, bootloaderLocator = bootloaderLocator) }
         }
+    }
+}
+
+private fun NavGraphBuilder.screen(
+    nav: NavHostController,
+    route: String,
+    arguments: List<NamedNavArgument> = emptyList(),
+    content: @Composable (entry: NavBackStackEntry, go: (String) -> Unit, back: () -> Unit) -> Unit
+) {
+    composable(route, arguments) { entry ->
+        val navigator = remember(nav, entry) { nav.navigatorFor(entry) }
+        content(entry, navigator::go, navigator::back)
     }
 }
 
