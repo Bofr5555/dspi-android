@@ -13,6 +13,9 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import se.bofr.dspi.bridge.DspiBridge
+import se.bofr.dspi.core.LinkDevice
+import se.bofr.dspi.link.LinkHub
+import se.bofr.dspi.link.LinkSessionState
 import se.bofr.dspi.usb.DspiUsbDevice
 import se.bofr.dspi.usb.UsbIds
 import se.bofr.dspi.usb.UsbSessionState
@@ -47,6 +50,44 @@ class AppModeControllerTest {
         }
     }
 
+    private class FakeRemote : RemoteSession {
+        val rec = RecordingBridge()
+        val flow = MutableStateFlow<LinkSessionState>(LinkSessionState.Idle)
+        val connects = mutableListOf<LinkHub>()
+        var closed = 0
+        var retries = 0
+        override val bridge get() = rec.bridge
+        override val state get() = flow
+
+        override fun connect(hub: LinkHub) {
+            connects += hub
+            flow.value = LinkSessionState.Connecting(hub)
+        }
+
+        override fun submitPin(pin: String) {}
+
+        override fun cancelPin() {
+            flow.value = LinkSessionState.Idle
+        }
+
+        override fun chooseDevice(device: LinkDevice) {}
+
+        override fun retryNow() {
+            retries++
+        }
+
+        override fun disconnect() {
+            flow.value = LinkSessionState.Idle
+        }
+
+        override fun close() {
+            closed++
+        }
+    }
+
+    private val remotes = mutableListOf<FakeRemote>()
+    private val hub = LinkHub("6f1a", "Studio Mac", "console", "none", 1, emptyList(), "192.168.1.20", 11915)
+
     private val usbState = MutableStateFlow<UsbSessionState>(UsbSessionState.NoDevice)
     private val usbDevices = MutableStateFlow<List<DspiUsbDevice>>(emptyList())
     private val device = RecordingBridge()
@@ -59,7 +100,8 @@ class AppModeControllerTest {
         usbDevices = usbDevices,
         scope = CoroutineScope(backgroundScope.coroutineContext + UnconfinedTestDispatcher(testScheduler)),
         demoFactory = { FakeDemo().also { demos += it } },
-        forwardUiVisible = { forwarded += it }
+        forwardUiVisible = { forwarded += it },
+        remoteFactory = { FakeRemote().also { remotes += it } }
     )
 
     private val unit = DspiUsbDevice("/dev/bus/usb/001/002", UsbIds.DSPI_VID, "E6614103", hasPermission = true)
@@ -132,5 +174,72 @@ class AppModeControllerTest {
         assertEquals(listOf(false, true), forwarded)
         assertEquals(listOf(false, true), demos.single().rec.visible)
         assertTrue(device.visible.isEmpty()) // the session forwards to the device bridge itself
+    }
+
+    @Test
+    fun remoteIsItsOwnStackAndLeavesDemo() = runTest {
+        val c = controller()
+        c.enterDemo()
+        c.enterRemote(hub)
+        assertEquals(AppMode.REMOTE, c.mode.value)
+        assertEquals(1, demos.single().closed)
+        assertSame(remotes.single().bridge, c.bridge.value)
+        assertEquals(listOf(hub), remotes.single().connects)
+        assertFalse(c.demoAvailable.value)
+        assertFalse(c.enterDemo())
+        c.exitRemote()
+        assertEquals(AppMode.DEVICE, c.mode.value)
+        assertSame(device.bridge, c.bridge.value)
+        assertEquals(1, remotes.single().closed)
+    }
+
+    @Test
+    fun leavingTheHubEndsRemote() = runTest {
+        val c = controller()
+        c.enterRemote(hub)
+        assertTrue(c.remoteState.value is LinkSessionState.Connecting)
+        remotes.single().cancelPin() // the engine goes Idle
+        assertEquals(AppMode.DEVICE, c.mode.value)
+        assertEquals(1, remotes.single().closed)
+    }
+
+    @Test
+    fun aUsbDspiWhileRemoteAsksInsteadOfSwitching() = runTest {
+        val c = controller()
+        c.enterRemote(hub)
+        assertFalse(c.usbPrompt.value)
+        usbState.value = UsbSessionState.Open("x", UsbIds.DSPI_VID)
+        assertTrue("D9: prompt, no silent switch", c.usbPrompt.value)
+        assertEquals(AppMode.REMOTE, c.mode.value)
+        c.answerUsbPrompt(useUsb = false)
+        assertFalse(c.usbPrompt.value)
+        assertEquals(AppMode.REMOTE, c.mode.value)
+        // unplug + plug again asks again; "Use USB" leaves REMOTE
+        usbState.value = UsbSessionState.NoDevice
+        usbState.value = UsbSessionState.Open("x", UsbIds.DSPI_VID)
+        assertTrue(c.usbPrompt.value)
+        c.answerUsbPrompt(useUsb = true)
+        assertEquals(AppMode.DEVICE, c.mode.value)
+        assertSame(device.bridge, c.bridge.value)
+    }
+
+    @Test
+    fun enteringRemoteWithAUsbDspiPresentDoesNotPrompt() = runTest {
+        usbState.value = UsbSessionState.Open("x", UsbIds.DSPI_VID)
+        val c = controller()
+        c.enterRemote(hub)
+        assertFalse(c.usbPrompt.value)
+        assertEquals(AppMode.REMOTE, c.mode.value)
+    }
+
+    @Test
+    fun theRemoteBridgeFollowsUiVisibilityAndRetriesOnReturn() = runTest {
+        val c = controller()
+        c.setUiVisible(false)
+        c.enterRemote(hub)
+        assertEquals(listOf(false), remotes.single().rec.visible)
+        c.setUiVisible(true)
+        assertEquals(listOf(false, true), remotes.single().rec.visible)
+        assertEquals(1, remotes.single().retries)
     }
 }

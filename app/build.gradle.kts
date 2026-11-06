@@ -74,6 +74,7 @@ dependencies {
     implementation(project(":fake-core"))
     implementation(project(":ffi"))
     implementation(project(":usb"))
+    implementation(project(":link"))
     implementation(project(":ui-common"))
     implementation(project(":feature-home"))
     implementation(project(":feature-graph"))

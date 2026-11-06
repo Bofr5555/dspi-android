@@ -194,7 +194,7 @@ pkg_release() {
   step "release: bundletool validate"
   bundletool validate --bundle="$aab" >/dev/null
 
-  step "release: manifest (targetSdk, not debuggable, no INTERNET)"
+  step "release: manifest (targetSdk, not debuggable, exactly the expected permissions)"
   local manifest
   manifest="$(bundletool dump manifest --bundle="$aab")"
   python3 - "$manifest" "$(grep '^targetSdk' gradle/libs.versions.toml | tr -dc 0-9)" <<'PY'
@@ -205,7 +205,16 @@ sdk = m.find("uses-sdk").get(A + "targetSdkVersion")
 assert sdk == want, f"targetSdkVersion {sdk} != catalog {want}"
 assert m.find("application").get(A + "debuggable") in (None, "false"), "release is debuggable"
 perms = sorted(p.get(A + "name") for p in m.findall("uses-permission"))
-assert "android.permission.INTERNET" not in perms, "INTERNET permission crept in"
+# Exactly the expected set (DSPi Link added the three network ones, owner decision D2;
+# PRIVACY.md and docs/RELEASE.md Data safety describe each). Anything else fails.
+want_perms = sorted("android.permission." + p for p in (
+    "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_CONNECTED_DEVICE", "POST_NOTIFICATIONS",
+    "INTERNET", "ACCESS_NETWORK_STATE", "CHANGE_WIFI_MULTICAST_STATE"))
+extra = [p for p in perms if p not in want_perms and not p.endswith(".DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")]
+missing = [p for p in want_perms if p not in perms]
+assert not extra and not missing, f"permissions changed: extra {extra}, missing {missing}"
+app = m.find("application")
+assert app.get(A + "networkSecurityConfig"), "network security config missing"
 svc = [s for s in m.iter("service") if s.get(A + "foregroundServiceType")]
 print(f"ok: targetSdk {sdk}; permissions {perms}; FGS {[(s.get(A+'name'), s.get(A+'foregroundServiceType')) for s in svc]}")
 PY

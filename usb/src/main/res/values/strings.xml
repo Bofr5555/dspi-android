@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="dspi_usb_channel_name">DSPi connection</string>
-    <string name="dspi_usb_channel_description">Shown while a DSPi is connected. Volume, mute and preset controls.</string>
+    <string name="dspi_usb_channel_description">Shown while a DSPi is connected, over USB or the network. Volume, mute and preset controls.</string>
     <string name="dspi_usb_action_volume_down">Vol −</string>
     <string name="dspi_usb_action_volume_up">Vol +</string>
     <string name="dspi_usb_action_volume_down_description">Volume down</string>

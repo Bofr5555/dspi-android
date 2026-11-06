@@ -10,7 +10,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
-        <!-- Hosts the core while a DSPi is open (PLAN §5.3). -->
+        <!-- Hosts the core while a DSPi is open (PLAN §5.3): over USB, or over
+             the network through DSPi Link (connectedDevice covers "external
+             devices that require a ... USB, or network connection"). -->
         <service
             android:name="se.bofr.dspi.usb.DspiConnectionService"
             android:exported="false"

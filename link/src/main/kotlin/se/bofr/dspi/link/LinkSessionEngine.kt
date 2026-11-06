@@ -166,6 +166,19 @@ class LinkSessionEngine(
         }
     }
 
+    /** [disconnect], then wait for the device to be detached and the session closed (stack teardown). */
+    suspend fun close() {
+        generation++
+        job?.cancel()
+        job = null
+        hub = null
+        wantedSerial = null
+        _state.value = LinkSessionState.Idle
+        detachCurrent()
+        ops.setListener(null)
+        runCatching { ops.close() }
+    }
+
     /** Forget the token stored for [hubId] (Settings › Networking). */
     fun forget(hubId: String) = tokens.remove(hubId)
 

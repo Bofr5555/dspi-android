@@ -1,19 +1,29 @@
 package se.bofr.dspi.app
 
 import android.app.Application
+import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.bridge.DspiBridgeImpl
 import se.bofr.dspi.ffi.FfiDspiCore
+import se.bofr.dspi.link.LinkNetworkMonitor
+import se.bofr.dspi.link.LinkSettingsStore
+import se.bofr.dspi.link.LinkTokenStore
+import se.bofr.dspi.link.NsdHubBrowser
+import se.bofr.dspi.link.PrefsLinkSettingsStore
+import se.bofr.dspi.link.keystoreLinkTokenStore
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.DataStoreAppSettingsStore
 import se.bofr.dspi.ui.state.AppState
 import se.bofr.dspi.usb.AndroidBootloaderLocator
+import se.bofr.dspi.usb.AndroidServiceControl
 import se.bofr.dspi.usb.AndroidUsbSession
 import se.bofr.dspi.usb.BootloaderLocator
+import se.bofr.dspi.usb.ConnectionServiceLink
 import se.bofr.dspi.usb.UiVisibilityTracker
 import se.bofr.dspi.usb.UsbSession
 
@@ -32,6 +42,13 @@ import se.bofr.dspi.usb.UsbSession
  * so the device stays open across Activity recreation while the foreground
  * service runs. Demo mode builds a separate fake stack on demand
  * ([AppModeController]).
+ *
+ * DSPi Link (REMOTE, opt-in, off by default): [linkSettings], the
+ * Keystore-sealed [linkTokens] and [networking] (Settings › Networking);
+ * the REMOTE stack is built on demand by [AppModeController.enterRemote]
+ * (its own FfiDspiCore + DspiBridgeImpl + LinkSessionEngine). One
+ * `connectedDevice` foreground service serves USB and REMOTE
+ * ([SharedServiceControl]); its notification follows the bridge on screen.
  *
  * Also process-wide, provided to every screen by [MainActivity]: the one
  * preference store ([appSettings], decision F3; its analyser options are
@@ -57,6 +74,13 @@ class DspiApplication : Application() {
     lateinit var appSettings: AppSettingsStore
         private set
 
+    lateinit var linkSettings: LinkSettingsStore
+        private set
+    lateinit var linkTokens: LinkTokenStore
+        private set
+    lateinit var networking: AppNetworkingController
+        private set
+
     /** The main window's selection (macOS activeEqChannel / isOverviewMode). */
     val appState = AppState()
 
@@ -71,17 +95,47 @@ class DspiApplication : Application() {
         super.onCreate()
         val version = appVersion()
         val linkStore = DataStoreLinkStore(dspiBridgeStore, appScope)
-        bridge = DspiBridgeImpl(FfiDspiCore(), appScope, linkStore = linkStore, appVersion = version)
-        val usb = AndroidUsbSession(this, bridge, appScope)
+        val deviceCore = FfiDspiCore()
+        bridge = DspiBridgeImpl(deviceCore, appScope, linkStore = linkStore, appVersion = version)
+        val services = SharedServiceControl(AndroidServiceControl(this))
+        val usb = AndroidUsbSession(this, bridge, appScope, service = services.client("usb"))
         session = usb
+        linkSettings = PrefsLinkSettingsStore(this)
+        linkTokens = keystoreLinkTokenStore(this)
+        val clientName = { linkSettings.settings.value.clientName.ifBlank { Build.MODEL.orEmpty().ifBlank { "Android" } } }
         modes = AppModeController(
             deviceBridge = bridge,
             usbState = usb.state,
             usbDevices = usb.devices,
             scope = appScope,
             demoFactory = { startDemoSession(appScope, version, log = { Log.i(TAG, it) }) },
-            forwardUiVisible = usb::setUiVisible
+            forwardUiVisible = usb::setUiVisible,
+            remoteFactory = {
+                startRemoteSession(
+                    appScope,
+                    version,
+                    FfiDspiCore(),
+                    linkTokens,
+                    clientName,
+                    services.linkClient(),
+                    linkStore,
+                    log = { Log.i(TAG, it) }
+                )
+            }
         )
+        // The notification acts on the unit on screen (device, demo or REMOTE)
+        ConnectionServiceLink.controls = SwitchingNotificationControls(modes.bridge, appScope)
+        networking = AppNetworkingController(
+            linkSettings,
+            NsdHubBrowser(this, appScope),
+            linkTokens,
+            modes,
+            appScope,
+            Build.MODEL.orEmpty(),
+            parseAddress = { t -> runCatching { deviceCore.linkParseAddress(t) }.getOrNull()?.let { it.host to it.port } }
+        )
+        val network = LinkNetworkMonitor(this) { appScope.launch { modes.remoteSession?.retryNow() } }
+        appScope.launch { linkSettings.settings.collect { if (it.enabled) network.start() else network.stop() } }
         usbGate = UsbStartGate(appScope) { linkStore.awaitLoaded() }
         usbGate.run { usb.start(this) }
         UiVisibilityTracker(appScope) { modes.setUiVisible(it) }.install(this)

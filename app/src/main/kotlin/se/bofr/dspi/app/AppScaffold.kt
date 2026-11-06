@@ -67,16 +67,20 @@ fun AppScaffold(
     onEnterDemo: () -> Unit,
     onExitDemo: () -> Unit,
     onRequestPermission: () -> Unit,
-    bootloaderLocator: BootloaderLocator? = null
+    bootloaderLocator: BootloaderLocator? = null,
+    onRemoteAction: (RemoteAction) -> Unit = {},
+    onConnectNetwork: () -> Unit = {},
+    overlay: @Composable () -> Unit = {}
 ) {
     Scaffold(
         topBar = { TopAppBar(title = { Text(if (strip is ConnectionStrip.Demo) "DSPi — Demo (no device)" else "DSPi") }) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            ConnectionStripBar(strip, onEnterDemo, onExitDemo, onRequestPermission)
+            ConnectionStripBar(strip, onEnterDemo, onExitDemo, onRequestPermission, onRemoteAction, onConnectNetwork)
             key(bridge) { DspiNavHost(bridge, bootloaderLocator) }
         }
     }
+    overlay()
 }
 
 @Composable
@@ -124,9 +128,17 @@ private fun NavGraphBuilder.screen(
 }
 
 @Composable
-private fun ConnectionStripBar(strip: ConnectionStrip, onEnterDemo: () -> Unit, onExitDemo: () -> Unit, onRequestPermission: () -> Unit) {
+private fun ConnectionStripBar(
+    strip: ConnectionStrip,
+    onEnterDemo: () -> Unit,
+    onExitDemo: () -> Unit,
+    onRequestPermission: () -> Unit,
+    onRemoteAction: (RemoteAction) -> Unit,
+    onConnectNetwork: () -> Unit
+) {
     if (strip is ConnectionStrip.Hidden) return
-    val demo = strip is ConnectionStrip.Demo
+    // Demo and REMOTE stand out, so neither is taken for the USB unit
+    val demo = strip is ConnectionStrip.Demo || strip is ConnectionStrip.Remote
     val colors = MaterialTheme.colorScheme
     Row(
         Modifier
@@ -144,7 +156,13 @@ private fun ConnectionStripBar(strip: ConnectionStrip, onEnterDemo: () -> Unit, 
         )
         when (strip) {
             ConnectionStrip.Demo -> TextButton(onClick = onExitDemo) { Text("Exit demo") }
-            is ConnectionStrip.NoDevice -> if (strip.demoAvailable) TextButton(onClick = onEnterDemo) { Text("Demo (no device)") }
+            is ConnectionStrip.NoDevice -> Row {
+                if (strip.networkAvailable) TextButton(onClick = onConnectNetwork) { Text("Network…") }
+                if (strip.demoAvailable) TextButton(onClick = onEnterDemo) { Text("Demo (no device)") }
+            }
+            is ConnectionStrip.Remote -> Row {
+                strip.actions.forEach { a -> TextButton(onClick = { onRemoteAction(a) }) { Text(a.label) } }
+            }
             is ConnectionStrip.NeedsPermission -> TextButton(onClick = onRequestPermission) { Text("Allow USB access") }
             is ConnectionStrip.Info, ConnectionStrip.Hidden -> Unit
         }

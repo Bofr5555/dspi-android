@@ -46,7 +46,7 @@ val stageCore by tasks.registering(Exec::class) {
 
 val rustSources =
     fileTree(rustDir) {
-        include("dspi-ffi/**", "uniffi-bindgen/**", "Cargo.toml", "Cargo.lock", ".staged/dspi-core/core/src/**")
+        include("dspi-ffi/**", "dspi-link/**", "uniffi-bindgen/**", "Cargo.toml", "Cargo.lock", ".staged/dspi-core/core/src/**")
     }
 
 val cargoBuildHost by tasks.registering(Exec::class) {
