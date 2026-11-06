@@ -42,7 +42,11 @@ Status: `—` not started · `W0` placeholder exists · `WIP` · `done`.
 | `BootloaderLocator.swift` | — | `usb/…/BootloaderLocator.kt` (contract), `AndroidBootloaderLocator.kt` (`BootloaderScanner`) | USB | done (locating only; HIL pending) |
 | `FirmwareUpdateView.swift`, `FirmwareInstallUI.swift`, `FirmwareInstaller.swift`, `FirmwareVersion.swift`, `Firmware/*.uf2` | ~1.5k | `feature-firmware/…/FirmwareUpdateView.kt` (+ `FirmwareUpdateModel.kt`), `FirmwareInstallUI.kt`, `FirmwareInstaller.kt`, `FirmwareVersion.kt`, `BootloaderLocating.kt`, `Uf2.kt`, `Picoboot.kt`, `FirmwareWriters.kt`, `AndroidFirmwareIo.kt`; UF2 assets (official release, verified) | FIRMWARE | done (JVM-tested on fakes; review B-2 fixes applied; flashing HIL pending) |
 | `Onboarding/*`, `WhatsNew.json` | ~3k | `GettingStartedView.kt`, `WhatsNewView.kt` (simplified) | unassigned (Phase 6) | — |
-| `SoftwareUpdateSettingsTab`, `AppUpdateChecker/Installer.swift`, `MenuBarMode.swift`, `NetworkingSettingsView.swift`, `Link/*` | ~8.5k | **not ported** (Play/F-Droid updates; no hub role on a phone) | — | n/a |
+| `SoftwareUpdateSettingsTab`, `AppUpdateChecker/Installer.swift`, `MenuBarMode.swift` | — | **not ported** (Play/F-Droid updates) | — | n/a |
+| `Link/LinkClient.swift`, `LinkFrames.swift`, `LinkMessages.swift` (release/v1.1.6) | ~2.1k | `rust/dspi-link` (`client.rs`, `frames.rs`, `messages.rs`, `socket.rs`, `address.rs`) behind the core's `Transport` (`third_party/patches/0004-transport-trait.patch`, `rust/dspi-ffi/src/link.rs`) | LINK | done (fixtures + fake hub; HIL pending, `docs/LINK-HIL-CHECKLIST.md`) |
+| `Link/NetworkTransport.swift`, `LinkTokenStore.swift`, `HubBrowser.swift` (client half), `PairingPrompt.swift` | ~1.0k | `link/…/LinkSessionEngine.kt` (+ `PairingText`), `LinkTokenStore.kt` (Keystore), `NsdHubBrowser.kt` + `LinkHub.kt` (`HubTxt`), `LinkSettings.kt`; `app/…/RemoteSession.kt`, `AppMode.kt` (REMOTE), `LinkDialogs.kt` | LINK | done (JVM-tested; HIL pending) |
+| `NetworkingSettingsView.swift` (client half: Other Hubs, Add by Address) | ~200 | `feature-settings/…/NetworkingSettingsTab.kt` via `ui-common/…/link/Networking.kt`; `app/…/AppNetworkingController.kt` | LINK | done |
+| `Link/*` hub side (`LinkServer`, `LinkHub`, `LinkService`, `CommandRouter`, `PollScheduler`, `NotifyRelay`, `SnapshotCache`, `AuthStore`, …), `CompositeTransport.swift` | ~5k | **not ported** (client only, owner decisions D1/D5; one bridge per stack instead of a composite device list) | — | n/a |
 
 ## UI
 

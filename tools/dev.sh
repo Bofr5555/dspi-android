@@ -65,6 +65,11 @@ esac
 tty=()
 if [[ -t 0 && -t 1 ]]; then tty=(-t); fi
 
+# DSPI_DEV_PUBLISH=hostport:containerport publishes one TCP port (only the
+# DSPi Link fake hub uses it: tools/link-fakehub.sh). Network only, no devices.
+publish=()
+if [[ -n "${DSPI_DEV_PUBLISH:-}" ]]; then publish=(-p "$DSPI_DEV_PUBLISH"); fi
+
 if [[ $# -eq 0 ]]; then set -- bash; fi
 
 exec podman run --rm -i "${tty[@]}" \
@@ -72,6 +77,7 @@ exec podman run --rm -i "${tty[@]}" \
   --security-opt no-new-privileges \
   --cap-drop=all \
   "${mounts[@]}" \
+  "${publish[@]}" \
   -w "$workdir" \
   -e TERM="${TERM:-dumb}" \
   -e CI="${CI:-}" \

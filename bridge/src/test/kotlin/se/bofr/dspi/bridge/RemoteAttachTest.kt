@@ -71,4 +71,18 @@ class RemoteAttachTest {
         assertEquals(2, core.callCount("linkSelectDevice"))
         assertTrue(b.connected)
     }
+
+    @Test
+    fun noBootloaderEntryOverTheNetwork() = runTest {
+        val core = linked()
+        val b = newBridge(core)
+        b.attachRemote(0, core.serial)
+        runCurrent()
+        val events = collectEvents(b)
+        b.enterBootloader(b.dangerousOps.confirm(DangerousOp.ENTER_BOOTLOADER))
+        runCurrent()
+        assertEquals(0, core.callCount("enterBootloader"))
+        val e = events.filterIsInstance<BridgeEvent.CommandFailed>().single()
+        assertEquals(WritesNotAllowedException.REMOTE_BOOTLOADER, e.error.message)
+    }
 }

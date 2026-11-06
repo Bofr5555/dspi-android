@@ -971,3 +971,59 @@ adds, ONLY when `HardwareCaps.crossfeedPairMapSupported`:
 
 Tests: `feature-tools/…/CrossfeedPairMapUiTest.kt` (FakeDspiCore).
 
+## LINK (DSPi Link client, 2026-11-06)
+
+Reference: DSPi-Console `release/v1.1.6` (`9a42965`) `Link/` and
+`NetworkingSettingsView.swift`; protocol: WeebLabs/DSPi-Link `86f10e3`
+(spec 1.2, draft). Investigation and owner decisions D1–D9:
+`dspi-mobile/docs/DSPI-LINK-INVESTIGATION.md`.
+
+1. **Client only** (D1/D5). No hub role, so the macOS Networking page's
+   "This Hub" and "Paired Clients" sections are not ported, nor the
+   `CompositeTransport` merged device list: REMOTE is its own stack (core +
+   bridge), as demo mode is, and a hub's device is chosen inside it.
+2. **Opt-in, off by default** (D2): Settings › Networking › "Control DSPi
+   devices over the network". macOS has no such switch (its client is always
+   there). Browsing runs only while the Networking page is visible.
+3. **Protocol in Rust behind the core's transport** (D3/D4) instead of the
+   Swift `NetworkTransport` under `DSPViewModel`: patch 0004 makes the core
+   transport-aware (echo suppression by origin, single-shot bulk, Link
+   timeouts, the RTA fallback via `Pipe`).
+4. **`auth: none` without a session id:** if the courtesy `auth.pair`
+   fails, the session carries on without one (spec 6.1); macOS fails the
+   session.
+5. **Snapshot:** used for the first bulk read of a connection only (the
+   macOS NetworkTransport header says so; its code uses it for every
+   `REQ_GET_ALL_PARAMS`). Later re-reads (RESYNC, BULK_INVALIDATED) read
+   the device, so a stale hub cache cannot undo a change.
+6. **Sequence gaps:** a gap in the Link NOTIFY sequence is turned into a
+   re-read (spec 8.3); macOS re-reads on RESYNC only.
+7. **Pairing prompt** is a non-modal dialog (engine state) instead of
+   `NSAlert.runModal()`; wording: macOS `PairingPrompt` for a Console hub's
+   window PIN, spec 6.2 for the others ("Enter the PIN shown on the hub.",
+   "Enter the hub's PIN."). A PIN typed after the hub's 30 s deadline goes
+   over the next connection, as on macOS (`pendingPIN`).
+8. **No reconnect after 4000 / 4002**; 4002 also drops the stored token
+   (macOS reconnects and then prompts).
+9. **Viewer role** makes the whole bridge read-only (G1 style, "view only"
+   in the strip) instead of greying controls per `policy.denied` row. A
+   `control` session that sends a config-class command gets DENIED from the
+   hub (`DspiException.Denied`).
+10. **Locks** (spec 7.7, macOS flows and wording): preset save/copy, output
+    config save, flash save, configuration import and whole-state apply take
+    the hub lock; refused → `DspiException.Locked`, nothing sent; the strip
+    shows "Another console is applying changes" for 4 s. Not covered: IR
+    learn (its lock spans several calls) and firmware install.
+11. **No firmware install over Link** (`fw_install` / `fw.install` not
+    implemented): the Firmware page explains where to update; the bridge
+    refuses `enterBootloader` on a remote device.
+12. **D9:** a DSPi appearing on USB while REMOTE asks the user
+    ("Use USB" / "Stay on the Network").
+13. **No analyser follower rules** (firmware `spectrum_analyser_spec.md`
+    §7, "followers adopt the device's configuration"): the pinned core's
+    analyser pushes its own configuration as over USB and gives up after
+    its retry limit; the hub's per-session STOP (spec 7.15) is hub-side.
+14. **Device names:** shown as the hub reports them (`device.list` `name`,
+    the board's own name on 1.1.6 firmware); renaming (`device.rename`) is
+    not offered.
+

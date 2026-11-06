@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import se.bofr.dspi.link.HubBrowser
@@ -67,7 +68,7 @@ class AppNetworkingController(
 
     init {
         scope.launch {
-            combine(settings.settings, visible) { s, v -> s.enabled && s.findAutomatically && v }.collect { on ->
+            combine(settings.settings, visible) { s, v -> s.enabled && s.findAutomatically && v }.distinctUntilChanged().collect { on ->
                 if (on) browser.start() else browser.stop()
             }
         }

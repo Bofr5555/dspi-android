@@ -47,6 +47,10 @@ bar (pins, outputs, I2S, inputs, global parameters, control interfaces, control 
 signals, spectrum analyser, statistics, interrupt monitor · firmware installer (bundled official
 v1.1.6-beta5 or a local `.uf2`) · demo mode without a device.
 
+DSPi Link (optional, off by default; Settings › Networking): control a DSPi plugged into a Mac
+running DSPi Console, or wired to a DSPi ESP32 bridge, over the local network — hub discovery or
+address entry, PIN pairing, reconnect. The protocol is plaintext: trusted networks only.
+
 Android specifics: auto-launch on plug-in, a foreground-service notification with volume / mute /
 next preset, and the app claims only the DSPi's vendor control interface, so audio keeps playing
 (Android's own USB audio or a player such as USB Audio Player PRO).
@@ -123,4 +127,5 @@ them their own name, app ID and icon, and no trademark rights to "DSPi" or the i
 components (the Weeb Labs core, firmware and AutoEQ database, libusb, UniFFI, Rust crates, AndroidX…)
 and their licences are listed in `NOTICE.md` and in the app under Settings › About › Licences.
 
-Privacy: the app collects no data and has no network access — see [`PRIVACY.md`](PRIVACY.md).
+Privacy: the app collects no data. It uses the network only for the optional DSPi Link feature (off
+by default), to talk to a hub you choose on your local network — see [`PRIVACY.md`](PRIVACY.md).

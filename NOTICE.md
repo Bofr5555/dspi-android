@@ -35,6 +35,7 @@ The app includes or links:
 |---|---|---|
 | DSPi-Console-Linux core (Rust protocol core, `third_party/`) | MIT (per Weeb Labs; licence file pending upstream) | https://github.com/WeebLabs/DSPi-Console-Linux |
 | DSPi Console for macOS — UI, behaviour and texts ported from it; AutoEQ database | GPL-3.0 | https://github.com/WeebLabs/DSPi-Console |
+| DSPi Link protocol spec, policy table and test fixtures (`fixtures/link/`, tests only); the Link client follows the macOS Console's `Link/` | MIT | https://github.com/WeebLabs/DSPi-Link |
 | DSPi firmware images (`feature-firmware` assets, v1.1.6-beta5) | GPL-3.0 | https://github.com/WeebLabs/DSPi/tree/v1.1.6-beta5 |
 | AutoEq headphone measurements (in the AutoEQ database) | MIT | https://github.com/jaakkopasanen/AutoEq |
 | libusb (compiled into the native library) | LGPL-2.1-or-later | https://github.com/libusb/libusb |

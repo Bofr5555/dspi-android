@@ -1648,6 +1648,13 @@ class DspiBridgeImpl(
 
     override fun enterBootloader(token: ConfirmationToken) {
         requireToken(token, DangerousOp.ENTER_BOOTLOADER)
+        // DSPi Link: the board would reboot into BOOTSEL on the hub's USB, out
+        // of this phone's reach (a firmware install through the hub, fw.install,
+        // is not implemented): refuse before any traffic
+        if (attachedRemote != null) {
+            emit(BridgeEvent.CommandFailed("enterBootloader", WritesNotAllowedException(WritesNotAllowedException.REMOTE_BOOTLOADER)))
+            return
+        }
         // G1: allowed while read-only (the firmware-update path)
         fire("enterBootloader", Emit.NONE, write = false) { core.enterBootloader() }
     }

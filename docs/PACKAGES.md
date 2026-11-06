@@ -156,6 +156,13 @@ Common to all Wave B packages:
 
 Not assigned yet (Phase 6): onboarding / What's New (`Onboarding/*`, `WhatsNew.json`), tablet two-pane polish, `tools/upstream-diff.sh`, `docs/ports/<tag>.md` checklists.
 
+## LINK: DSPi Link client (2026-11-06, owner go; `docs/DSPI-LINK-INVESTIGATION.md` in dspi-mobile)
+
+- **Owns:** `rust/dspi-link/`, `rust/dspi-ffi/src/link.rs` (with FFI), `third_party/patches/0004-transport-trait.patch` (with FFI), `link/`, `fixtures/link/`, the REMOTE parts of `app/` (`RemoteSession.kt`, `AppNetworkingController.kt`, `LinkDialogs.kt`, `ServiceWiring.kt`), `feature-settings/…/NetworkingSettingsTab.kt`, `ui-common/…/link/`.
+- **Contract additions:** `DspiCoreApi.link*` (generated), `DspiException.Locked/Denied/Link`, `LinkListener`; `DspiBridge.attachRemote`, `setRemoteReadOnly`.
+- **CI:** `tools/ci.sh link` (dspi-link fmt/clippy/tests incl. the fake hub, the core over Link, `:link`).
+- **Decisions applied:** D1/D5 client only; D2 opt-in, off by default, `INTERNET` + no cleartext policy; D3/D4 Rust client behind the core's transport trait (patch 0004, upstreamable); D6 protocol 1.2, 1.1 hubs; D7 client name `Build.MODEL`; D9 USB prompt while REMOTE.
+
 ## CI commands
 
 | Package | Command | Runs |
@@ -164,6 +171,7 @@ Not assigned yet (Phase 6): onboarding / What's New (`Onboarding/*`, `WhatsNew.j
 | (coordinator) | `tools/ci.sh contract` | `gen_kotlin_contract.py --check`, `:core-api` ktlint + tests |
 | FFI | `tools/ci.sh ffi` | stage core; cargo fmt/clippy (-D warnings)/test; cargo-ndk arm64-v8a + armeabi-v7a + x86_64; contract check; opcode coverage; `:ffi` ktlint + unit tests + assemble |
 | USB | `tools/ci.sh usb` | `:usb` ktlint + unit tests + assemble |
+| LINK | `tools/ci.sh link` | stage core; `dspi-link` fmt/clippy/tests (upstream fixtures, client vs fake hub); `dspi-ffi` `tests/link_fakehub.rs` (the core over Link); `:link` ktlint + unit tests + assemble |
 | BRIDGE | `tools/ci.sh bridge` | `:bridge`, `:fake-core` ktlint + tests |
 | HOME | `tools/ci.sh home` | `:ui-common`, `:feature-home` |
 | GRAPH … FIRMWARE | `tools/ci.sh graph\|matrix\|tools\|presets\|settings\|analysis\|firmware` | that feature module |

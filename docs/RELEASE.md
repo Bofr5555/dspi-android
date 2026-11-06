@@ -160,27 +160,51 @@ Answers specific to this app. Verify each against the build you upload
   https://github.com/Bofr5555/dspi-android/blob/main/PRIVACY.md; the app links
   it from Settings › About › Licence. Enter that URL in Play Console (App
   content → Privacy policy). Keep it in step with what the app does.
-- **Data safety.** "Does your app collect or share any of the required user
-  data types?" → **No**. Justification: the merged manifest has no
-  `android.permission.INTERNET` (CI checks this), so nothing can leave the
-  device. No third-party SDKs (no analytics, crash reporting or ads).
-  Data is not encrypted in transit because there is no transit; "users can
-  request deletion" → not applicable (uninstall deletes everything,
-  `allowBackup="false"`).
+- **Data safety.** *DRAFT for the owner (branch `feature/link`, DSPi Link):
+  approve this, and the new `PRIVACY.md`, before uploading a build with DSPi
+  Link; the answer below replaces the "no INTERNET" one.* "Does your app
+  collect or share any of the required user data types?" → **No**.
+  Justification: the app now holds `android.permission.INTERNET` (plus
+  `ACCESS_NETWORK_STATE`, `CHANGE_WIFI_MULTICAST_STATE`; `tools/ci.sh release`
+  asserts exactly this permission set), used **only** by the optional DSPi Link
+  feature, which is off by default, to talk to a DSPi hub the user selects on
+  their own local network (a computer running DSPi Console, or a DSPi bridge).
+  Nothing is sent to the developer or to third parties, and nothing goes to the
+  internet. Play defines collection as transmitting data off the device to the
+  developer or a third party; the data that goes to the user's own hub (DSPi
+  settings, the phone model as client name, a pairing token the hub issued) is
+  not collected in that sense, and none of it is a Play user-data type. No
+  third-party SDKs (no analytics, crash reporting or ads). "Is all of the user
+  data collected by your app encrypted in transit?": not applicable (none is
+  collected); the DSPi Link protocol itself is plaintext on the LAN, which the
+  privacy policy states. "Users can request deletion" → not applicable
+  (uninstall deletes everything, `allowBackup="false"`).
+  *Owner decision D8:* if you prefer the conservative route, declare "Device
+  or other IDs" and "App activity" as collected (not shared, not encrypted in
+  transit, optional: only with DSPi Link on). When in doubt, ask Play support
+  before submitting. Existing testers will see the new "full network access"
+  permission on update.
 - **Ads:** no ads.
 - **App access:** all features are available without login. Note for the
   reviewer: "Requires a DSPi USB audio processor (RP2040/RP2350). Without one,
   the connection strip offers *Demo (no device)*, which runs the full UI
   against a simulated device."
 - **Foreground service declaration** (required for targetSdk 34+): type
-  `connectedDevice`, permission `FOREGROUND_SERVICE_CONNECTED_DEVICE`. Use
-  case: "Keeps the USB connection to the user's DSPi audio processor while the
-  app is in the background, so volume, mute and preset changes from the
-  notification reach the device. Starts only once a DSPi connection is open
-  (after the user grants USB permission); stops when the connection closes or
-  the device is unplugged." Play asks for a short video link
+  `connectedDevice`, permission `FOREGROUND_SERVICE_CONNECTED_DEVICE`. *DRAFT
+  (DSPi Link adds the network case; re-submit the declaration and video with
+  the first DSPi Link build).* Use case: "Keeps the connection to the user's
+  DSPi audio processor while the app is in the background, so volume, mute and
+  preset changes from the notification reach the device. The DSPi is either
+  connected over USB, or (optional DSPi Link feature) reached over the local
+  network through a hub the user selected. Starts only once a DSPi connection
+  is open (after the user grants USB permission, or after the user connects to
+  a hub); stops when the connection closes, the device is unplugged or the user
+  disconnects." Android's `connectedDevice` type covers "external devices that
+  require a Bluetooth, NFC, IR, USB, or network connection"; for the network
+  case the app holds `CHANGE_WIFI_MULTICAST_STATE`, one of the Android 14
+  runtime prerequisites for this type. Play asks for a short video link
   (e.g. unlisted YouTube) showing the notification while the device is
-  connected.
+  connected; show both a USB and a DSPi Link connection.
 - **Content rating:** IARC questionnaire, category "Utility / productivity";
   all answers "no" → rated for everyone.
 - **Target audience:** 18+ (or 13+); not designed for children.
@@ -188,6 +212,12 @@ Answers specific to this app. Verify each against the build you upload
 
 ## 9. Store listing **(owner)**
 
+- *DRAFT (DSPi Link):* add to the full description, after the second
+  paragraph: "Optional DSPi Link (off by default): control a DSPi that is
+  plugged into a Mac running DSPi Console, or wired to a DSPi bridge, over your
+  local network. The connection is not encrypted; use it on networks you
+  trust." (`store/play/listing/en-US/full_description.txt` is left as
+  submitted until the owner approves.)
 - Short description (80 chars), full description (4000). State clearly:
   needs a DSPi board and a phone/tablet with USB host (OTG) support;
   unofficial if so (step 0.3); GPL-3.0 with a source link (step 0.2).

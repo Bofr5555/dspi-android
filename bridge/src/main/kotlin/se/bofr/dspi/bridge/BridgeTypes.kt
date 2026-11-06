@@ -129,6 +129,9 @@ class WritesNotAllowedException(message: String) : IllegalStateException(message
 
         /** DSPi Link: the hub gave this console the viewer role. */
         const val VIEWER = "viewer role on the hub: read-only"
+
+        /** DSPi Link: no bootloader entry over the network (firmware is installed where the board is plugged in). */
+        const val REMOTE_BOOTLOADER = "firmware updates are not available over DSPi Link"
     }
 }
 

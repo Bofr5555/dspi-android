@@ -77,21 +77,21 @@ fun AppScaffold(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             ConnectionStripBar(strip, onEnterDemo, onExitDemo, onRequestPermission, onRemoteAction, onConnectNetwork)
-            key(bridge) { DspiNavHost(bridge, bootloaderLocator) }
+            key(bridge) { DspiNavHost(bridge, bootloaderLocator, remote = strip is ConnectionStrip.Remote) }
         }
     }
     overlay()
 }
 
 @Composable
-private fun DspiNavHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?) {
+private fun DspiNavHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?, remote: Boolean) {
     // G1: every device-writing control is disabled while the bridge refuses writes
     val writes by bridge.writesAllowed.collectAsStateWithLifecycle()
-    CompositionLocalProvider(LocalWritesAllowed provides writes) { DspiRoutesHost(bridge, bootloaderLocator) }
+    CompositionLocalProvider(LocalWritesAllowed provides writes) { DspiRoutesHost(bridge, bootloaderLocator, remote) }
 }
 
 @Composable
-private fun DspiRoutesHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?) {
+private fun DspiRoutesHost(bridge: DspiBridge, bootloaderLocator: BootloaderLocator?, remote: Boolean) {
     val nav = rememberNavController()
     NavHost(navController = nav, startDestination = DspiRoutes.HOME) {
         // Each screen's back/navigate act only while its own entry is current (EntryNavigator)
@@ -109,8 +109,13 @@ private fun DspiRoutesHost(bridge: DspiBridge, bootloaderLocator: BootloaderLoca
         screen(nav, DspiRoutes.SETTINGS) { _, go, back -> SettingsScreen(bridge, go, back) }
         screen(nav, DspiRoutes.ANALYSIS) { _, go, back -> AnalysisScreen(bridge, go, back) }
         screen(nav, DspiRoutes.FIRMWARE) { _, go, back ->
-            // The firmware update path stays usable read-only (G1: enterBootloader is the one write the bridge allows)
-            WritesExempt { FirmwareUpdateView(bridge, go, back, bootloaderLocator = bootloaderLocator) }
+            if (remote) {
+                // DSPi Link: the board's bootloader is on the hub's USB, not this phone's (no fw.install client)
+                RemoteFirmwareNotice(back)
+            } else {
+                // The firmware update path stays usable read-only (G1: enterBootloader is the one write the bridge allows)
+                WritesExempt { FirmwareUpdateView(bridge, go, back, bootloaderLocator = bootloaderLocator) }
+            }
         }
     }
 }
@@ -166,5 +171,18 @@ private fun ConnectionStripBar(
             is ConnectionStrip.NeedsPermission -> TextButton(onClick = onRequestPermission) { Text("Allow USB access") }
             is ConnectionStrip.Info, ConnectionStrip.Hidden -> Unit
         }
+    }
+}
+
+@Composable
+private fun RemoteFirmwareNotice(back: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        TextButton(onClick = back) { Text("‹ Back") }
+        Text("Firmware Update", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "This DSPi is connected through DSPi Link. Update its firmware on the computer it is plugged into " +
+                "(DSPi Console), or connect it to this phone over USB.",
+            style = MaterialTheme.typography.bodyLarge
+        )
     }
 }
