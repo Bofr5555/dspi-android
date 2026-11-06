@@ -123,6 +123,23 @@ fn own_echoes_are_dropped_and_other_sessions_changes_applied() {
     assert_eq!(master_volume(&other), -6.0);
 }
 
+/// Channel names live in the bulk image (OFF_CHANNEL_NAMES + ch * 32); firmware
+/// 1.1.6 reports a rename as PARAM_CHANGED there, like any other parameter.
+#[test]
+fn another_clients_channel_rename_reaches_the_state() {
+    let hub = FakeHub::start(HubConfig::default()).unwrap();
+    let (core, n) = bound(&hub);
+    let off = (dspi_core::protocol::OFF_CHANNEL_NAMES + 7 * 32) as u16;
+    let mut name = [0u8; 32];
+    name[..8].copy_from_slice(b"Mac side");
+    let before = n.0.load(Ordering::SeqCst);
+    hub.external_change(off, &name, 1, 99);
+    assert!(wait(|| n.0.load(Ordering::SeqCst) > before));
+    let r = core.process_notifications();
+    assert_ne!(r.flags & NOTIFY_STATE, 0);
+    assert_eq!(core.get_state().channel_names[7], "Mac side");
+}
+
 #[test]
 fn flash_flows_take_the_hub_lock_and_stop_when_it_is_held() {
     let hub = FakeHub::start(HubConfig::default()).unwrap();
