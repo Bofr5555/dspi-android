@@ -7,7 +7,7 @@ import org.junit.Test
 
 class SettingsCategoryTest {
     @Test
-    fun groupsAreTheMacOsSidebarWithoutUpdateAndNetworking() {
+    fun groupsAreTheMacOsSidebarWithoutUpdate() {
         assertEquals(listOf("Application", "Display", "System", "Control"), SettingsCategory.groups.map { it.first })
         assertEquals(SettingsCategory.entries.toSet(), SettingsCategory.groups.flatMap { it.second }.toSet())
     }
@@ -23,6 +23,13 @@ class SettingsCategoryTest {
         assertTrue(SettingsCategory.CONTROL_SURFACES.isAvailable(none.copy(connected = false)))
         assertFalse(SettingsCategory.MACROS.isAvailable(none))
         assertTrue(SettingsCategory.MACROS.isAvailable(none.copy(csMacrosSupported = true)))
+        // Networking (DSPi Link client) only where the app provides it
+        assertFalse(SettingsCategory.NETWORKING.isAvailable(none))
+        assertTrue(SettingsCategory.NETWORKING.isAvailable(none.copy(connected = false, networkingAvailable = true)))
+        assertEquals(
+            listOf(SettingsCategory.GENERAL, SettingsCategory.ADVANCED, SettingsCategory.NETWORKING),
+            SettingsCategory.groups[0].second
+        )
     }
 
     @Test

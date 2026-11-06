@@ -66,6 +66,12 @@ internal val THIRD_PARTY = listOf(
         GPL3
     ),
     ThirdPartyComponent(
+        "DSPi Link protocol (Weeb Labs) — spec 1.2, Link client port",
+        "MIT",
+        "https://github.com/WeebLabs/DSPi-Link",
+        null
+    ),
+    ThirdPartyComponent(
         "DSPi firmware v1.1.6-beta5 (Weeb Labs) — bundled images",
         "GPL-3.0",
         "https://github.com/WeebLabs/DSPi/tree/v1.1.6-beta5",
@@ -74,7 +80,7 @@ internal val THIRD_PARTY = listOf(
     ThirdPartyComponent("AutoEq measurements (Jaakko Pasanen)", "MIT", "https://github.com/jaakkopasanen/AutoEq", AUTOEQ_MIT),
     ThirdPartyComponent("libusb", "LGPL-2.1-or-later", "https://github.com/libusb/libusb", LGPL21),
     ThirdPartyComponent("UniFFI (Mozilla)", "MPL-2.0", "https://github.com/mozilla/uniffi-rs", MPL2),
-    ThirdPartyComponent("Rust crates (serde, rusb, log, …)", "MIT / Apache-2.0", "https://crates.io", RUST_CRATES),
+    ThirdPartyComponent("Rust crates (serde, rusb, tungstenite, log, …)", "MIT / Apache-2.0", "https://crates.io", RUST_CRATES),
     ThirdPartyComponent("JNA", "Apache-2.0 (or LGPL-2.1)", "https://github.com/java-native-access/jna", APACHE2),
     ThirdPartyComponent(
         "AndroidX, Jetpack Compose, Kotlin, kotlinx, Guava listenablefuture, Okio, JSpecify",

@@ -59,8 +59,8 @@ def main():
     out.append("Where a crate offers a choice (\"MIT OR Apache-2.0\"), this app uses it under the\n"
                "licence compatible with GPL-3.0 (MIT or Apache-2.0).\n\n")
     for p in crate_closure():
-        if p["name"] in ("dspi-ffi", "dspi-core"):
-            continue  # this app / the Weeb Labs core: listed on the Licences screen itself
+        if p["name"] in ("dspi-ffi", "dspi-core", "dspi-link"):
+            continue  # this app (dspi-ffi, dspi-link) / the Weeb Labs core: listed on the Licences screen itself
         lic = p.get("license") or "(see files)"
         repo = p.get("repository") or ""
         out.append("=" * 72 + "\n")

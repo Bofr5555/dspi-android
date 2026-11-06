@@ -40,6 +40,7 @@ import se.bofr.dspi.bridge.DspiBridge
 import se.bofr.dspi.ui.DspiRoutes
 import se.bofr.dspi.ui.MacColors
 import se.bofr.dspi.ui.WritesExempt
+import se.bofr.dspi.ui.link.LocalNetworking
 import se.bofr.dspi.ui.settings.AppSettingsStore
 import se.bofr.dspi.ui.settings.LocalAppSettings
 import se.bofr.dspi.ui.writesAllowed
@@ -86,7 +87,8 @@ fun SettingsView(
         controlSurfacesSupported = csSupported,
         csGroupsSupported = cs.groupsSupported,
         csMacrosSupported = cs.macrosSupported,
-        csAuxSupported = cs.auxSupported
+        csAuxSupported = cs.auxSupported,
+        networkingAvailable = LocalNetworking.current != null
     )
 
     var openPage by rememberSaveable { mutableStateOf(initialPage?.id) }
@@ -223,6 +225,7 @@ private fun SettingsDetail(
         SettingsCategory.CHANNEL_GROUPS -> ControlSurfacesSettingsTab(CsSection.GROUPS, bridge, coordinator, cs)
         SettingsCategory.MACROS -> ControlSurfacesSettingsTab(CsSection.MACROS, bridge, coordinator, cs)
         SettingsCategory.AUX_OUTPUTS -> ControlSurfacesSettingsTab(CsSection.AUX, bridge, coordinator, cs)
+        SettingsCategory.NETWORKING -> LocalNetworking.current?.let { NetworkingSettingsTab(it) }
     }
 }
 

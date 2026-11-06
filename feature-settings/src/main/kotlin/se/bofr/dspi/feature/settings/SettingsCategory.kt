@@ -7,6 +7,7 @@ package se.bofr.dspi.feature.settings
 enum class SettingsCategory(val title: String, val tint: Long, val id: String) {
     GENERAL("About", 0xFF646971, "general"),
     ADVANCED("Advanced", 0xFF727880, "advanced"),
+    NETWORKING("Networking", 0xFF2F7FBF, "networking"),
     GRAPHING("Graphing", 0xFF587A89, "graphing"),
     SPECTRUM("Spectrum Analyser", 0xFF4C808A, "spectrum"),
     OVERVIEW("Overview", 0xFF627080, "overview"),
@@ -29,16 +30,18 @@ enum class SettingsCategory(val title: String, val tint: Long, val id: String) {
         CHANNEL_GROUPS -> f.csGroupsSupported
         MACROS -> f.csMacrosSupported
         AUX_OUTPUTS -> f.csAuxSupported
+        NETWORKING -> f.networkingAvailable
         else -> true
     }
 
     companion object {
         /**
-         * Sidebar groups in display order. "Software Update" and "Networking"
-         * are not ported (PORT-MAP: Play/F-Droid updates, no hub on a phone).
+         * Sidebar groups in display order. "Software Update" is not ported
+         * (PORT-MAP: Play/F-Droid updates); "Networking" is the DSPi Link
+         * client half only (no hub on a phone).
          */
         val groups: List<Pair<String, List<SettingsCategory>>> = listOf(
-            "Application" to listOf(GENERAL, ADVANCED),
+            "Application" to listOf(GENERAL, ADVANCED, NETWORKING),
             "Display" to listOf(GRAPHING, SPECTRUM),
             "System" to listOf(OVERVIEW, SPDIF_INPUT, OUTPUT_ASSIGNMENT, I2S_CONFIG, GLOBAL_PARAMS),
             "Control" to listOf(CONTROL_SURFACES, CONTROL_INTERFACES, CHANNEL_GROUPS, MACROS, AUX_OUTPUTS)
@@ -57,5 +60,7 @@ data class SettingsAvailability(
     val controlSurfacesSupported: Boolean = false,
     val csGroupsSupported: Boolean = false,
     val csMacrosSupported: Boolean = false,
-    val csAuxSupported: Boolean = false
+    val csAuxSupported: Boolean = false,
+    /** The app provides a DSPi Link client (`LocalNetworking`). */
+    val networkingAvailable: Boolean = false
 )
