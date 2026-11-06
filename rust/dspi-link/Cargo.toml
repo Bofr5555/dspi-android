@@ -1,0 +1,36 @@
+[package]
+name = "dspi-link"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+description = "DSPi Link client (protocol 1.2, 1.1 hubs): frames, control plane, session over a WebSocket byte pipe"
+
+# Independent of dspi-core and of any FFI: the embedder (dspi-ffi `link.rs`)
+# adapts `LinkClient` to the core's `Transport` trait. So the crate can move
+# into a shared Weeb Labs Rust core unchanged (CONSOLE-UNIFICATION-STUDY.md
+# section 6.1, `dspi-link`).
+
+[features]
+# The in-process fake hub used by the tests and the `dspi-link-fakehub` binary.
+fake-hub = []
+
+[dependencies]
+# Sync WebSocket over std::net::TcpStream (RFC 6455), no TLS: the protocol is
+# plaintext (spec 6.4). `handshake` = the HTTP upgrade (http, httparse, sha1,
+# data-encoding). See docs/SUPPLY-CHAIN.md for why this crate.
+tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+# base64 for `bulk_b64` / `status_b64`; already a tungstenite dependency.
+data-encoding = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = { workspace = true }
+thiserror = { workspace = true }
+
+[[bin]]
+name = "dspi-link-fakehub"
+path = "src/bin/fakehub.rs"
+required-features = ["fake-hub"]
+
+[[test]]
+name = "client_fakehub"
+required-features = ["fake-hub"]

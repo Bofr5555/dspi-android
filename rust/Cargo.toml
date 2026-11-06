@@ -3,7 +3,7 @@
 # (tools/stage-core.sh -> rust/.staged/dspi-core/core), used as a path dependency.
 [workspace]
 resolver = "2"
-members = ["dspi-ffi", "uniffi-bindgen"]
+members = ["dspi-ffi", "dspi-link", "uniffi-bindgen"]
 exclude = [".staged"]
 
 [workspace.package]
