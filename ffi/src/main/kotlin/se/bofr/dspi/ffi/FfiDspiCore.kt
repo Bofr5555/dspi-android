@@ -7,6 +7,7 @@ import se.bofr.dspi.core.*
 import se.bofr.dspi.ffi.uniffi.DspiCore as FfiCore
 import se.bofr.dspi.ffi.uniffi.DspiException as FfiException
 import se.bofr.dspi.ffi.uniffi.DeviceEvents as FfiDeviceEvents
+import se.bofr.dspi.ffi.uniffi.LinkListener as FfiLinkListener
 import se.bofr.dspi.ffi.uniffi.NotifyListener as FfiNotifyListener
 import se.bofr.dspi.ffi.uniffi.RtaListener as FfiRtaListener
 
@@ -43,6 +44,13 @@ class FfiDspiCore : DspiCoreApi {
             override fun onDeparted(serial: String) = l.onDeparted(serial)
         }
 
+    private fun wrapLinkListener(l: LinkListener) =
+        object : FfiLinkListener {
+            override fun onLinkDevicesChanged() = l.onLinkDevicesChanged()
+
+            override fun onLinkClosed(code: Int, reason: String) = l.onLinkClosed(code, reason)
+        }
+
     companion object {
         init {
             System.loadLibrary("dspi_ffi")
@@ -53,6 +61,20 @@ class FfiDspiCore : DspiCoreApi {
     override fun openFd(fd: Int, serial: String, vid: Int) = call { core.openFd(fd, serial, vid.toUShort()) }
 
     override fun closeFd() = core.closeFd()
+
+    override fun linkConnect(url: String, clientName: String, appVersion: String, token: String): LinkHello = call { core.linkConnect(url, clientName, appVersion, token).toDomain() }
+
+    override fun linkPair(pin: String): String = call { core.linkPair(pin) }
+
+    override fun linkDevices(): List<LinkDevice> = core.linkDevices().map { it.toDomain() }
+
+    override fun linkStatus(): LinkStatus = core.linkStatus().toDomain()
+
+    override fun linkSelectDevice(handle: Long, serial: String) = call { core.linkSelectDevice(handle.toUInt(), serial) }
+
+    override fun linkClose() = core.linkClose()
+
+    override fun setLinkListener(listener: LinkListener?) = core.setLinkListener(listener?.let { wrapLinkListener(it) })
 
     override fun scanDevices(): List<DeviceInfo> = core.scanDevices().map { it.toDomain() }
 
@@ -357,6 +379,12 @@ class FfiDspiCore : DspiCoreApi {
     override fun bootloaderCounts(): BootloaderCounts = se.bofr.dspi.ffi.uniffi.bootloaderCounts().toDomain()
 
     override fun coreInfo(): CoreInfo = se.bofr.dspi.ffi.uniffi.coreInfo().toDomain()
+
+    override fun linkParseAddress(text: String): LinkAddress = call { se.bofr.dspi.ffi.uniffi.linkParseAddress(text).toDomain() }
+
+    override fun linkWsUrl(host: String, port: Int, path: String): String = se.bofr.dspi.ffi.uniffi.linkWsUrl(host, port.toUShort(), path)
+
+    override fun linkFetchInfo(host: String, port: Int): LinkInfo = call { se.bofr.dspi.ffi.uniffi.linkFetchInfo(host, port.toUShort()).toDomain() }
 }
 
 // ── Error mapping ──
@@ -368,6 +396,9 @@ internal fun FfiException.toDomain(): DspiException =
         is FfiException.Refused -> DspiException.Refused(status.toInt())
         is FfiException.InvalidArgument -> DspiException.InvalidArgument(msg)
         is FfiException.Unsupported -> DspiException.Unsupported()
+        is FfiException.Locked -> DspiException.Locked()
+        is FfiException.Denied -> DspiException.Denied()
+        is FfiException.Link -> DspiException.Link(code, msg)
     }
 
 // ── Record mapping (UniFFI <-> domain) ──
@@ -1176,4 +1207,130 @@ internal fun CoreInfo.toFfi() =
         minWireFormatVersion = minWireFormatVersion.toUByte(),
         bulkParamsSize = bulkParamsSize.toUInt(),
         magnitudePoints = magnitudePoints.toUInt(),
+    )
+
+internal fun se.bofr.dspi.ffi.uniffi.LinkHello.toDomain() =
+    LinkHello(
+        hubId = hubId,
+        hubName = hubName,
+        hubKind = hubKind,
+        hubVersion = hubVersion,
+        protoMinor = protoMinor.toLong(),
+        auth = auth,
+        pinSource = pinSource,
+        needsPairing = needsPairing,
+        caps = caps,
+        maxPayload = maxPayload.toLong(),
+        maxInflight = maxInflight.toLong(),
+    )
+
+internal fun LinkHello.toFfi() =
+    se.bofr.dspi.ffi.uniffi.LinkHello(
+        hubId = hubId,
+        hubName = hubName,
+        hubKind = hubKind,
+        hubVersion = hubVersion,
+        protoMinor = protoMinor.toUInt(),
+        auth = auth,
+        pinSource = pinSource,
+        needsPairing = needsPairing,
+        caps = caps,
+        maxPayload = maxPayload.toUInt(),
+        maxInflight = maxInflight.toUInt(),
+    )
+
+internal fun se.bofr.dspi.ffi.uniffi.LinkDevice.toDomain() =
+    LinkDevice(
+        handle = handle.toLong(),
+        serial = serial,
+        name = name,
+        fw = fw,
+        fwBeta = fwBeta,
+        platform = platform,
+        state = state,
+        link = link,
+        lockedBy = lockedBy.toLong(),
+    )
+
+internal fun LinkDevice.toFfi() =
+    se.bofr.dspi.ffi.uniffi.LinkDevice(
+        handle = handle.toUInt(),
+        serial = serial,
+        name = name,
+        fw = fw,
+        fwBeta = fwBeta,
+        platform = platform,
+        state = state,
+        link = link,
+        lockedBy = lockedBy.toUInt(),
+    )
+
+internal fun se.bofr.dspi.ffi.uniffi.LinkDenied.toDomain() =
+    LinkDenied(
+        request = request.toInt(),
+        dir = dir.toInt(),
+    )
+
+internal fun LinkDenied.toFfi() =
+    se.bofr.dspi.ffi.uniffi.LinkDenied(
+        request = request.toUByte(),
+        dir = dir.toUByte(),
+    )
+
+internal fun se.bofr.dspi.ffi.uniffi.LinkStatus.toDomain() =
+    LinkStatus(
+        connected = connected,
+        ready = ready,
+        session = session.toLong(),
+        role = role,
+        denied = denied.map { it.toDomain() },
+        closed = closed,
+        closeCode = closeCode,
+        closeReason = closeReason,
+    )
+
+internal fun LinkStatus.toFfi() =
+    se.bofr.dspi.ffi.uniffi.LinkStatus(
+        connected = connected,
+        ready = ready,
+        session = session.toUInt(),
+        role = role,
+        denied = denied.map { it.toFfi() },
+        closed = closed,
+        closeCode = closeCode,
+        closeReason = closeReason,
+    )
+
+internal fun se.bofr.dspi.ffi.uniffi.LinkInfo.toDomain() =
+    LinkInfo(
+        hubId = hubId,
+        hubName = hubName,
+        hubKind = hubKind,
+        auth = auth,
+        protoMinor = protoMinor.toLong(),
+        wsPath = wsPath,
+        serials = serials,
+    )
+
+internal fun LinkInfo.toFfi() =
+    se.bofr.dspi.ffi.uniffi.LinkInfo(
+        hubId = hubId,
+        hubName = hubName,
+        hubKind = hubKind,
+        auth = auth,
+        protoMinor = protoMinor.toUInt(),
+        wsPath = wsPath,
+        serials = serials,
+    )
+
+internal fun se.bofr.dspi.ffi.uniffi.LinkAddress.toDomain() =
+    LinkAddress(
+        host = host,
+        port = port.toInt(),
+    )
+
+internal fun LinkAddress.toFfi() =
+    se.bofr.dspi.ffi.uniffi.LinkAddress(
+        host = host,
+        port = port.toUShort(),
     )

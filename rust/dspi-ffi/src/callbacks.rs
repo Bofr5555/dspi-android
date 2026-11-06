@@ -29,3 +29,15 @@ pub trait DeviceEvents: Send + Sync {
     fn on_arrived(&self, serial: String);
     fn on_departed(&self, serial: String);
 }
+
+/// DSPi Link session events (`link_connect`). Invoked on the Link client's
+/// reader thread: schedule work only, never call back into `DspiCore` from
+/// inside the callback.
+#[uniffi::export(callback_interface)]
+pub trait LinkListener: Send + Sync {
+    /// The hub's device list changed (`link_devices()`).
+    fn on_link_devices_changed(&self);
+    /// The session ended. `code` = the hub's WebSocket close code (4002
+    /// revoked, 4003 shutting down, ...; -1 = none, the connection was lost).
+    fn on_link_closed(&self, code: i32, reason: String);
+}

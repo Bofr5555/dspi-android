@@ -16,6 +16,20 @@ open class UnimplementedDspiCore : DspiCoreApi {
 
     override fun closeFd(): Unit = throw NotImplementedError("close_fd")
 
+    override fun linkConnect(url: String, clientName: String, appVersion: String, token: String): LinkHello = throw NotImplementedError("link_connect")
+
+    override fun linkPair(pin: String): String = throw NotImplementedError("link_pair")
+
+    override fun linkDevices(): List<LinkDevice> = throw NotImplementedError("link_devices")
+
+    override fun linkStatus(): LinkStatus = throw NotImplementedError("link_status")
+
+    override fun linkSelectDevice(handle: Long, serial: String): Unit = throw NotImplementedError("link_select_device")
+
+    override fun linkClose(): Unit = throw NotImplementedError("link_close")
+
+    override fun setLinkListener(listener: LinkListener?): Unit = throw NotImplementedError("set_link_listener")
+
     override fun scanDevices(): List<DeviceInfo> = throw NotImplementedError("scan_devices")
 
     override fun preampMaxDb(): Float = throw NotImplementedError("preamp_max_db")
@@ -319,4 +333,10 @@ open class UnimplementedDspiCore : DspiCoreApi {
     override fun bootloaderCounts(): BootloaderCounts = throw NotImplementedError("bootloader_counts")
 
     override fun coreInfo(): CoreInfo = throw NotImplementedError("core_info")
+
+    override fun linkParseAddress(text: String): LinkAddress = throw NotImplementedError("link_parse_address")
+
+    override fun linkWsUrl(host: String, port: Int, path: String): String = throw NotImplementedError("link_ws_url")
+
+    override fun linkFetchInfo(host: String, port: Int): LinkInfo = throw NotImplementedError("link_fetch_info")
 }

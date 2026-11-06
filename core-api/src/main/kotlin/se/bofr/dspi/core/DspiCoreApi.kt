@@ -40,6 +40,49 @@ interface DspiCoreApi : AutoCloseable {
     fun closeFd()
 
     /**
+     * Open a DSPi Link session to `url` (`link_ws_url`), replacing any
+     * previous one. `token` = the token stored for this hub's id ("" =
+     * none). Blocks for the hello and authentication (up to ~15 s). When
+     * `needs_pairing`, ask for the PIN and call `link_pair`; otherwise the
+     * device list is ready (`link_devices`).
+     */
+    @Throws(DspiException::class)
+    fun linkConnect(url: String, clientName: String, appVersion: String, token: String): LinkHello
+
+    /**
+     * Pair with the PIN the user typed (role `control`, as the macOS
+     * Console asks). Returns the token to store against the hub id ("" when
+     * the hub issued none). Link { code: "denied" } for a wrong PIN.
+     */
+    @Throws(DspiException::class)
+    fun linkPair(pin: String): String
+
+    /**
+     * The hub's devices (empty before authentication).
+     */
+    fun linkDevices(): List<LinkDevice>
+
+    fun linkStatus(): LinkStatus
+
+    /**
+     * Bind the core to the hub's device `handle` (as `open_fd` does for
+     * USB): starts the notify listener over Link, resets the state. Then
+     * `fetch_all` as usual (single-shot bulk, the hub's snapshot first).
+     */
+    @Throws(DspiException::class)
+    fun linkSelectDevice(handle: Long, serial: String)
+
+    /**
+     * Close the Link session (normal close) and drop a device bound to it.
+     */
+    fun linkClose()
+
+    /**
+     * Session events (devices changed, closed). Same rules as the other listeners.
+     */
+    fun setLinkListener(listener: LinkListener?)
+
+    /**
      * libusb enumeration. Always empty on Android (discovery disabled).
      */
     fun scanDevices(): List<DeviceInfo>
@@ -773,4 +816,29 @@ interface DspiCoreApi : AutoCloseable {
      * Stateless (a free function in dspi-ffi); needs no device.
      */
     fun coreInfo(): CoreInfo
+
+    /**
+     * A hub address as the user typed it: `host`, `host:port`, `[v6]:port`
+     * (macOS `HubBrowser.parseAddress`; port 11915 when omitted).
+     * InvalidArgument when it cannot be an address.
+     *
+     * Stateless (a free function in dspi-ffi); needs no device.
+     */
+    @Throws(DspiException::class)
+    fun linkParseAddress(text: String): LinkAddress
+
+    /**
+     * `ws://host:port/path` for `link_connect` (`path` "" = `/dspi/v1`).
+     *
+     * Stateless (a free function in dspi-ffi); needs no device.
+     */
+    fun linkWsUrl(host: String, port: Int, path: String): String
+
+    /**
+     * `GET http://host:port/dspi/v1/info` (blocks up to 3 s; plain HTTP on the LAN).
+     *
+     * Stateless (a free function in dspi-ffi); needs no device.
+     */
+    @Throws(DspiException::class)
+    fun linkFetchInfo(host: String, port: Int): LinkInfo
 }

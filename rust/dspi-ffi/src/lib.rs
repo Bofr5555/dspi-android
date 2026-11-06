@@ -19,14 +19,17 @@ mod core;
 mod error;
 #[cfg(not(target_os = "android"))]
 pub mod fixture;
+mod link;
 mod records;
 
-pub use crate::callbacks::{DeviceEvents, NotifyListener, RtaListener};
+pub use crate::callbacks::{DeviceEvents, LinkListener, NotifyListener, RtaListener};
 pub use crate::core::DspiCore;
 pub use crate::error::DspiError;
 pub use crate::records::*;
 
 use dspi_core::{dsp_math, presetfile, protocol};
+
+use crate::error::Result;
 
 // ═══ Free functions (stateless; no device needed) ═══════════════════
 
@@ -120,6 +123,39 @@ pub fn core_info() -> CoreInfo {
         bulk_params_size: protocol::BULK_PARAMS_SIZE as u32,
         magnitude_points: dsp_math::MAGNITUDE_POINTS as u32,
     }
+}
+
+// ═══ DSPi Link: addresses and the info endpoint (dspi-link) ═════════
+
+/// A hub address as the user typed it: `host`, `host:port`, `[v6]:port`
+/// (macOS `HubBrowser.parseAddress`; port 11915 when omitted).
+/// InvalidArgument when it cannot be an address.
+#[uniffi::export]
+pub fn link_parse_address(text: String) -> Result<LinkAddress> {
+    dspi_link::address::parse_address(&text)
+        .map(|(host, port)| LinkAddress { host, port })
+        .ok_or(DspiError::InvalidArgument { msg: format!("not a hub address: {text}") })
+}
+
+/// `ws://host:port/path` for `link_connect` (`path` "" = `/dspi/v1`).
+#[uniffi::export]
+pub fn link_ws_url(host: String, port: u16, path: String) -> String {
+    dspi_link::address::ws_url(&host, port, Some(path.as_str()).filter(|p| !p.is_empty()))
+}
+
+/// `GET http://host:port/dspi/v1/info` (blocks up to 3 s; plain HTTP on the LAN).
+#[uniffi::export]
+pub fn link_fetch_info(host: String, port: u16) -> Result<LinkInfo> {
+    let i = dspi_link::address::fetch_info(&host, port, std::time::Duration::from_secs(3))?;
+    Ok(LinkInfo {
+        hub_id: i.hub.id.to_lowercase(),
+        hub_name: i.hub.name,
+        hub_kind: i.hub.kind,
+        auth: i.auth,
+        proto_minor: i.proto.minor,
+        ws_path: i.ws.unwrap_or_else(|| dspi_link::DEFAULT_PATH.to_owned()),
+        serials: i.devices.into_iter().map(|d| d.serial).collect(),
+    })
 }
 
 /// Route the core's `log` output to logcat (Android) / stderr (host). Call once

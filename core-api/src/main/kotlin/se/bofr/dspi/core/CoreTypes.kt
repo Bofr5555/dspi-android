@@ -489,3 +489,138 @@ data class CoreInfo(
      */
     val magnitudePoints: Long,
 )
+
+/**
+ * The hub's `hello` after `link_connect` (spec 7.2).
+ */
+data class LinkHello(
+    /**
+     * `hid`: lowercase UUID, stable per hub installation. Tokens are keyed on it.
+     */
+    val hubId: String,
+    val hubName: String,
+    /**
+     * `console` (DSPi Console in gateway mode) or `bridge` (ESP32 on the UART).
+     */
+    val hubKind: String,
+    val hubVersion: String,
+    val protoMinor: Long,
+    /**
+     * `none` or `pin`.
+     */
+    val auth: String,
+    /**
+     * `window` (PIN shown on the hub) or `fixed` (the hub's own PIN); `window` when absent.
+     */
+    val pinSource: String,
+    /**
+     * True: ask the user for the PIN and call `link_pair`.
+     */
+    val needsPairing: Boolean,
+    /**
+     * `cmd`, `notify`, `poll`, `snapshot`, `lock`, `fw_install`, `rename`, ...
+     */
+    val caps: List<String>,
+    val maxPayload: Long,
+    val maxInflight: Long,
+)
+
+/**
+ * One device the hub shares (`device.list`, spec 7.4).
+ */
+data class LinkDevice(
+    val handle: Long,
+    val serial: String,
+    /**
+     * The board's own name, else the hub's.
+     */
+    val name: String,
+    /**
+     * `major.minor.patch`, "" when the hub did not say.
+     */
+    val fw: String,
+    /**
+     * Beta number, 0 = final, -1 = unknown.
+     */
+    val fwBeta: Int,
+    /**
+     * 0 RP2040, 1 RP2350, -1 unknown.
+     */
+    val platform: Int,
+    /**
+     * `online`, `offline`, `updating`.
+     */
+    val state: String,
+    /**
+     * `usb` or `uart` (latency and bulk timing).
+     */
+    val link: String,
+    /**
+     * Session holding the device lock, 0 = none.
+     */
+    val lockedBy: Long,
+)
+
+/**
+ * A `[bRequest, dir]` row of `policy.denied` (dir 0 = SET, 1 = GET).
+ */
+data class LinkDenied(
+    val request: Int,
+    val dir: Int,
+)
+
+/**
+ * Where the current Link session stands.
+ */
+data class LinkStatus(
+    /**
+     * A session exists (connected, maybe not yet authenticated).
+     */
+    val connected: Boolean,
+    /**
+     * Authenticated: commands and the device list work.
+     */
+    val ready: Boolean,
+    /**
+     * Our session id (the NOTIFY `origin` of our own writes), 0 = unknown.
+     */
+    val session: Long,
+    /**
+     * `viewer`, `control` or `admin`.
+     */
+    val role: String,
+    val denied: List<LinkDenied>,
+    /**
+     * The session ended (see `close_code` / `close_reason`).
+     */
+    val closed: Boolean,
+    /**
+     * The hub's close code, -1 = none.
+     */
+    val closeCode: Int,
+    val closeReason: String,
+)
+
+/**
+ * `GET /dspi/v1/info` (spec 3.2), for a hub added by address.
+ */
+data class LinkInfo(
+    val hubId: String,
+    val hubName: String,
+    val hubKind: String,
+    val auth: String,
+    val protoMinor: Long,
+    /**
+     * WebSocket path (`/dspi/v1` by default).
+     */
+    val wsPath: String,
+    val serials: List<String>,
+)
+
+/**
+ * A typed hub address (spec 3.3).
+ */
+data class LinkAddress(
+    val host: String,
+    val port: Int,
+)

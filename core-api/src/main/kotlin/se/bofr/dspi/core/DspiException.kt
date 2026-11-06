@@ -24,4 +24,26 @@ sealed class DspiException(message: String) : Exception(message) {
 
     /** The connected firmware (or transport) lacks the feature. */
     class Unsupported : DspiException("not supported by the connected firmware")
+
+    /**
+     * DSPi Link: another console holds the device lock (macOS
+     * `DeviceLock.lockedMessage`, "Another console is applying changes").
+     * Nothing was sent.
+     */
+    class Locked : DspiException(LOCKED_MESSAGE)
+
+    /** DSPi Link: this session's role on the hub does not allow the command. */
+    class Denied : DspiException("this console's role on the hub does not allow that")
+
+    /**
+     * DSPi Link session failure: [code] is the spec 7.1 error code (`denied`
+     * = wrong PIN, `rate_limited`, ...) or `io`, `handshake`, `protocol`,
+     * `timeout`, `closed`.
+     */
+    class Link(val code: String, val msg: String) : DspiException("DSPi Link: $msg")
+
+    companion object {
+        /** macOS `DeviceLock.lockedMessage`. */
+        const val LOCKED_MESSAGE = "Another console is applying changes"
+    }
 }

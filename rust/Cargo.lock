@@ -382,6 +382,7 @@ version = "0.1.0"
 dependencies = [
  "android_logger",
  "dspi-core",
+ "dspi-link",
  "log",
  "rusb",
  "serde",

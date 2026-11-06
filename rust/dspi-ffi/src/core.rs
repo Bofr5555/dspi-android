@@ -61,8 +61,9 @@ use dspi_core::usb::UsbError;
 use dspi_core::{filterfile, presetfile};
 use serde_json::json;
 
-use crate::callbacks::{DeviceEvents, NotifyListener, RtaListener};
+use crate::callbacks::{DeviceEvents, LinkListener, NotifyListener, RtaListener};
 use crate::error::{status, DspiError, Result};
+use crate::link::{EventsForwarder, LinkEvent, LinkSession, LinkTransport};
 use crate::records::*;
 
 /// Thread-safe handle on one core instance. All methods may block on USB
@@ -74,6 +75,10 @@ pub struct DspiCore {
     /// Kept alive while registered with the core. Boxed so the address handed
     /// to the core's wakers as `user_data` never moves.
     listeners: Box<Listeners>,
+    /// DSPi Link: the current session (`link_connect` .. `link_close`).
+    /// Lock order: never take the core lock while holding this one.
+    link: Mutex<Option<LinkSession>>,
+    link_listener: Arc<Slot<dyn LinkListener>>,
 }
 
 #[derive(Default)]
@@ -157,6 +162,31 @@ impl DspiCore {
         // A poisoned lock means a panic inside the core; keep serving the state.
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
+
+    /// Run `f` holding the device's exclusive lock (DSPi Link spec 7.7, the
+    /// macOS Console's flows, `reason`/`timeout_ms` from its table). A no-op
+    /// over USB (the trait's default). Refused -> `Locked`, nothing is sent.
+    fn with_device_lock<T>(
+        &self,
+        reason: &str,
+        timeout_ms: u64,
+        f: impl FnOnce(&mut dspi_core::DspiCore) -> Result<T>,
+    ) -> Result<T> {
+        let mut c = self.core();
+        let Some(t) = c.device_manager().connection().map(|conn| conn.transport()) else {
+            return f(&mut c);
+        };
+        if !t.lock(reason, std::time::Duration::from_millis(timeout_ms)) {
+            return Err(DspiError::Locked);
+        }
+        let r = f(&mut c);
+        t.unlock();
+        r
+    }
+
+    fn link_client(&self) -> Option<dspi_link::LinkClient> {
+        lock(&self.link).as_ref().map(|s| s.client.clone())
+    }
 }
 
 impl Drop for DspiCore {
@@ -164,6 +194,10 @@ impl Drop for DspiCore {
         // Stop the worker threads, then point both wakers away from
         // `listeners` before it is freed. `set_waker` takes the hub's waker
         // lock, under which a callback runs, so no call is in flight after it.
+        if let Some(s) = lock(&self.link).take() {
+            s.client.set_events(None);
+            s.client.close();
+        }
         let mut c = self.core();
         c.device_manager_mut().disconnect();
         c.device_manager().notify_hub().set_waker(noop_trampoline, std::ptr::null_mut());
@@ -242,7 +276,7 @@ impl DspiCore {
         let ptr = &*listeners as *const Listeners as *mut c_void;
         core.device_manager().notify_hub().set_waker(notify_trampoline, ptr);
         core.device_manager().rta_hub().set_waker(Some(rta_trampoline), ptr);
-        Arc::new(Self { inner: Mutex::new(core), listeners })
+        Arc::new(Self { inner: Mutex::new(core), listeners, link: Mutex::new(None), link_listener: Arc::default() })
     }
 
     // ═══ Android additions ═══════════════════════════════════════════
@@ -268,6 +302,133 @@ impl DspiCore {
     /// Kotlin object already has `close()` (AutoCloseable = free the core).
     pub fn close_fd(&self) {
         self.core().device_manager_mut().disconnect();
+    }
+
+    // ═══ DSPi Link client (dspi-link; patch 0004 Transport) ═════════════
+
+    /// Open a DSPi Link session to `url` (`link_ws_url`), replacing any
+    /// previous one. `token` = the token stored for this hub's id ("" =
+    /// none). Blocks for the hello and authentication (up to ~15 s). When
+    /// `needs_pairing`, ask for the PIN and call `link_pair`; otherwise the
+    /// device list is ready (`link_devices`).
+    pub fn link_connect(
+        &self,
+        url: String,
+        client_name: String,
+        app_version: String,
+        token: String,
+    ) -> Result<LinkHello> {
+        self.link_close();
+        let slot = Arc::clone(&self.link_listener);
+        let forward = EventsForwarder(Arc::new(move |e: LinkEvent| match e {
+            LinkEvent::Devices => slot.call(|l| l.on_link_devices_changed()),
+            LinkEvent::Closed(code, reason) => {
+                slot.call(|l| l.on_link_closed(code.map_or(-1, i32::from), reason.clone()))
+            }
+        }));
+        let opts = dspi_link::ConnectOptions {
+            client_name,
+            app: "DSPi Console for Android".into(),
+            app_version,
+            token: Some(token).filter(|t| !t.is_empty()),
+        };
+        let (client, state) = dspi_link::LinkClient::connect(
+            &dspi_link::socket::TcpConnector::default(),
+            &url,
+            &opts,
+            Some(Arc::new(forward)),
+        )?;
+        let h = client.hello();
+        let hello = LinkHello {
+            hub_id: h.hub.id.to_lowercase(),
+            hub_name: h.hub.name.clone(),
+            hub_kind: h.hub.kind.clone(),
+            hub_version: h.hub.version.clone().unwrap_or_default(),
+            proto_minor: h.proto.minor,
+            auth: h.auth.clone(),
+            pin_source: h.pin_source().to_owned(),
+            needs_pairing: matches!(state, dspi_link::AuthState::NeedsPairing { .. }),
+            caps: h.caps.clone(),
+            max_payload: h.limits.max_payload,
+            max_inflight: h.limits.max_inflight,
+        };
+        *lock(&self.link) = Some(LinkSession { client });
+        Ok(hello)
+    }
+
+    /// Pair with the PIN the user typed (role `control`, as the macOS
+    /// Console asks). Returns the token to store against the hub id ("" when
+    /// the hub issued none). Link { code: "denied" } for a wrong PIN.
+    pub fn link_pair(&self, pin: String) -> Result<String> {
+        let c = self.link_client().ok_or(DspiError::Disconnected)?;
+        Ok(c.pair(pin.trim(), "control")?)
+    }
+
+    /// The hub's devices (empty before authentication).
+    pub fn link_devices(&self) -> Vec<LinkDevice> {
+        self.link_client()
+            .map(|c| {
+                c.devices()
+                    .into_iter()
+                    .map(|d| LinkDevice {
+                        handle: d.handle,
+                        serial: d.serial,
+                        name: d.name,
+                        fw: d.fw.unwrap_or_default(),
+                        fw_beta: d.fw_beta.map_or(-1, |b| b as i32),
+                        platform: d.platform.map_or(-1, |p| p as i32),
+                        state: d.state,
+                        link: d.link,
+                        locked_by: d.locked_by.unwrap_or(0),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn link_status(&self) -> LinkStatus {
+        let Some(c) = self.link_client() else { return LinkStatus { close_code: -1, ..LinkStatus::default() } };
+        let closed = c.closed_reason();
+        LinkStatus {
+            connected: closed.is_none(),
+            ready: c.is_ready(),
+            session: c.session_id().map_or(0, u32::from),
+            role: c.role(),
+            denied: c.denied().into_iter().map(|(request, dir)| LinkDenied { request, dir }).collect(),
+            closed: closed.is_some(),
+            close_code: closed.as_ref().and_then(|c| c.0).map_or(-1, i32::from),
+            close_reason: closed.map(|c| c.1).unwrap_or_default(),
+        }
+    }
+
+    /// Bind the core to the hub's device `handle` (as `open_fd` does for
+    /// USB): starts the notify listener over Link, resets the state. Then
+    /// `fetch_all` as usual (single-shot bulk, the hub's snapshot first).
+    pub fn link_select_device(&self, handle: u32, serial: String) -> Result<()> {
+        let client = self.link_client().ok_or(DspiError::Disconnected)?;
+        if !client.is_ready() {
+            return Err(DspiError::Disconnected);
+        }
+        let handle =
+            u8::try_from(handle).map_err(|_| DspiError::InvalidArgument { msg: format!("handle {handle}") })?;
+        let t = Arc::new(LinkTransport::new(client, handle));
+        let mut c = self.core();
+        c.device_manager_mut().select_transport(t, &serial, dspi_core::protocol::VENDOR_ID);
+        c.reset_device_state();
+        Ok(())
+    }
+
+    /// Close the Link session (normal close) and drop a device bound to it.
+    pub fn link_close(&self) {
+        let Some(s) = lock(&self.link).take() else { return };
+        s.client.set_events(None);
+        s.client.close();
+        self.core().device_manager_mut().disconnect();
+    }
+
+    /// Session events (devices changed, closed). Same rules as the other listeners.
+    pub fn set_link_listener(&self, listener: Option<Box<dyn LinkListener>>) {
+        self.link_listener.set(listener);
     }
 
     // ═══ Device management ═══════════════════════════════════════════
@@ -317,7 +478,7 @@ impl DspiCore {
     /// core, `Disconnected` also when no image has been read yet (nothing to
     /// apply: call `fetch_all` first).
     pub fn apply_all_params(&self) -> Result<()> {
-        Ok(self.core().apply_all_params()?)
+        self.with_device_lock("Applying configuration", 60_000, |c| Ok(c.apply_all_params()?))
     }
 
     pub fn fetch_status(&self) -> Result<SystemStatus> {
@@ -557,7 +718,7 @@ impl DspiCore {
 
     /// FLASH WRITE. Refused { PRESET_* }.
     pub fn save_output_config(&self) -> Result<()> {
-        status(self.core().save_output_config()?)
+        self.with_device_lock("Saving output configuration", 5_000, |c| status(c.save_output_config()?))
     }
 
     // ═══ Channel names ═══════════════════════════════════════════════
@@ -575,7 +736,7 @@ impl DspiCore {
 
     /// FLASH WRITE (waits for the deferred save). Refused { PRESET_* }.
     pub fn save_preset(&self, slot: u8) -> Result<()> {
-        status(self.core().save_preset(slot)?)
+        self.with_device_lock("Saving preset", 5_000, |c| status(c.save_preset(slot)?))
     }
 
     /// Load and re-read every parameter. Refused { PRESET_* }.
@@ -587,10 +748,10 @@ impl DspiCore {
     pub fn copy_preset(&self, source: u8, dest: u8) -> Result<()> {
         // The core reports "a deferred save never confirmed" as 0xFF, which
         // is not a PRESET_* code: surface it as a transfer failure.
-        match self.core().copy_preset(source, dest)? {
+        self.with_device_lock("Copying preset", 10_000, |c| match c.copy_preset(source, dest)? {
             0xFF => Err(DspiError::Transfer { msg: "the device did not confirm the preset save in time".into() }),
             code => status(code),
-        }
+        })
     }
 
     /// FLASH WRITE.
@@ -619,7 +780,7 @@ impl DspiCore {
 
     /// FLASH WRITE. Refused { FLASH_* }.
     pub fn save_params(&self) -> Result<()> {
-        status(self.core().save_params()?)
+        self.with_device_lock("Saving to flash", 5_000, |c| status(c.save_params()?))
     }
 
     /// Revert to saved (reloads the active preset). Refused { FLASH_* }.
@@ -990,11 +1151,14 @@ impl DspiCore {
     pub fn config_import(&self, text: String, options: u32) -> String {
         let out = match presetfile::parse(&text) {
             Err(e) => json!({ "ok": false, "error": e }),
-            Ok(v) => match self.core().import_preset(&v, options) {
-                Ok(r) => json!({ "ok": true, "lines": r.lines, "clean": r.clean, "links": r.links,
+            Ok(v) => {
+                match self.with_device_lock("Applying configuration", 60_000, |c| Ok(c.import_preset(&v, options)?)) {
+                    Ok(r) => json!({ "ok": true, "lines": r.lines, "clean": r.clean, "links": r.links,
                                  "hardwareWritten": r.hardware_written }),
-                Err(e) => json!({ "ok": false, "error": format!("The device could not be written: {e}.") }),
-            },
+                    Err(DspiError::Locked) => json!({ "ok": false, "error": "Another console is applying changes." }),
+                    Err(e) => json!({ "ok": false, "error": format!("The device could not be written: {e}.") }),
+                }
+            }
         };
         out.to_string()
     }

@@ -25,3 +25,15 @@ interface DeviceEvents {
 
     fun onDeparted(serial: String)
 }
+
+/**
+ * DSPi Link session events ([DspiCoreApi.linkConnect]). Runs on the Link
+ * client's reader thread: schedule work only.
+ */
+interface LinkListener {
+    /** The hub's device list changed: call [DspiCoreApi.linkDevices]. */
+    fun onLinkDevicesChanged()
+
+    /** The session ended. [code] = the hub's close code (4002 revoked, 4003 shutting down), -1 = the connection was lost. */
+    fun onLinkClosed(code: Int, reason: String)
+}

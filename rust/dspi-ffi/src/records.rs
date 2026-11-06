@@ -502,3 +502,94 @@ pub struct CoreInfo {
     /// Number of points in `compute_magnitude_curve` / `compute_phase_curve` (201).
     pub magnitude_points: u32,
 }
+
+// ── DSPi Link (dspi-link crate; DSPi-Link spec 1.2) ───────────────────
+
+/// The hub's `hello` after `link_connect` (spec 7.2).
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct LinkHello {
+    /// `hid`: lowercase UUID, stable per hub installation. Tokens are keyed on it.
+    pub hub_id: String,
+    pub hub_name: String,
+    /// `console` (DSPi Console in gateway mode) or `bridge` (ESP32 on the UART).
+    pub hub_kind: String,
+    pub hub_version: String,
+    pub proto_minor: u32,
+    /// `none` or `pin`.
+    pub auth: String,
+    /// `window` (PIN shown on the hub) or `fixed` (the hub's own PIN); `window` when absent.
+    pub pin_source: String,
+    /// True: ask the user for the PIN and call `link_pair`.
+    pub needs_pairing: bool,
+    /// `cmd`, `notify`, `poll`, `snapshot`, `lock`, `fw_install`, `rename`, ...
+    pub caps: Vec<String>,
+    pub max_payload: u32,
+    pub max_inflight: u32,
+}
+
+/// One device the hub shares (`device.list`, spec 7.4).
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct LinkDevice {
+    pub handle: u32,
+    pub serial: String,
+    /// The board's own name, else the hub's.
+    pub name: String,
+    /// `major.minor.patch`, "" when the hub did not say.
+    pub fw: String,
+    /// Beta number, 0 = final, -1 = unknown.
+    pub fw_beta: i32,
+    /// 0 RP2040, 1 RP2350, -1 unknown.
+    pub platform: i32,
+    /// `online`, `offline`, `updating`.
+    pub state: String,
+    /// `usb` or `uart` (latency and bulk timing).
+    pub link: String,
+    /// Session holding the device lock, 0 = none.
+    pub locked_by: u32,
+}
+
+/// A `[bRequest, dir]` row of `policy.denied` (dir 0 = SET, 1 = GET).
+#[derive(Debug, Clone, Copy, PartialEq, Default, uniffi::Record)]
+pub struct LinkDenied {
+    pub request: u8,
+    pub dir: u8,
+}
+
+/// Where the current Link session stands.
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct LinkStatus {
+    /// A session exists (connected, maybe not yet authenticated).
+    pub connected: bool,
+    /// Authenticated: commands and the device list work.
+    pub ready: bool,
+    /// Our session id (the NOTIFY `origin` of our own writes), 0 = unknown.
+    pub session: u32,
+    /// `viewer`, `control` or `admin`.
+    pub role: String,
+    pub denied: Vec<LinkDenied>,
+    /// The session ended (see `close_code` / `close_reason`).
+    pub closed: bool,
+    /// The hub's close code, -1 = none.
+    pub close_code: i32,
+    pub close_reason: String,
+}
+
+/// `GET /dspi/v1/info` (spec 3.2), for a hub added by address.
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct LinkInfo {
+    pub hub_id: String,
+    pub hub_name: String,
+    pub hub_kind: String,
+    pub auth: String,
+    pub proto_minor: u32,
+    /// WebSocket path (`/dspi/v1` by default).
+    pub ws_path: String,
+    pub serials: Vec<String>,
+}
+
+/// A typed hub address (spec 3.3).
+#[derive(Debug, Clone, PartialEq, Default, uniffi::Record)]
+pub struct LinkAddress {
+    pub host: String,
+    pub port: u16,
+}

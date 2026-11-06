@@ -15,6 +15,8 @@ name = "dspi_ffi"
 uniffi = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
+# DSPi Link client (this workspace; no FFI or core inside).
+dspi-link = { path = "../dspi-link" }
 # The official core, staged + patched by tools/stage-core.sh.
 dspi-core = { path = "../.staged/dspi-core/core" }
 # Same version the core uses; `vendored` builds libusb from source so the
@@ -25,6 +27,9 @@ rusb = { version = "0.9.4", features = ["vendored"] }
 # fixture (`examples/dump_state.rs`). Both already in the lock via the core.
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+dspi-link = { path = "../dspi-link", features = ["fake-hub"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15.1"

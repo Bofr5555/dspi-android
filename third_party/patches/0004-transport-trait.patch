@@ -211,9 +211,11 @@ context fix in commands.rs.
      /// Every packet, decoded, for the Interrupt Monitor.
      pub monitor: MonitorLog,
      overflow: AtomicBool,
-@@ -113,6 +136,11 @@
+@@ -112,7 +135,13 @@
+         *self.last_seq.lock().unwrap() = None;
      }
  
++    #[cfg(test)]
      fn push(&self, packet: Vec<u8>) {
 +        self.push_attributed(packet, None, None)
 +    }
@@ -223,7 +225,7 @@ context fix in commands.rs.
          let was_empty = {
              let mut q = self.queue.lock().unwrap();
              let was_empty = q.is_empty();
-@@ -120,7 +148,7 @@
+@@ -120,7 +149,7 @@
                  q.clear();
                  self.overflow.store(true, Ordering::SeqCst);
              }
@@ -232,7 +234,7 @@ context fix in commands.rs.
              was_empty
          };
          // Wake once per batch: the GUI drains the whole queue.
-@@ -131,7 +159,7 @@
+@@ -131,7 +160,7 @@
          }
      }
  
@@ -241,7 +243,7 @@ context fix in commands.rs.
          let packets = self.queue.lock().unwrap().drain(..).collect();
          (packets, self.overflow.swap(false, Ordering::SeqCst))
      }
-@@ -152,13 +180,13 @@
+@@ -152,13 +181,13 @@
  }
  
  impl NotifyListener {
@@ -257,7 +259,7 @@ context fix in commands.rs.
              .ok();
          Self { stop, thread }
      }
-@@ -173,23 +201,22 @@
+@@ -173,23 +202,22 @@
      }
  }
  
@@ -287,7 +289,7 @@ context fix in commands.rs.
              Err(rusb::Error::NoDevice) | Err(rusb::Error::NotFound) => break,
              Err(e) => {
                  warn!("Notification endpoint read failed: {e}");
-@@ -214,7 +241,9 @@
+@@ -214,7 +242,9 @@
          // would undo them.
          let mut image: Option<Vec<u8>> = None;
  
@@ -298,7 +300,7 @@ context fix in commands.rs.
              if hub.sequence_gap(p[3]) {
                  refresh = true;
              }
-@@ -223,7 +252,7 @@
+@@ -223,7 +253,7 @@
                      let off = read_u16_le(p, 4) as usize;
                      let size = read_u16_le(p, 6) as usize;
                      // Our own writes are already in the state.
@@ -307,7 +309,7 @@ context fix in commands.rs.
                          continue;
                      }
                      if off < OFF_GLOBAL || off + size > BULK_PARAMS_SIZE {
-@@ -250,7 +279,7 @@
+@@ -250,7 +280,7 @@
                  // Our own aux writes are already in the state
                  EVT_CS_AUX if p.len() >= 9 => {
                      let slot = p[4] as usize;
@@ -316,7 +318,7 @@ context fix in commands.rs.
                          self.cs.aux_state[slot] = p[5];
                          self.cs.aux_level[slot] = read_u16_le(p, 6);
                          r.flags |= NOTIFY_CS_AUX;
-@@ -366,6 +395,35 @@
+@@ -366,6 +396,35 @@
      }
  
      #[test]

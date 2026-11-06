@@ -747,7 +747,8 @@ fn handle_json(state: &Arc<Mutex<State>>, sid: u16, text: &str, hello_done: &mut
             let pin = v["pin"].as_str().unwrap_or("");
             let (good, role) = match &s.cfg.auth {
                 Auth::None => (true, "admin".to_owned()),
-                Auth::Window(p) => (pin == p, v["role"].as_str().unwrap_or(&s.cfg.pin_role).to_owned()),
+                // The hub decides the role (the requested one is a wish, spec 6.2)
+                Auth::Window(p) => (pin == p, s.cfg.pin_role.clone()),
                 Auth::Fixed(p) => (pin == p, s.cfg.pin_role.clone()),
             };
             if !good {
