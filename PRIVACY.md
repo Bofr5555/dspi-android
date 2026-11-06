@@ -1,10 +1,6 @@
 # Privacy policy — DSPi Console for Android
 
-> **Approved by the owner on 2026-11-06 (branch `feature/link`).** Publish this version on `main`
-> together with the first Play build that contains DSPi Link; until then the policy published from
-> `main` applies.
-
-*Effective [date of the first Play release with DSPi Link]. Applies to the app "DSPi Console for
+*Effective 6 November 2026. Applies to the app "DSPi Console for
 Android" (`se.bofr.dspi_console_android`) by Bofr5555.*
 
 **In short: the app collects no personal data and sends nothing to the developer or to any third
