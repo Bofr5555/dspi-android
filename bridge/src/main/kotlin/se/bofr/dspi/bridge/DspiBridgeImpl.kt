@@ -156,7 +156,11 @@ class DspiBridgeImpl(
     internal fun writeRefused(name: String, token: ConfirmationToken? = null, op: DangerousOp? = null): Boolean {
         if (usable) return false
         if (token != null && op != null) ops.require(token, op, spend = false)
-        val why = if (connected) WritesNotAllowedException.FIRMWARE_MISMATCH else WritesNotAllowedException.NOT_CONNECTED
+        val why = when {
+            !connected -> WritesNotAllowedException.NOT_CONNECTED
+            remoteReadOnly && current.compat == COMPAT_OK -> WritesNotAllowedException.VIEWER
+            else -> WritesNotAllowedException.FIRMWARE_MISMATCH
+        }
         emit(BridgeEvent.CommandFailed(name, WritesNotAllowedException(why)))
         return true
     }
@@ -185,6 +189,9 @@ class DspiBridgeImpl(
     private var preampMax = 18f
     private var maxDelay = 21f
     private var attachedFd: Triple<Int, String, Int>? = null
+
+    /** DSPi Link: the remote device attached by [attachRemote] (handle, serial). */
+    private var attachedRemote: Pair<Long, String>? = null
 
     private class ChannelClip(
         val output: Boolean,
@@ -768,6 +775,7 @@ class DspiBridgeImpl(
         if (selectedSerial == serial) {
             scope.launch(ffi) { runCatching { core.disconnect() } }
             attachedFd = null
+            attachedRemote = null
             setDisconnected()
         }
         _devices.value = _devices.value.copy(availableSerials = _devices.value.availableSerials - serial)
@@ -813,8 +821,16 @@ class DspiBridgeImpl(
             else -> ""
         }
 
-    /** Connected to compatible firmware (Qt usable()). */
-    internal val usable: Boolean get() = connected && current.compat == COMPAT_OK
+    /** Connected to compatible firmware (Qt usable()), and not a viewer on a Link hub. */
+    internal val usable: Boolean get() = connected && current.compat == COMPAT_OK && !remoteReadOnly
+
+    /** DSPi Link viewer role ([setRemoteReadOnly]); main thread. */
+    @Volatile private var remoteReadOnly = false
+
+    override fun setRemoteReadOnly(readOnly: Boolean) {
+        remoteReadOnly = readOnly
+        refreshWritesAllowed()
+    }
 
     override val maxDelayMs: Float get() = maxDelay
     override val preampDB: Float get() = current.inputPreampDb[0]
@@ -1753,6 +1769,7 @@ class DspiBridgeImpl(
         scope.launch(main) {
             onFfi { runCatching { core.disconnect() } }
             attachedFd = null
+            attachedRemote = null
             setDisconnected()
             deviceChangedHooks.forEach { it() }
         }
@@ -1763,8 +1780,13 @@ class DspiBridgeImpl(
         val serial = selectedSerial
         if (serial.isEmpty()) return
         val fd = attachedFd
+        val remote = attachedRemote
         scope.launch(main) {
-            if (fd != null) {
+            if (remote != null) {
+                onFfi { runCatching { core.closeFd() } }
+                setDisconnected()
+                attachRemote(remote.first, remote.second)
+            } else if (fd != null) {
                 onFfi { runCatching { core.closeFd() } }
                 setDisconnected()
                 attachDevice(fd.first, fd.second, fd.third)
@@ -1777,7 +1799,7 @@ class DspiBridgeImpl(
     }
 
     override fun rescan() {
-        if (attachedFd != null) return reconnect()
+        if (attachedFd != null || attachedRemote != null) return reconnect()
         val previous = selectedSerial
         scope.launch(main) {
             if (connected) {
@@ -1810,10 +1832,25 @@ class DspiBridgeImpl(
         return true
     }
 
+    override suspend fun attachRemote(handle: Long, serial: String): Boolean {
+        val err = onFfi { runCatching { core.linkSelectDevice(handle, serial) }.exceptionOrNull() }
+        if (err != null) {
+            _status.value = _status.value.copy(connected = false, connectionError = "Could not open the DSPi on the hub.")
+            refreshWritesAllowed()
+            emit(BridgeEvent.CommandFailed("attachRemote", err))
+            return false
+        }
+        attachedRemote = handle to serial
+        deviceSelected(serial)
+        return true
+    }
+
     override suspend fun detachDevice(serial: String) {
-        if (selectedSerial == serial || (selectedSerial.isEmpty() && attachedFd?.second == serial)) {
+        val mine = attachedFd?.second == serial || attachedRemote?.second == serial
+        if (selectedSerial == serial || (selectedSerial.isEmpty() && mine)) {
             onFfi { runCatching { core.closeFd() } }
             attachedFd = null
+            attachedRemote = null
             setDisconnected()
         }
         _devices.value = _devices.value.copy(availableSerials = _devices.value.availableSerials - serial)

@@ -562,6 +562,18 @@ internal class WriteGuardedCore(private val inner: DspiCoreApi, private val allo
 
         /** Core methods that only read, compute locally, manage listeners or the connection, or reboot into the bootloader. */
         val PASS_THROUGH: Set<String> = setOf(
+            // DSPi Link session management (no device writes; the hub's
+            // role check and the bridge's remote read-only flag gate writes)
+            "linkConnect",
+            "linkPair",
+            "linkDevices",
+            "linkStatus",
+            "linkSelectDevice",
+            "linkClose",
+            "setLinkListener",
+            "linkParseAddress",
+            "linkWsUrl",
+            "linkFetchInfo",
             "bootloaderCounts",
             "captureBaseline",
             "checkCore1Conflict",

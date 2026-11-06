@@ -645,6 +645,22 @@ interface DspiBridge {
     /** Android: the device went away or the app closes it (core.closeFd). */
     suspend fun detachDevice(serial: String)
 
+    /**
+     * DSPi Link (REMOTE mode): bind the core to device [handle] of its open
+     * Link session (core.linkSelectDevice) and read it like [attachDevice]
+     * does (fetchAll + captureBaseline). The session itself is opened by the
+     * `:link` engine on the same core; [detachDevice] drops the device.
+     */
+    suspend fun attachRemote(handle: Long, serial: String): Boolean
+
+    /**
+     * DSPi Link: the hub gave this session the `viewer` role, so every write
+     * would be answered DENIED. While true, [writesAllowed] is false and
+     * writes are refused before any traffic, as in G1's read-only mode
+     * ([WritesNotAllowedException.VIEWER]).
+     */
+    fun setRemoteReadOnly(readOnly: Boolean)
+
     // ═══ Input source / tools ══════════════════════════════════════════
 
     /** GATED [DangerousOp.HARDWARE_APPLY] (minted by the source menu/picker tap, e.g. HOME's input-source menu; rebuilds the input pipeline). */

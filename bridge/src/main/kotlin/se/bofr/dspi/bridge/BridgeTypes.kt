@@ -126,6 +126,9 @@ class WritesNotAllowedException(message: String) : IllegalStateException(message
 
         /** No device connected. */
         const val NOT_CONNECTED = "device not connected: read-only"
+
+        /** DSPi Link: the hub gave this console the viewer role. */
+        const val VIEWER = "viewer role on the hub: read-only"
     }
 }
 

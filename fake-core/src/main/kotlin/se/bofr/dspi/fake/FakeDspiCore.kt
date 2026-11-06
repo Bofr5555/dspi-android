@@ -28,6 +28,12 @@ import se.bofr.dspi.core.FilterParams
 import se.bofr.dspi.core.I2cConfig
 import se.bofr.dspi.core.InputLockStatus
 import se.bofr.dspi.core.LgStatus
+import se.bofr.dspi.core.LinkAddress
+import se.bofr.dspi.core.LinkDevice
+import se.bofr.dspi.core.LinkHello
+import se.bofr.dspi.core.LinkInfo
+import se.bofr.dspi.core.LinkListener
+import se.bofr.dspi.core.LinkStatus
 import se.bofr.dspi.core.MonitorBatch
 import se.bofr.dspi.core.MonitorEntry
 import se.bofr.dspi.core.NotifyListener
@@ -229,6 +235,90 @@ open class FakeDspiCore(
     override fun openFd(fd: Int, serial: String, vid: Int) = op("openFd", "$fd, $serial, $vid", device = false) { connected = true }
 
     override fun closeFd() = op("closeFd", device = false) { connected = false }
+
+    // ── DSPi Link: a simulated hub with this fake as its one device ──
+
+    /** What [linkConnect] answers (tests change it); `needsPairing` follows [linkPin] and the token. */
+    @Volatile var linkHello = LinkHello(
+        hubId = "6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b", hubName = "Fake Hub", hubKind = "console", hubVersion = "fake",
+        protoMinor = 2, auth = "none", pinSource = "window", needsPairing = false,
+        caps = listOf("cmd", "notify", "poll", "snapshot", "lock"), maxPayload = 8192, maxInflight = 8
+    )
+
+    /** The hub's PIN when [linkHello] says `auth = pin`. */
+    @Volatile var linkPin = "123456"
+
+    /** Role the simulated hub grants. */
+    @Volatile var linkRole = "control"
+
+    /** The token the simulated hub accepts. */
+    val linkToken = "fake-token"
+
+    @Volatile private var linkOpen = false
+
+    @Volatile private var linkReady = false
+
+    @Volatile var linkListener: LinkListener? = null
+        private set
+
+    override fun linkConnect(url: String, clientName: String, appVersion: String, token: String): LinkHello =
+        op("linkConnect", "$url, $clientName", device = false) {
+            linkOpen = true
+            linkReady = linkHello.auth != "pin" || token == linkToken
+            linkHello.copy(needsPairing = !linkReady)
+        }
+
+    override fun linkPair(pin: String): String = op("linkPair", device = false) {
+        if (!linkOpen) throw DspiException.Disconnected()
+        if (pin.trim() != linkPin) throw DspiException.Link("denied", "wrong PIN")
+        linkReady = true
+        linkToken
+    }
+
+    override fun linkDevices(): List<LinkDevice> =
+        if (linkReady) listOf(LinkDevice(0, serial, "Bench", "1.1.6", 5, 1, "online", "usb", 0)) else emptyList()
+
+    override fun linkStatus(): LinkStatus =
+        LinkStatus(linkOpen, linkReady, if (linkReady) 12 else 0, linkRole, emptyList(), !linkOpen, -1, "")
+
+    override fun linkSelectDevice(handle: Long, serial: String) = op("linkSelectDevice", "$handle, $serial", device = false) {
+        if (!linkReady) throw DspiException.Disconnected()
+        connected = true
+    }
+
+    override fun linkClose() = op("linkClose", device = false) {
+        linkOpen = false
+        linkReady = false
+        connected = false
+    }
+
+    override fun setLinkListener(listener: LinkListener?) {
+        linkListener = listener
+    }
+
+    /** Test hook: the hub closes the session with [code] (4002 revoked, 4003 shutting down, -1 lost). */
+    fun linkDrop(code: Int, reason: String = "connection lost") {
+        linkOpen = false
+        linkReady = false
+        connected = false
+        linkListener?.onLinkClosed(code, reason)
+    }
+
+    override fun linkParseAddress(text: String): LinkAddress {
+        val t = text.trim()
+        if (t.isEmpty() || t.any { it.isWhitespace() }) throw DspiException.InvalidArgument("not a hub address: $text")
+        val colon = t.lastIndexOf(':')
+        if (colon < 0 || t.count { it == ':' } > 1) return LinkAddress(t, 11915)
+        val port = t.substring(colon + 1).toIntOrNull()?.takeIf { it in 1..65535 }
+            ?: throw DspiException.InvalidArgument("not a hub address: $text")
+        return LinkAddress(t.substring(0, colon), port)
+    }
+
+    override fun linkWsUrl(host: String, port: Int, path: String): String =
+        "ws://${if (':' in host) "[$host]" else host}:$port${path.ifEmpty { "/dspi/v1" }}"
+
+    override fun linkFetchInfo(host: String, port: Int): LinkInfo =
+        LinkInfo(linkHello.hubId, linkHello.hubName, linkHello.hubKind, linkHello.auth, 2, "/dspi/v1", listOf(serial))
 
     override fun scanDevices(): List<DeviceInfo> = op("scanDevices", device = false) {
         if (connected) listOf(DeviceInfo(serial, 1)) else emptyList()
