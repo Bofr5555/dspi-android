@@ -62,19 +62,21 @@ next preset, and the app claims only the DSPi's vendor control interface, so aud
   firmware versions the app connects **read-only**: it shows a banner, disables every control and
   never writes to the device (the firmware updater stays available).
 
-## Installing a test build without Google Play
+## Installing without Google Play
 
-Download the `.apk` from [Releases](../../releases) and sideload it (allow installs from your browser
-or file manager). Test builds are debug-signed; a future Play-signed build will need the test build
-uninstalled first. Check the `.sha256` file next to each APK.
+Each [release](../../releases) has a universal `.apk` (arm64, armv7, x86_64) of the same version as
+on Google Play, with a `.sha256` file next to it. Sideload it (allow installs from your browser or
+file manager). It is signed with the developer's upload key, not Google Play's key, so it cannot
+update a Play install and Play cannot update it: to switch between the two, uninstall first.
 
 ## Fork-only extra: crossfeed output pairs
 
 DSPi crossfeed runs on fixed output pairs (1/2, 3/4, …). Boards that wire **one DAC per ear** (the
 K340 amplifier this was built for: out1 R woofer, out2 R tweeter, out3 L woofer, out4 L tweeter) need
 crossfeed between outputs 3↔1 and 4↔2 instead. The firmware branch
-[`Bofr5555/DSPi` → `k340-xfeed`](https://github.com/Bofr5555/DSPi/tree/k340-xfeed) makes the pairs
-configurable (default unchanged, stored in the preset without a format change); the app then shows a
+[`Bofr5555/DSPi` → `bofr-main`](https://github.com/Bofr5555/DSPi/tree/bofr-main) makes the pairs
+configurable (default unchanged, stored in the preset without a format change; set and read through
+the firmware's extension channel, opcode 0x00); the app then shows a
 **Pairs** row in the crossfeed tool. On official firmware the row is hidden and nothing changes.
 
 ## Building
