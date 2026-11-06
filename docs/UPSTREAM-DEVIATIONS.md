@@ -897,11 +897,14 @@ banner but still send every command).
 Not in any official client or upstream firmware. The owner's K340 amplifier
 wires one DAC per ear (out1 = right woofer, out2 = right tweeter, out3 = left
 woofer, out4 = left tweeter), so crossfeed's fixed pairs (out1/out2, ...) are
-the same ear twice. The K340 firmware fork (`~/prog/DSPi-xfeed`, branch
-`k340-xfeed`) makes each pair's outputs configurable.
+the same ear twice. The firmware branch `bofr-main` of Bofr5555/DSPi makes
+each pair's outputs configurable.
 
 1. **Core patch** `third_party/patches/0002-crossfeed-pair-map.patch` (after
-   0001): `REQ_CROSSFEED_PAIR_MAP` 0x02 (OUT sets / IN gets, 4 bytes),
+   0001): the extension channel `REQ_EXTENSION` 0x00 with sub-command
+   `EXT_CROSSFEED_PAIR_MAP` (wValue 0x0001; OUT sets / IN gets, 4 bytes;
+   0x00 requested from Weeb Labs as the reserved extension opcode; until
+   2026-11-06 opcode 0x02, which Weeb Labs' ac3-dts-decode branch also uses),
    `DspState.crossfeed_pair_map` decoded from / encoded into the former
    `WireCrossfeedParams.reserved2` (bulk offset 44; wire format stays V32, so
    upstream firmware stays COMPAT_OK and reports the zero = default map),

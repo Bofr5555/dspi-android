@@ -225,9 +225,9 @@ data class HardwareCaps(
      */
     val lgSoundSyncSupported: Boolean = false,
     /**
-     * K340 firmware fork (core patch 0002): the firmware answers
-     * REQ_CROSSFEED_PAIR_MAP (0x02), probed once per connect; upstream
-     * firmware STALLs it. Gates the crossfeed pair editor.
+     * Bofr5555/DSPi bofr-main (core patch 0002): the firmware answers the
+     * extension channel's EXT_CROSSFEED_PAIR_MAP (REQ_EXTENSION 0x00, wValue
+     * 0x0001), probed once per connect; upstream firmware STALLs it. Gates the crossfeed pair editor.
      */
     val crossfeedPairMapSupported: Boolean = false,
     /**

@@ -123,7 +123,7 @@ class DspiBridgeImpl(
     private val _writesAllowed = MutableStateFlow(false)
     override val writesAllowed: StateFlow<Boolean> = _writesAllowed.asStateFlow()
 
-    /** FFI thread: whether the firmware answers REQ_CROSSFEED_PAIR_MAP (K340 fork). */
+    /** FFI thread: whether the firmware answers EXT_CROSSFEED_PAIR_MAP (extension channel, bofr-main). */
     private fun probeCrossfeedPairMap(): Boolean {
         repeat(2) {
             try {
@@ -1723,7 +1723,7 @@ class DspiBridgeImpl(
                 val compatOk = core.isConnected() && st.compat == COMPAT_OK
                 if (fetched && compatOk) core.captureBaseline()
                 if (compatOk) runCatching { core.rtaStart() } // probes for the spectrum analyser
-                // K340 fork probe (core patch 0002): upstream firmware STALLs 0x02
+                // K340 fork probe (core patch 0002): upstream firmware STALLs 0x00
                 // (Transfer: the answer, no retry); any other error retries once.
                 val pairMap = fetched && compatOk && probeCrossfeedPairMap()
                 Opened(

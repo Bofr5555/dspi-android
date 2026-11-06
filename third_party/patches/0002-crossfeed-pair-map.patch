@@ -3,10 +3,10 @@ Crossfeed output pair map (K340 firmware fork) for dspi-core.
 Why: the owner's K340 amplifier wires one DAC per ear (out0 = R woofer,
 out1 = R tweeter, out2 = L woofer, out3 = L tweeter), so crossfeed's fixed
 pairs (2p, 2p+1) are the same ear twice. The K340 firmware fork
-(~/prog/DSPi-xfeed, branch k340-xfeed, commits 0c7c388 + 0a6fad1) makes the outputs of each crossfeed
-pair configurable; this patch teaches the core about it. Upstream firmware
+(Bofr5555/DSPi, branch bofr-main) makes the outputs of each crossfeed pair
+configurable; this patch teaches the core about it. Upstream firmware
 v1.1.6-beta5 has none of it: its bulk image carries zero in the claimed bytes
-(= default pairing) and it STALLs the two new requests.
+(= default pairing) and it STALLs the extension request.
 
 Encoding (firmware crossfeed_map.h): 4 bytes, byte p = pair p; 0x00 = the
 default (2p, 2p+1), else (right << 4) | left (0-based output indices). Valid
@@ -17,8 +17,11 @@ default bytes -> 0). Wire format stays V32: the map claims the former
 WireCrossfeedParams.reserved2 (crossfeed section offset 12, bulk offset 44).
 
 Hunks:
-1. core/src/protocol.rs: REQ_CROSSFEED_PAIR_MAP (0x02; one opcode, OUT
-   sets / IN gets, like REQ_LIMITER; free on every upstream branch),
+1. core/src/protocol.rs: the extension channel REQ_EXTENSION (0x00, wValue
+   = sub-command, OUT sets / IN gets; 0x00 requested from Weeb Labs as the
+   reserved extension opcode) with EXT_LIST, EXT_CROSSFEED_PAIR_MAP (0x0001)
+   and EXT_CORE_VREG (0x0002). Until 2026-11-06 the map used opcode 0x02,
+   which Weeb Labs' ac3-dts-decode branch also uses.
    OFF_CROSSFEED_PAIR_MAP, CROSSFEED_MAP_PAIRS, crossfeed_map_{pair,
    encode_pair,valid,normalize}; decode_bulk/encode_bulk carry the map;
    tests (wire position, validation incl. the exhaustive 2-pair count).
@@ -34,7 +37,7 @@ Hunks:
 The C ABI (lib.rs) is unchanged; dspi-ffi wraps the Rust methods.
 
 diff --git a/core/src/commands.rs b/core/src/commands.rs
-index b532d6c..0204ce9 100644
+index b532d6c..7d29cfb 100644
 --- a/core/src/commands.rs
 +++ b/core/src/commands.rs
 @@ -401,6 +401,32 @@ impl DspiCore {
@@ -42,7 +45,7 @@ index b532d6c..0204ce9 100644
      }
  
 +    /// Which outputs each crossfeed pair processes (K340 firmware fork,
-+    /// `REQ_CROSSFEED_PAIR_MAP`). The whole map is written at once since
++    /// `REQ_EXTENSION` / `EXT_CROSSFEED_PAIR_MAP`). The whole map is written at once since
 +    /// pairs must stay disjoint. A map the firmware would refuse is rejected
 +    /// here with `InvalidArgument` (nothing sent, state unchanged); a valid
 +    /// one is stored normalized, as the firmware reports it.
@@ -51,16 +54,16 @@ index b532d6c..0204ce9 100644
 +            return Err(UsbError::InvalidArgument);
 +        }
 +        let map = crossfeed_map_normalize(&map);
-+        self.send(REQ_CROSSFEED_PAIR_MAP, 0, WINDEX_GLOBAL, &map)?;
++        self.send(REQ_EXTENSION, EXT_CROSSFEED_PAIR_MAP, WINDEX_GLOBAL, &map)?;
 +        self.state.crossfeed_pair_map = map;
 +        Ok(())
 +    }
 +
-+    /// Read the live pair map (`REQ_CROSSFEED_PAIR_MAP`) into the state.
++    /// Read the live pair map (`REQ_EXTENSION` / `EXT_CROSSFEED_PAIR_MAP`) into the state.
 +    /// Firmware without the fork STALLs, so an Err also means "unsupported";
 +    /// the state keeps the bulk image's value (zero there = default map).
 +    pub fn fetch_crossfeed_pair_map(&mut self) -> Result<[u8; CROSSFEED_MAP_PAIRS]> {
-+        let b = self.get_exact(REQ_CROSSFEED_PAIR_MAP, 0, WINDEX_GLOBAL, CROSSFEED_MAP_PAIRS as u16, CROSSFEED_MAP_PAIRS)?;
++        let b = self.get_exact(REQ_EXTENSION, EXT_CROSSFEED_PAIR_MAP, WINDEX_GLOBAL, CROSSFEED_MAP_PAIRS as u16, CROSSFEED_MAP_PAIRS)?;
 +        let mut map = [0u8; CROSSFEED_MAP_PAIRS];
 +        map.copy_from_slice(&b[..CROSSFEED_MAP_PAIRS]);
 +        self.state.crossfeed_pair_map = map;
@@ -136,23 +139,31 @@ index 89a4a96..8a30636 100644
      fn export_round_trips_the_fields_it_writes() {
          let mut s = DspState::default();
 diff --git a/core/src/protocol.rs b/core/src/protocol.rs
-index 9d853d9..f839ff0 100644
+index 9d853d9..401515c 100644
 --- a/core/src/protocol.rs
 +++ b/core/src/protocol.rs
-@@ -252,6 +252,12 @@ pub const REQ_SET_CROSSFEED_ITD: u8 = 0x66;
+@@ -252,6 +252,20 @@ pub const REQ_SET_CROSSFEED_ITD: u8 = 0x66;
  pub const REQ_GET_CROSSFEED_ITD: u8 = 0x67;
  pub const REQ_SET_CROSSFEED_OUTPUTS: u8 = 0xFC;
  pub const REQ_GET_CROSSFEED_OUTPUTS: u8 = 0xFD;
-+/// Crossfeed output pair map (K340 firmware fork, not in upstream v1.1.6).
-+/// One opcode for both directions, like REQ_LIMITER: OUT sets, IN gets;
-+/// 4 bytes, byte p = outputs of pair p (see [`crossfeed_map_pair`]). OUT
-+/// ignores an invalid map; IN returns the normalized live map. Firmware
-+/// without the fork STALLs both.
-+pub const REQ_CROSSFEED_PAIR_MAP: u8 = 0x02;
++/// Extension channel (Bofr5555/DSPi `bofr-main`; 0x00 requested from Weeb
++/// Labs as the reserved extension opcode): wValue is the sub-command, the
++/// direction is the request type (OUT sets, IN gets). Firmware without it
++/// STALLs 0x00, which reads as "no extensions".
++pub const REQ_EXTENSION: u8 = 0x00;
++/// EXT_LIST (IN): the supported sub-command IDs, uint16 LE, ascending.
++pub const EXT_LIST: u16 = 0x0000;
++/// Crossfeed output pair map: 4 bytes, byte p = outputs of pair p (see
++/// [`crossfeed_map_pair`]). OUT ignores an invalid map; IN returns the
++/// normalized live map.
++pub const EXT_CROSSFEED_PAIR_MAP: u16 = 0x0001;
++/// Core voltage (IN: 16-byte CoreVregStatus; OUT: {op, value}); not used by
++/// this core, listed so the IDs stay in one place.
++pub const EXT_CORE_VREG: u16 = 0x0002;
  
  // ADAT input (RP2350)
  pub const REQ_SET_ADAT_INPUT_ENABLE: u8 = 0x68;
-@@ -505,6 +511,65 @@ pub const BULK_CHUNK_SIZE: usize = 2048;
+@@ -505,6 +519,65 @@ pub const BULK_CHUNK_SIZE: usize = 2048;
  pub const OFF_HEADER: usize = 0;
  pub const OFF_GLOBAL: usize = 16;
  pub const OFF_CROSSFEED: usize = 32;
@@ -218,7 +229,7 @@ index 9d853d9..f839ff0 100644
  pub const OFF_LEGACY: usize = 48;
  pub const OFF_DELAYS: usize = 64;
  pub const OFF_CROSSPOINTS: usize = 132;
-@@ -626,6 +691,8 @@ pub fn decode_bulk(data: &[u8], state: &mut DspState) -> Result<(), BulkError> {
+@@ -626,6 +699,8 @@ pub fn decode_bulk(data: &[u8], state: &mut DspState) -> Result<(), BulkError> {
      s.crossfeed_output_pair_mask = d[OFF_CROSSFEED + 3];
      s.crossfeed_freq = read_f32_le(d, OFF_CROSSFEED + 4);
      s.crossfeed_feed = read_f32_le(d, OFF_CROSSFEED + 8);
@@ -227,7 +238,7 @@ index 9d853d9..f839ff0 100644
  
      // Delays
      for ch in 0..MAX_CHANNELS {
-@@ -828,6 +895,7 @@ pub fn encode_bulk(state: &DspState) -> Vec<u8> {
+@@ -828,6 +903,7 @@ pub fn encode_bulk(state: &DspState) -> Vec<u8> {
      d[OFF_CROSSFEED + 3] = s.crossfeed_output_pair_mask;
      write_f32_le(&mut d, OFF_CROSSFEED + 4, s.crossfeed_freq);
      write_f32_le(&mut d, OFF_CROSSFEED + 8, s.crossfeed_feed);
@@ -235,7 +246,7 @@ index 9d853d9..f839ff0 100644
  
      for ch in 0..MAX_CHANNELS {
          write_f32_le(&mut d, OFF_DELAYS + ch * 4, s.channel_delays[ch]);
-@@ -1190,6 +1258,52 @@ mod tests {
+@@ -1190,6 +1266,52 @@ mod tests {
          assert_eq!(name_from_bytes(&t.channel_names[0]), "USB L");
      }
  

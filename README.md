@@ -14,7 +14,7 @@ The app is a faithful port of the official clients rather than a re-implementati
   page; the Qt bridge (`DSPiBridge.cpp`) is ported 1:1 as `DspiBridge`. Every deliberate difference is
   listed in [`docs/UPSTREAM-DEVIATIONS.md`](docs/UPSTREAM-DEVIATIONS.md).
 
-> Status: **closed test on Google Play** (0.10.0, with DSPi Link). Testers wanted — see [Join the Google Play test](#join-the-google-play-test).
+> Status: **closed test on Google Play** (0.10.1, with DSPi Link). Testers wanted — see [Join the Google Play test](#join-the-google-play-test).
 
 ## Join the Google Play test
 
