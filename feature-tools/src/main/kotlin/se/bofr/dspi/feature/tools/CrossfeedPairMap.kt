@@ -142,15 +142,19 @@ class CrossfeedPairActions(private val bridge: DspiBridge) {
         }
     }
 
-    /** Whether the custom editor's [pairs] form a map the device accepts. */
-    fun isValid(pairs: List<Pair<Int, Int>>): Boolean = bridge.crossfeedPairMapValid(mapOf(pairs))
+    /**
+     * Whether the custom editor's [pairs] form a map the device accepts. Each pair is checked
+     * itself first: a pair on one output, (0, 0), encodes as 0x00, which the map reads as
+     * "default pair" and would pass the map check.
+     */
+    fun isValid(pairs: List<Pair<Int, Int>>): Boolean =
+        pairs.all { it.first != it.second } && bridge.crossfeedPairMapValid(mapOf(pairs))
 
     /** Apply the custom editor's [pairs] (one per pair, pair 0 first): false (nothing sent) when invalid. */
     fun applyCustom(pairs: List<Pair<Int, Int>>): Boolean {
         if (!allowed) return false
-        val map = mapOf(pairs)
-        if (!bridge.crossfeedPairMapValid(map)) return false
-        bridge.setCrossfeedPairMap(map)
+        if (!isValid(pairs)) return false
+        bridge.setCrossfeedPairMap(mapOf(pairs))
         return true
     }
 

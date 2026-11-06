@@ -82,8 +82,10 @@ class CrossfeedPairMapUiTest {
         // Output 3 in two pairs / a pair on one output / the PDM sub: invalid, nothing sent
         val dup = listOf(2 to 0, 2 to 3, 4 to 5, 6 to 7)
         val same = listOf(1 to 1, 2 to 3, 4 to 5, 6 to 7)
+        // (0, 0) encodes as 0x00, the map's "default pair": still invalid
+        val zero = listOf(0 to 0, 2 to 3, 4 to 5, 6 to 7)
         val pdm = listOf(0 to 8, 2 to 3, 4 to 5, 6 to 7)
-        for (bad in listOf(dup, same, pdm)) {
+        for (bad in listOf(dup, same, zero, pdm)) {
             assertFalse(r.actions.isValid(bad))
             assertFalse(r.actions.applyCustom(bad))
         }
