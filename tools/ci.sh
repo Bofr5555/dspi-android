@@ -49,7 +49,7 @@ pkg_ffi() {
   step "ffi: stage core"
   tools/stage-core.sh
   step "ffi: rustfmt / clippy / tests"
-  (cd rust && cargo fmt --check -p dspi-ffi -p uniffi-bindgen)
+  (cd rust && cargo fmt --check -p dspi-ffi -p dspi-link -p uniffi-bindgen)
   (cd rust && cargo clippy --locked -p dspi-ffi --all-targets -- -D warnings)
   (cd rust && cargo test --locked -p dspi-ffi)
   step "ffi: staged (pinned + patched) core unit tests"
@@ -67,6 +67,21 @@ pkg_ffi() {
 }
 
 pkg_usb() { step "usb: :usb"; android_module :usb; }
+
+# DSPi Link: the Rust client (fixtures + fake-hub integration), the core over
+# Link (dspi-ffi tests/link_fakehub.rs, also run by ffi) and the Android :link module.
+pkg_link() {
+  step "link: stage core"
+  tools/stage-core.sh
+  step "link: dspi-link rustfmt / clippy / tests (fixtures, fake hub)"
+  (cd rust && cargo fmt --check -p dspi-link)
+  (cd rust && cargo clippy --locked -p dspi-link --features fake-hub --all-targets -- -D warnings)
+  (cd rust && cargo test --locked -p dspi-link --features fake-hub)
+  step "link: the core over Link against the fake hub"
+  (cd rust && cargo test --locked -p dspi-ffi --test link_fakehub)
+  step "link: :link"
+  android_module :link
+}
 
 pkg_bridge() {
   step "bridge: :bridge :fake-core"
@@ -105,7 +120,7 @@ has_fake_core_in() { # :module configuration -> 0 if :fake-core is on that class
   "${GRADLE[@]}" "$1:dependencies" --configuration "$2" | grep -q -- "project :fake-core"
 }
 
-RELEASE_ANDROID_MODULES=(:ffi :usb :ui-common :feature-home :feature-graph :feature-matrix :feature-tools
+RELEASE_ANDROID_MODULES=(:ffi :usb :link :ui-common :feature-home :feature-graph :feature-matrix :feature-tools
   :feature-presets :feature-settings :feature-analysis :feature-firmware)
 RELEASE_JVM_MODULES=(:core-api :bridge)
 # Documented allowance (E8): module -> why it may have :fake-core in release.
@@ -220,7 +235,7 @@ PY
   bundletool get-size total --apks="$tmp/split.apks" --dimensions=ABI | sed 's/^/    /'
 }
 
-PACKAGES=(supply contract ffi usb bridge home graph matrix tools presets settings analysis firmware app release)
+PACKAGES=(supply contract ffi link usb bridge home graph matrix tools presets settings analysis firmware app release)
 
 case "${1:-}" in
   ""|-h|--help|list)

@@ -24,6 +24,7 @@ include(":fake-core") //   pure JVM: FakeDspiCore (BRIDGE)
 include(":bridge") //      pure JVM: DspiBridge API + implementation (BRIDGE)
 include(":ffi") //         Android lib: UniFFI bindings + libdspi_ffi.so + FfiDspiCore (FFI)
 include(":usb") //         Android lib: UsbSession, foreground service, BootloaderLocator (USB)
+include(":link") //        Android lib: DSPi Link client: discovery, session engine, tokens (LINK)
 include(":ui-common") //   Android lib: theme, CustomSlider, ChannelPalette (HOME)
 
 // Wave B UI feature packages
