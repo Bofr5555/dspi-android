@@ -1,9 +1,8 @@
 # Privacy policy — DSPi Console for Android
 
-> **DRAFT for the owner's approval (2026-11-06, branch `feature/link`).** This version describes
-> the optional DSPi Link feature. It must be approved, and published at the URL below, before any
-> build with DSPi Link is uploaded to Google Play. Until then the policy published from `main`
-> applies.
+> **Approved by the owner on 2026-11-06 (branch `feature/link`).** Publish this version on `main`
+> together with the first Play build that contains DSPi Link; until then the policy published from
+> `main` applies.
 
 *Effective [date of the first Play release with DSPi Link]. Applies to the app "DSPi Console for
 Android" (`se.bofr.dspi_console_android`) by Bofr5555.*

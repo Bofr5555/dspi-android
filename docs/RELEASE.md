@@ -160,9 +160,9 @@ Answers specific to this app. Verify each against the build you upload
   https://github.com/Bofr5555/dspi-android/blob/main/PRIVACY.md; the app links
   it from Settings › About › Licence. Enter that URL in Play Console (App
   content → Privacy policy). Keep it in step with what the app does.
-- **Data safety.** *DRAFT for the owner (branch `feature/link`, DSPi Link):
-  approve this, and the new `PRIVACY.md`, before uploading a build with DSPi
-  Link; the answer below replaces the "no INTERNET" one.* "Does your app
+- **Data safety.** *DSPi Link (approved by the owner 2026-11-06, together with
+  the new `PRIVACY.md`); for builds with DSPi Link the answer below replaces
+  the "no INTERNET" one.* "Does your app
   collect or share any of the required user data types?" → **No**.
   Justification: the app now holds `android.permission.INTERNET` (plus
   `ACCESS_NETWORK_STATE`, `CHANGE_WIFI_MULTICAST_STATE`; `tools/ci.sh release`
@@ -179,7 +179,8 @@ Answers specific to this app. Verify each against the build you upload
   collected); the DSPi Link protocol itself is plaintext on the LAN, which the
   privacy policy states. "Users can request deletion" → not applicable
   (uninstall deletes everything, `allowBackup="false"`).
-  *Owner decision D8:* if you prefer the conservative route, declare "Device
+  *Owner decision D8 (2026-11-06): answer "No" as above.* The
+  conservative alternative, kept for reference if Play support disagrees: declare "Device
   or other IDs" and "App activity" as collected (not shared, not encrypted in
   transit, optional: only with DSPi Link on). When in doubt, ask Play support
   before submitting. Existing testers will see the new "full network access"
@@ -190,9 +191,9 @@ Answers specific to this app. Verify each against the build you upload
   the connection strip offers *Demo (no device)*, which runs the full UI
   against a simulated device."
 - **Foreground service declaration** (required for targetSdk 34+): type
-  `connectedDevice`, permission `FOREGROUND_SERVICE_CONNECTED_DEVICE`. *DRAFT
-  (DSPi Link adds the network case; re-submit the declaration and video with
-  the first DSPi Link build).* Use case: "Keeps the connection to the user's
+  `connectedDevice`, permission `FOREGROUND_SERVICE_CONNECTED_DEVICE`. *DSPi Link
+  (approved 2026-11-06) adds the network case; re-submit the declaration and
+  video with the first DSPi Link build.* Use case: "Keeps the connection to the user's
   DSPi audio processor while the app is in the background, so volume, mute and
   preset changes from the notification reach the device. The DSPi is either
   connected over USB, or (optional DSPi Link feature) reached over the local
@@ -212,12 +213,12 @@ Answers specific to this app. Verify each against the build you upload
 
 ## 9. Store listing **(owner)**
 
-- *DRAFT (DSPi Link):* add to the full description, after the second
+- DSPi Link (approved 2026-11-06): the full description has, after the second
   paragraph: "Optional DSPi Link (off by default): control a DSPi that is
   plugged into a Mac running DSPi Console, or wired to a DSPi bridge, over your
   local network. The connection is not encrypted; use it on networks you
-  trust." (`store/play/listing/en-US/full_description.txt` is left as
-  submitted until the owner approves.)
+  trust." (added to `store/play/listing/en-US/full_description.txt` on
+  `feature/link`; it ships with the first DSPi Link build.)
 - Short description (80 chars), full description (4000). State clearly:
   needs a DSPi board and a phone/tablet with USB host (OTG) support;
   unofficial if so (step 0.3); GPL-3.0 with a source link (step 0.2).

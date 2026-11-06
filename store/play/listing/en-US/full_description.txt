@@ -1,3 +1,5 @@
 REQUIRES A DSPi DEVICE. This app is a controller for the DSPi USB audio DSP (a Raspberry Pi Pico or Pico 2 running the DSPi firmware by Weeb Labs). It does not process or play audio on its own; without DSPi hardware you can explore it in Demo mode.
 
 It is an Android port of the official DSPi Console for macOS (and parts of the Linux version), made by Bofr5555 and published with Weeb Labs' permission. It needs DSPi firmware v1.1.6 for full features; with other versions it connects read-only.
+
+Optional DSPi Link (off by default): control a DSPi that is plugged into a Mac running DSPi Console, or wired to a DSPi bridge, over your local network. The connection is not encrypted; use it on networks you trust.
