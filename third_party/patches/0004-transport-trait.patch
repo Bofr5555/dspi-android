@@ -1,0 +1,705 @@
+Transport trait for dspi-core: let the core run over links other than libusb
+(DSPi Link first), with the four behaviours that differ over such a link.
+
+Why: the core is hard-wired to rusb (`UsbConnection` wraps a
+`DeviceHandle`, the notify listener and the analyser worker read the handle
+directly). The Android app's DSPi Link client (dspi-ffi `link.rs` over the
+`dspi-link` crate) must drive the same core over a WebSocket to a hub
+(DSPi-Link spec 1.2, WeebLabs/DSPi-Link 86f10e3). Investigation:
+dspi-mobile/docs/DSPI-LINK-INVESTIGATION.md section 3.1.
+
+Shape (small on purpose; the USB path is unchanged):
+- `usb::Transport` (Send + Sync): `write_control`, `read_control`,
+  `read_notification` (verbatim packet + optional Link `origin`),
+  `clear_notification_halt`, `session_id`, `caps` (`TransportCaps`:
+  `chunked_bulk`, `max_payload`) and `lock`/`unlock` (default: no locks).
+  Errors stay `rusb::Error`, so every existing match keeps working; a
+  non-USB transport maps a refused request to `Pipe`, a timeout to
+  `Timeout`, a lost link to `NoDevice`. (A future shared core would give the
+  trait its own error enum; that is a rename, not a redesign.)
+- `usb::UsbTransport`: the libusb implementation (the old code, moved).
+  `UsbConnection::new(handle)` keeps its signature and wraps it, so
+  `select_device` and 0001's `select_device_handle` are untouched apart from
+  `shared_handle()` -> `transport()`.
+- `DeviceManager::select_transport(transport, serial, vid)`: connect over
+  an embedder's transport with the same bookkeeping as `select_device`.
+
+The four behaviours (each a no-op over USB):
+1. Echo suppression (notify.rs): a queued packet carries the transport's
+   attribution. USB (origin None): every HOST_SET is ours, as upstream.
+   Link: only origin == our session id is ours; origin 0 never is (Link
+   spec 8.3: "must not suppress by source alone"). Without this a Link
+   client never sees EQ or volume changes made by another client.
+2. Bulk (commands.rs): `read_bulk` / `apply_all_params` use single-shot
+   0xA0 / 0xA1 when `caps().chunked_bulk` is false (Link spec 8.2; a
+   bridge hub refuses 0xA2/0xA3). 0xA0 is read with wLength 6136 and
+   wIndex 2, as the macOS Console reads it.
+3. Timeouts: the trait's calls carry the caller's USB budget (1 s, the
+   analyser's 500 ms); a slower link applies its own (dspi-ffi's Link
+   transport: 10 s, 15 s for bulk, the macOS LinkClient values).
+4. Analyser fallback (rta.rs): the worker reads through the transport, so
+   a Link `ERROR` for RTA bands-all (0x0F, USB-only; a bridge answers
+   ERROR) mapped to `Pipe` takes the existing per-channel 0x0B fallback.
+
+Tests: usb.rs (single-shot vs chunked bulk through a mock transport),
+notify.rs (Link attribution rules).
+
+Upstream form: identical; can be offered to WeebLabs/DSPi-Console-Linux as
+is (the C ABI is untouched). Applies after 0001 (it edits the line 0001
+adds in device.rs). Numbered 0004 so the unmerged 0003 (wip/wire-compat,
+which also touches `fetch_all_params` and `apply_all_params` in
+commands.rs) keeps its name; rebasing one onto the other is a one-line
+context fix in commands.rs.
+
+--- a/core/src/commands.rs
++++ b/core/src/commands.rs
+@@ -116,7 +116,7 @@
+ 
+     /// Read the whole bulk image in chunks and decode it into state.
+     fn fetch_all_params(&mut self) -> std::result::Result<(), FetchError> {
+-        let data = self.read_bulk_chunked().map_err(FetchError::Usb)?;
++        let data = self.read_bulk().map_err(FetchError::Usb)?;
+         decode_bulk(&data, &mut self.state).map_err(FetchError::Bulk)
+     }
+ 
+@@ -130,6 +130,17 @@
+         }
+     }
+ 
++    /// The whole bulk image: chunked over USB, single-shot REQ_GET_ALL_PARAMS
++    /// (0xA0, as the macOS Console reads it) where the transport forbids the
++    /// chunked requests (DSPi Link, spec section 8.2). A short single-shot
++    /// image is returned as is, for `decode_bulk` to judge.
++    fn read_bulk(&self) -> Result<Vec<u8>> {
++        if self.conn()?.caps().chunked_bulk {
++            return self.read_bulk_chunked();
++        }
++        self.get(REQ_GET_ALL_PARAMS, 0, WINDEX_OUTPUT, BULK_PARAMS_SIZE as u16)
++    }
++
+     /// REQ_GET_ALL_PARAMS_CHUNK: offset 0 snapshots the struct on the device,
+     /// later offsets read the snapshot out.
+     fn read_bulk_chunked(&self) -> Result<Vec<u8>> {
+@@ -155,6 +166,10 @@
+             return Err(UsbError::NotConnected);
+         }
+         let data = encode_bulk(&self.state);
++        if !self.conn()?.caps().chunked_bulk {
++            // DSPi Link: one REQ_SET_ALL_PARAMS (0xA1); the hub moves it
++            return self.send(REQ_SET_ALL_PARAMS, 0, WINDEX_OUTPUT, &data);
++        }
+         let bus = self.conn()?.bus();
+         let _session = bus.lock().unwrap_or_else(|e| e.into_inner());
+         for (i, chunk) in data.chunks(BULK_CHUNK_SIZE).enumerate() {
+--- a/core/src/device.rs
++++ b/core/src/device.rs
+@@ -10,7 +10,7 @@
+ use crate::rta::{RtaHub, RtaWorker};
+ use crate::protocol::{LEGACY_VENDOR_ID, PRODUCT_ID, VENDOR_ID};
+ use crate::types::DeviceInfo;
+-use crate::usb::{UsbConnection, UsbError};
++use crate::usb::{Transport, UsbConnection, UsbError};
+ 
+ /// Manages DSPi device discovery and connection lifecycle.
+ pub struct DeviceManager {
+@@ -76,7 +76,7 @@
+             return;
+         }
+         if let Some(conn) = &self.connection {
+-            self.rta_worker = Some(RtaWorker::start(conn.shared_handle(), conn.bus(), Arc::clone(&self.rta_hub)));
++            self.rta_worker = Some(RtaWorker::start(conn.transport(), conn.bus(), Arc::clone(&self.rta_hub)));
+         }
+     }
+ 
+@@ -172,7 +172,7 @@
+                 let _ = handle.claim_interface(crate::protocol::VENDOR_INTERFACE);
+                 let connection = UsbConnection::new(handle);
+                 self.notify_listener =
+-                    Some(NotifyListener::start(connection.shared_handle(), Arc::clone(&self.notify_hub)));
++                    Some(NotifyListener::start(connection.transport(), Arc::clone(&self.notify_hub)));
+                 self.connection = Some(connection);
+                 self.connected_vid = Some(desc.vendor_id());
+                 self.selected_serial = Some(serial.to_owned());
+@@ -201,7 +201,7 @@
+         };
+         let _ = handle.claim_interface(crate::protocol::VENDOR_INTERFACE);
+         let connection = UsbConnection::new(handle);
+-        self.notify_listener = Some(NotifyListener::start(connection.shared_handle(), Arc::clone(&self.notify_hub)));
++        self.notify_listener = Some(NotifyListener::start(connection.transport(), Arc::clone(&self.notify_hub)));
+         self.connection = Some(connection);
+         self.connected_vid = Some(vid);
+         self.selected_serial = Some(serial.to_owned());
+@@ -209,6 +209,21 @@
+         Ok(())
+     }
+ 
++    /// Connect over a non-USB [`Transport`] (DSPi Link, ...): the same
++    /// bookkeeping as `select_device`, with the transport the embedder built.
++    /// `vid` selects the firmware path as a USB vendor ID would (pass
++    /// `VENDOR_ID` unless the far side reports the legacy one); `serial`
++    /// identifies the board.
++    pub fn select_transport(&mut self, transport: Arc<dyn Transport>, serial: &str, vid: u16) {
++        self.disconnect();
++        let connection = UsbConnection::with_transport(transport);
++        self.notify_listener = Some(NotifyListener::start(connection.transport(), Arc::clone(&self.notify_hub)));
++        self.connection = Some(connection);
++        self.connected_vid = Some(vid);
++        self.selected_serial = Some(serial.to_owned());
++        info!("Connected to DSPi device: {serial}");
++    }
++
+     /// Close current device connection.
+     pub fn disconnect(&mut self) {
+         if let Some(serial) = &self.selected_serial {
+--- a/core/src/notify.rs
++++ b/core/src/notify.rs
+@@ -19,12 +19,12 @@
+ use std::time::Duration;
+ 
+ use log::{debug, warn};
+-use rusb::{DeviceHandle, GlobalContext};
+ 
+ use crate::protocol::*;
+ use crate::state::COMPAT_OK;
+ use crate::types::*;
+ use crate::monitor::MonitorLog;
++use crate::usb::Transport;
+ use crate::DspiCore;
+ 
+ /// Bulk IN notification endpoint on the vendor interface.
+@@ -45,7 +45,8 @@
+ const EVT_SIGGEN_STATE: u8 = 0x07;
+ const EVT_CS_IR_LEARN: u8 = 0x0A;
+ const EVT_CS_AUX: u8 = 0x0C;
+-/// ParamSource: our own EP0 writes echo back with this tag.
++/// ParamSource: our own EP0 writes echo back with this tag (over DSPi
++/// Link: any Link client's, see `is_own_write`).
+ const SRC_HOST_SET: u8 = 1;
+ const SRC_PRESET: u8 = 3;
+ const SRC_FACTORY: u8 = 4;
+@@ -89,10 +90,32 @@
+ // caller's and only handed back to the callback.
+ unsafe impl Send for Waker {}
+ 
++/// One queued packet and who wrote the change, as far as the transport knows.
++struct Queued {
++    packet: Vec<u8>,
++    /// Link: the session the hub attributes it to (0 = unknown); None on USB.
++    origin: Option<u16>,
++    /// Link: our own session id when the packet was read.
++    session: Option<u16>,
++}
++
++/// True when a host-sourced change (`PARAM_CHANGED`, `CS_AUX`) is the echo
++/// of this core's own write, already in the state. USB: every `HOST_SET`
++/// packet (only this host writes over EP0). DSPi Link: `HOST_SET` means "some
++/// Link client", so only what the hub attributes to our own session is ours
++/// (Link spec section 8.3: never suppress by source alone); origin 0 is
++/// unattributed and never ours.
++fn is_own_write(source: u8, origin: Option<u16>, session: Option<u16>) -> bool {
++    match origin {
++        None => source == SRC_HOST_SET,
++        Some(o) => o != 0 && Some(o) == session,
++    }
++}
++
+ /// Packets shared between the listener thread and the core.
+ #[derive(Default)]
+ pub struct NotifyHub {
+-    queue: Mutex<VecDeque<Vec<u8>>>,
++    queue: Mutex<VecDeque<Queued>>,
+     /// Every packet, decoded, for the Interrupt Monitor.
+     pub monitor: MonitorLog,
+     overflow: AtomicBool,
+@@ -113,6 +136,11 @@
+     }
+ 
+     fn push(&self, packet: Vec<u8>) {
++        self.push_attributed(packet, None, None)
++    }
++
++    /// Queue a packet with its Link attribution (`origin`, our `session`).
++    fn push_attributed(&self, packet: Vec<u8>, origin: Option<u16>, session: Option<u16>) {
+         let was_empty = {
+             let mut q = self.queue.lock().unwrap();
+             let was_empty = q.is_empty();
+@@ -120,7 +148,7 @@
+                 q.clear();
+                 self.overflow.store(true, Ordering::SeqCst);
+             }
+-            q.push_back(packet);
++            q.push_back(Queued { packet, origin, session });
+             was_empty
+         };
+         // Wake once per batch: the GUI drains the whole queue.
+@@ -131,7 +159,7 @@
+         }
+     }
+ 
+-    fn drain(&self) -> (Vec<Vec<u8>>, bool) {
++    fn drain(&self) -> (Vec<Queued>, bool) {
+         let packets = self.queue.lock().unwrap().drain(..).collect();
+         (packets, self.overflow.swap(false, Ordering::SeqCst))
+     }
+@@ -152,13 +180,13 @@
+ }
+ 
+ impl NotifyListener {
+-    pub fn start(handle: Arc<DeviceHandle<GlobalContext>>, hub: Arc<NotifyHub>) -> Self {
++    pub fn start(transport: Arc<dyn Transport>, hub: Arc<NotifyHub>) -> Self {
+         hub.reset();
+         let stop = Arc::new(AtomicBool::new(false));
+         let stop_flag = Arc::clone(&stop);
+         let thread = thread::Builder::new()
+             .name("dspi-notify".into())
+-            .spawn(move || read_loop(&handle, &hub, &stop_flag))
++            .spawn(move || read_loop(transport.as_ref(), &hub, &stop_flag))
+             .ok();
+         Self { stop, thread }
+     }
+@@ -173,23 +201,22 @@
+     }
+ }
+ 
+-fn read_loop(handle: &DeviceHandle<GlobalContext>, hub: &NotifyHub, stop: &AtomicBool) {
++fn read_loop(transport: &dyn Transport, hub: &NotifyHub, stop: &AtomicBool) {
+     let mut buf = [0u8; NOTIFY_PACKET_MAX];
+     while !stop.load(Ordering::SeqCst) {
+-        match handle.read_bulk(NOTIFY_ENDPOINT, &mut buf, READ_TIMEOUT) {
++        match transport.read_notification(&mut buf, READ_TIMEOUT) {
+             // Everything but the 1-byte keep-alive goes to the monitor log;
+             // only v2 packets are applied (the v1 master volume has a v2 twin)
+-            Ok(n) if n > 1 => {
++            Ok(r) if r.len > 1 => {
++                let n = r.len.min(NOTIFY_PACKET_MAX);
+                 debug!("Notification {:02x?}", &buf[..n]);
+                 hub.monitor.record(&buf[..n]);
+                 if n >= 4 && buf[0] == NOTIFY_V2 {
+-                    hub.push(buf[..n].to_vec())
++                    hub.push_attributed(buf[..n].to_vec(), r.origin, transport.session_id())
+                 }
+             }
+             Ok(_) | Err(rusb::Error::Timeout) | Err(rusb::Error::Interrupted) => {}
+-            Err(rusb::Error::Pipe) => {
+-                let _ = handle.clear_halt(NOTIFY_ENDPOINT);
+-            }
++            Err(rusb::Error::Pipe) => transport.clear_notification_halt(),
+             Err(rusb::Error::NoDevice) | Err(rusb::Error::NotFound) => break,
+             Err(e) => {
+                 warn!("Notification endpoint read failed: {e}");
+@@ -214,7 +241,9 @@
+         // would undo them.
+         let mut image: Option<Vec<u8>> = None;
+ 
+-        for p in &packets {
++        for q in &packets {
++            let p = &q.packet;
++            let own = |source: u8| is_own_write(source, q.origin, q.session);
+             if hub.sequence_gap(p[3]) {
+                 refresh = true;
+             }
+@@ -223,7 +252,7 @@
+                     let off = read_u16_le(p, 4) as usize;
+                     let size = read_u16_le(p, 6) as usize;
+                     // Our own writes are already in the state.
+-                    if p[8] == SRC_HOST_SET || !usable || 12 + size > p.len() {
++                    if own(p[8]) || !usable || 12 + size > p.len() {
+                         continue;
+                     }
+                     if off < OFF_GLOBAL || off + size > BULK_PARAMS_SIZE {
+@@ -250,7 +279,7 @@
+                 // Our own aux writes are already in the state
+                 EVT_CS_AUX if p.len() >= 9 => {
+                     let slot = p[4] as usize;
+-                    if slot < 16 && p[8] != SRC_HOST_SET {
++                    if slot < 16 && !own(p[8]) {
+                         self.cs.aux_state[slot] = p[5];
+                         self.cs.aux_level[slot] = read_u16_le(p, 6);
+                         r.flags |= NOTIFY_CS_AUX;
+@@ -366,6 +395,35 @@
+     }
+ 
+     #[test]
++    fn link_applies_other_sessions_host_writes_and_drops_its_own() {
++        let mut c = core();
++        let hub = c.device_manager.notify_hub();
++        // Another Link client's write: HOST_SET, origin 7, we are session 12
++        hub.push_attributed(param(1, OFF_MASTER_VOLUME, SRC_HOST_SET, &(-20.0f32).to_le_bytes()), Some(7), Some(12));
++        let r = c.process_notifications();
++        assert_eq!(c.state.master_volume_db, -20.0);
++        assert_eq!(r.flags & NOTIFY_STATE, NOTIFY_STATE);
++        // Our own echo (origin = our session) is dropped
++        hub.push_attributed(param(2, OFF_MASTER_VOLUME, SRC_HOST_SET, &(-3.0f32).to_le_bytes()), Some(12), Some(12));
++        assert_eq!(c.process_notifications().flags, 0);
++        assert_eq!(c.state.master_volume_db, -20.0);
++        // Unattributed (origin 0) is never ours, even before we know our id
++        hub.push_attributed(param(3, OFF_MASTER_VOLUME, SRC_HOST_SET, &(-6.0f32).to_le_bytes()), Some(0), None);
++        c.process_notifications();
++        assert_eq!(c.state.master_volume_db, -6.0);
++    }
++
++    #[test]
++    fn own_write_rule() {
++        assert!(is_own_write(SRC_HOST_SET, None, None));
++        assert!(!is_own_write(5, None, None));
++        assert!(is_own_write(SRC_HOST_SET, Some(4), Some(4)));
++        assert!(!is_own_write(SRC_HOST_SET, Some(4), Some(5)));
++        assert!(!is_own_write(SRC_HOST_SET, Some(0), Some(0)));
++        assert!(!is_own_write(SRC_HOST_SET, Some(4), None));
++    }
++
++    #[test]
+     fn detects_sequence_gaps() {
+         let hub = NotifyHub::default();
+         assert!(!hub.sequence_gap(254));
+--- a/core/src/rta.rs
++++ b/core/src/rta.rs
+@@ -21,9 +21,9 @@
+ use std::time::{Duration, Instant};
+ 
+ use log::{debug, warn};
+-use rusb::{DeviceHandle, GlobalContext};
+ 
+ use crate::protocol::*;
++use crate::usb::Transport;
+ 
+ pub const RTA_VERSION: u8 = 3;
+ pub const RTA_MAX_BANDS: usize = 37;
+@@ -607,7 +607,7 @@
+ }
+ 
+ impl RtaWorker {
+-    pub fn start(handle: Arc<DeviceHandle<GlobalContext>>, bus: Arc<Mutex<()>>, hub: Arc<RtaHub>) -> Self {
++    pub fn start(handle: Arc<dyn Transport>, bus: Arc<Mutex<()>>, hub: Arc<RtaHub>) -> Self {
+         hub.reset();
+         hub.wake();
+         let stop = Arc::new(AtomicBool::new(false));
+@@ -636,7 +636,7 @@
+ }
+ 
+ struct Poller {
+-    handle: Arc<DeviceHandle<GlobalContext>>,
++    handle: Arc<dyn Transport>,
+     bus: Arc<Mutex<()>>,
+     hub: Arc<RtaHub>,
+     stop: Arc<AtomicBool>,
+@@ -659,7 +659,7 @@
+ }
+ 
+ impl Poller {
+-    fn new(handle: Arc<DeviceHandle<GlobalContext>>, bus: Arc<Mutex<()>>, hub: Arc<RtaHub>, stop: Arc<AtomicBool>) -> Self {
++    fn new(handle: Arc<dyn Transport>, bus: Arc<Mutex<()>>, hub: Arc<RtaHub>, stop: Arc<AtomicBool>) -> Self {
+         Self {
+             handle,
+             bus,
+@@ -684,13 +684,13 @@
+ 
+     fn get(&self, request: u8, value: u16, len: usize) -> rusb::Result<Vec<u8>> {
+         let mut buf = vec![0u8; len];
+-        let n = self.handle.read_control(REQ_TYPE_IN, request, value, VENDOR_INTERFACE as u16, &mut buf, TIMEOUT)?;
++        let n = self.handle.read_control(request, value, VENDOR_INTERFACE as u16, &mut buf, TIMEOUT)?;
+         buf.truncate(n);
+         Ok(buf)
+     }
+ 
+     fn put(&self, request: u8, value: u16, data: &[u8]) -> rusb::Result<()> {
+-        self.handle.write_control(REQ_TYPE_OUT, request, value, VENDOR_INTERFACE as u16, data, TIMEOUT)?;
++        self.handle.write_control(request, value, VENDOR_INTERFACE as u16, data, TIMEOUT)?;
+         Ok(())
+     }
+ 
+--- a/core/src/usb.rs
++++ b/core/src/usb.rs
+@@ -1,15 +1,124 @@
+-//! Low-level USB communication via libusb (rusb crate).
++//! Low-level device communication: the [`Transport`] seam, its USB
++//! implementation over libusb (rusb crate), and [`UsbConnection`], the
++//! handle the rest of the core uses.
+ 
+ use std::sync::{Arc, Mutex};
+ use std::time::Duration;
+ 
+ use rusb::{DeviceHandle, GlobalContext};
+ 
++use crate::notify::NOTIFY_ENDPOINT;
+ use crate::protocol::{REQ_TYPE_IN, REQ_TYPE_OUT};
+ 
+ /// Default USB transfer timeout.
+ const TIMEOUT: Duration = Duration::from_millis(1000);
+ 
++/// One packet read from a transport's notification channel.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct Notification {
++    /// Bytes written into the caller's buffer (0 = nothing, e.g. a keep-alive).
++    pub len: usize,
++    /// DSPi Link: the session the hub attributes the change to (0 = unknown).
++    /// `None` on a transport that cannot attribute (USB), where every
++    /// `HOST_SET` packet is this host's own write.
++    pub origin: Option<u16>,
++}
++
++/// How bulk parameters travel and what the far side accepts.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct TransportCaps {
++    /// The chunked bulk requests (0xA2/0xA3) are allowed. False on DSPi
++    /// Link, whose clients send the single-shot 0xA0/0xA1 only (Link spec
++    /// section 8.2; a bridge hub refuses the chunked forms).
++    pub chunked_bulk: bool,
++    /// Largest payload of one transfer, either direction (Link
++    /// `limits.max_payload`). `usize::MAX` = no limit beyond the request's.
++    pub max_payload: usize,
++}
++
++impl TransportCaps {
++    /// Direct USB: chunked bulk, no payload limit of its own.
++    pub const USB: Self = Self { chunked_bulk: true, max_payload: usize::MAX };
++}
++
++/// A link to one DSPi: vendor control transfers plus the notification
++/// channel. Implemented for USB here ([`UsbTransport`]) and by embedders for
++/// other links (DSPi Link over the network, MIDI, UART).
++///
++/// Errors use `rusb::Error` so the core's existing handling applies to every
++/// transport; a non-USB transport maps its failures onto it: a refused
++/// request (USB STALL, Link `ERROR`) is `Pipe`, which is what the analyser's
++/// per-channel fallback and the capability probes look for; a timeout is
++/// `Timeout` (the request may or may not have run: never blindly retry a
++/// SET); a lost link is `NoDevice`.
++pub trait Transport: Send + Sync {
++    /// Host-to-device vendor request (bmRequestType 0x41). `timeout` is the
++    /// caller's USB budget; a slower link applies its own.
++    fn write_control(&self, request: u8, value: u16, index: u16, data: &[u8], timeout: Duration) -> rusb::Result<usize>;
++
++    /// Device-to-host vendor request (bmRequestType 0xC1) into `buf`; returns
++    /// the bytes received (a short read is not an error).
++    fn read_control(&self, request: u8, value: u16, index: u16, buf: &mut [u8], timeout: Duration) -> rusb::Result<usize>;
++
++    /// Wait up to `timeout` for the next notification packet, copied
++    /// verbatim into `buf`. `Err(Timeout)` when none arrived.
++    fn read_notification(&self, buf: &mut [u8], timeout: Duration) -> rusb::Result<Notification>;
++
++    /// Recover the notification channel after `read_notification` reported
++    /// `Pipe` (USB: clear the endpoint halt).
++    fn clear_notification_halt(&self) {}
++
++    /// This host's own session id on a shared link (DSPi Link `session`),
++    /// compared with [`Notification::origin`] to recognise its own echoes.
++    fn session_id(&self) -> Option<u16> {
++        None
++    }
++
++    fn caps(&self) -> TransportCaps {
++        TransportCaps::USB
++    }
++
++    /// Take the far side's exclusive device lock for a long operation (Link
++    /// spec section 7.7). True when held or when the transport has no locks;
++    /// false when another client holds it (the caller then sends nothing).
++    fn lock(&self, _reason: &str, _timeout: Duration) -> bool {
++        true
++    }
++
++    /// Release [`Transport::lock`]. Never blocks.
++    fn unlock(&self) {}
++}
++
++/// [`Transport`] over a libusb device handle (the upstream behaviour).
++pub struct UsbTransport {
++    handle: DeviceHandle<GlobalContext>,
++}
++
++impl UsbTransport {
++    pub fn new(handle: DeviceHandle<GlobalContext>) -> Self {
++        Self { handle }
++    }
++}
++
++impl Transport for UsbTransport {
++    fn write_control(&self, request: u8, value: u16, index: u16, data: &[u8], timeout: Duration) -> rusb::Result<usize> {
++        self.handle.write_control(REQ_TYPE_OUT, request, value, index, data, timeout)
++    }
++
++    fn read_control(&self, request: u8, value: u16, index: u16, buf: &mut [u8], timeout: Duration) -> rusb::Result<usize> {
++        self.handle.read_control(REQ_TYPE_IN, request, value, index, buf, timeout)
++    }
++
++    fn read_notification(&self, buf: &mut [u8], timeout: Duration) -> rusb::Result<Notification> {
++        let len = self.handle.read_bulk(NOTIFY_ENDPOINT, buf, timeout)?;
++        Ok(Notification { len, origin: None })
++    }
++
++    fn clear_notification_halt(&self) {
++        let _ = self.handle.clear_halt(NOTIFY_ENDPOINT);
++    }
++}
++
+ /// Error type for USB operations.
+ #[derive(Debug, thiserror::Error)]
+ pub enum UsbError {
+@@ -25,10 +134,10 @@
+ 
+ pub type Result<T> = std::result::Result<T, UsbError>;
+ 
+-/// Wraps a rusb DeviceHandle for USB control transfers. The handle is shared
+-/// with the notification listener thread (libusb allows concurrent transfers).
++/// The core's handle on the connected device: a [`Transport`] shared with
++/// the notification listener and the analyser worker.
+ pub struct UsbConnection {
+-    handle: Arc<DeviceHandle<GlobalContext>>,
++    transport: Arc<dyn Transport>,
+     /// Held for a chunked bulk-parameter session, and by the spectrum
+     /// analyser worker for each poll: any other vendor request aborts an open
+     /// chunked session on the device.
+@@ -38,7 +147,12 @@
+ impl UsbConnection {
+     /// Create a new connection from an already-opened device handle.
+     pub fn new(handle: DeviceHandle<GlobalContext>) -> Self {
+-        Self { handle: Arc::new(handle), bus: Arc::new(Mutex::new(())) }
++        Self::with_transport(Arc::new(UsbTransport::new(handle)))
++    }
++
++    /// A connection over any transport (DSPi Link, ...).
++    pub fn with_transport(transport: Arc<dyn Transport>) -> Self {
++        Self { transport, bus: Arc::new(Mutex::new(())) }
+     }
+ 
+     /// The bus lock (see `bus`).
+@@ -46,9 +160,14 @@
+         Arc::clone(&self.bus)
+     }
+ 
+-    /// The shared device handle, for the notification listener.
+-    pub fn shared_handle(&self) -> Arc<DeviceHandle<GlobalContext>> {
+-        Arc::clone(&self.handle)
++    /// The shared transport, for the notification listener and the analyser.
++    pub fn transport(&self) -> Arc<dyn Transport> {
++        Arc::clone(&self.transport)
++    }
++
++    /// What the transport allows (bulk strategy, payload limit).
++    pub fn caps(&self) -> TransportCaps {
++        self.transport.caps()
+     }
+ 
+     /// Send a vendor control transfer (Host→Device, fire-and-forget).
+@@ -60,8 +179,7 @@
+         index: u16,
+         data: &[u8],
+     ) -> Result<()> {
+-        self.handle
+-            .write_control(REQ_TYPE_OUT, request, value, index, data, TIMEOUT)?;
++        self.transport.write_control(request, value, index, data, TIMEOUT)?;
+         Ok(())
+     }
+ 
+@@ -76,9 +194,7 @@
+         length: u16,
+     ) -> Result<Vec<u8>> {
+         let mut buf = vec![0u8; length as usize];
+-        let n = self
+-            .handle
+-            .read_control(REQ_TYPE_IN, request, value, index, &mut buf, TIMEOUT)?;
++        let n = self.transport.read_control(request, value, index, &mut buf, TIMEOUT)?;
+         buf.truncate(n);
+         Ok(buf)
+     }
+@@ -102,3 +218,99 @@
+         Ok(data)
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::protocol::*;
++    use crate::state::COMPAT_OK;
++    use crate::DspiCore;
++
++    /// A transport without chunked bulk (as DSPi Link): records every request.
++    struct Mock {
++        image: Mutex<Vec<u8>>,
++        log: Mutex<Vec<(u8, u8, u16)>>,
++        chunked: bool,
++    }
++
++    impl Mock {
++        fn new(chunked: bool) -> Arc<Self> {
++            let mut d = vec![0u8; BULK_PARAMS_SIZE];
++            d[0] = WIRE_FORMAT_VERSION;
++            d[1] = 1;
++            d[2] = 17;
++            d[3] = 9;
++            d[4] = 8;
++            d[5] = 12;
++            Arc::new(Self { image: Mutex::new(d), log: Mutex::new(Vec::new()), chunked })
++        }
++        fn requests(&self) -> Vec<u8> {
++            self.log.lock().unwrap().iter().map(|r| r.1).collect()
++        }
++    }
++
++    impl Transport for Mock {
++        fn write_control(&self, request: u8, value: u16, _index: u16, data: &[u8], _t: Duration) -> rusb::Result<usize> {
++            self.log.lock().unwrap().push((0, request, value));
++            if request == REQ_SET_ALL_PARAMS {
++                *self.image.lock().unwrap() = data.to_vec();
++            }
++            Ok(data.len())
++        }
++        fn read_control(&self, request: u8, value: u16, _index: u16, buf: &mut [u8], _t: Duration) -> rusb::Result<usize> {
++            self.log.lock().unwrap().push((1, request, value));
++            let src: Vec<u8> = match request {
++                REQ_GET_PLATFORM => vec![1, 1, 0x16, 9, 1, 6, 5],
++                REQ_GET_ALL_PARAMS => self.image.lock().unwrap().clone(),
++                REQ_GET_ALL_PARAMS_CHUNK => {
++                    let img = self.image.lock().unwrap();
++                    img[value as usize..(value as usize + buf.len()).min(img.len())].to_vec()
++                }
++                _ => return Err(rusb::Error::Pipe),
++            };
++            let n = src.len().min(buf.len());
++            buf[..n].copy_from_slice(&src[..n]);
++            Ok(n)
++        }
++        fn read_notification(&self, _buf: &mut [u8], timeout: Duration) -> rusb::Result<Notification> {
++            std::thread::sleep(timeout.min(Duration::from_millis(20)));
++            Err(rusb::Error::Timeout)
++        }
++        fn caps(&self) -> TransportCaps {
++            if self.chunked { TransportCaps::USB } else { TransportCaps { chunked_bulk: false, max_payload: 8192 } }
++        }
++    }
++
++    fn connected(t: Arc<Mock>) -> DspiCore {
++        let mut c = DspiCore::new();
++        c.device_manager.select_transport(t, "0123456789ABCDEF", VENDOR_ID);
++        c
++    }
++
++    #[test]
++    fn single_shot_bulk_when_the_transport_forbids_chunks() {
++        let t = Mock::new(false);
++        let mut c = connected(Arc::clone(&t));
++        c.fetch_all().unwrap();
++        assert_eq!(c.state.compat, COMPAT_OK);
++        let reqs = t.requests();
++        assert!(reqs.contains(&REQ_GET_ALL_PARAMS));
++        assert!(!reqs.contains(&REQ_GET_ALL_PARAMS_CHUNK));
++        c.state.master_volume_db = -20.0;
++        c.apply_all_params().unwrap();
++        let reqs = t.requests();
++        assert_eq!(reqs.iter().filter(|&&r| r == REQ_SET_ALL_PARAMS).count(), 1);
++        assert!(!reqs.contains(&REQ_SET_ALL_PARAMS_CHUNK));
++        assert_eq!(t.image.lock().unwrap().len(), BULK_PARAMS_SIZE);
++    }
++
++    #[test]
++    fn chunked_bulk_over_usb_as_before() {
++        let t = Mock::new(true);
++        let mut c = connected(Arc::clone(&t));
++        c.fetch_all().unwrap();
++        let reqs = t.requests();
++        assert!(reqs.contains(&REQ_GET_ALL_PARAMS_CHUNK));
++        assert!(!reqs.contains(&REQ_GET_ALL_PARAMS));
++    }
++}
