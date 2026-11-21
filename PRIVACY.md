@@ -1,7 +1,8 @@
-# Privacy policy — DSPi Console for Android
+# Privacy policy — uConsole for DSPi (Android)
 
-*Effective 6 November 2026. Applies to the app "DSPi Console for
-Android" (`se.bofr.dspi_console_android`) by Bofr5555.*
+*Effective 6 November 2026. Applies to the Android app "uConsole for DSPi"
+(`se.bofr.dspi_console_android`, called "DSPi Console for Android" up to version 0.13.0) by Bofr5555.
+20 November 2026: the app's new name only; nothing else changed.*
 
 **In short: the app collects no personal data and sends nothing to the developer or to any third
 party.** It has no accounts, no ads, no analytics and no crash reporting. It uses the network only
