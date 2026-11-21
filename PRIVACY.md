@@ -84,5 +84,5 @@ The app is not directed at children and collects no data from anyone.
 ## Changes and contact
 
 Changes to this policy are published in this file, with its history in the public repository:
-https://github.com/Bofr5555/dspi-android/blob/main/PRIVACY.md. Questions: open an issue at
-https://github.com/Bofr5555/dspi-android/issues.
+https://github.com/Bofr5555/dspi-unified-console/blob/main/apps/android/PRIVACY.md. Questions: open an
+issue at https://github.com/Bofr5555/dspi-unified-console/issues.
