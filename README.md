@@ -1,3 +1,13 @@
+> [!IMPORTANT]
+> **This repository is archived and read-only.** The Android app is now part of
+> **[uConsole for DSPi](https://github.com/Bofr5555/dspi-unified-console)**, one project for every client
+> built on one Rust core. Its code lives in
+> [`apps/android/`](https://github.com/Bofr5555/dspi-unified-console/tree/main/apps/android), and the app
+> is on [Google Play as "uConsole for DSPi"](https://play.google.com/store/apps/details?id=se.bofr.dspi_console_android)
+> (same app, new name). Releases, issues and the
+> [privacy policy](https://github.com/Bofr5555/dspi-unified-console/blob/main/apps/android/PRIVACY.md)
+> are maintained there. The history below is kept for reference.
+
 # DSPi Console for Android
 
 A native Android console for the [Weeb Labs DSPi](https://github.com/WeebLabs/DSPi) USB audio DSP
